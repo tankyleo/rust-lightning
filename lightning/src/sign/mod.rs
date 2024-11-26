@@ -14,7 +14,6 @@
 
 use bitcoin::amount::Amount;
 use bitcoin::bip32::{ChildNumber, Xpriv, Xpub};
-use bitcoin::ecdsa::Signature as EcdsaSignature;
 use bitcoin::locktime::absolute::LockTime;
 use bitcoin::network::Network;
 use bitcoin::opcodes;
@@ -42,7 +41,7 @@ use crate::chain::transaction::OutPoint;
 use crate::crypto::utils::{hkdf_extract_expand_twice, sign, sign_with_aux_rand};
 use crate::ln::chan_utils;
 use crate::ln::chan_utils::{
-	get_revokeable_redeemscript, make_funding_redeemscript, ChannelPublicKeys,
+	get_revokeable_redeemscript, get_revokeable_spk, make_funding_redeemscript, ChannelPublicKeys,
 	ChannelTransactionParameters, ClosingTransaction, CommitmentTransaction,
 	HTLCOutputInCommitment, HolderCommitmentTransaction,
 };
@@ -1294,37 +1293,26 @@ impl InMemorySigner {
 		);
 		let delayed_payment_pubkey =
 			DelayedPaymentKey::from_secret_key(&secp_ctx, &delayed_payment_key);
-		let witness_script = chan_utils::get_revokeable_redeemscript(
+
+		let revokeable_spk = get_revokeable_spk(
 			&descriptor.revocation_pubkey,
 			descriptor.to_self_delay,
 			&delayed_payment_pubkey,
 		);
-		let sighash = hash_to_message!(
-			&sighash::SighashCache::new(spend_tx)
-				.p2wsh_signature_hash(
-					input_idx,
-					&witness_script,
-					descriptor.output.value,
-					EcdsaSighashType::All
-				)
-				.unwrap()[..]
-		);
-		let local_delayedsig = EcdsaSignature {
-			signature: sign_with_aux_rand(secp_ctx, &sighash, &delayed_payment_key, &self),
-			sighash_type: EcdsaSighashType::All,
-		};
-		let payment_script =
-			bitcoin::Address::p2wsh(&witness_script, Network::Bitcoin).script_pubkey();
-
-		if descriptor.output.script_pubkey != payment_script {
+		if descriptor.output.script_pubkey != revokeable_spk {
 			return Err(());
 		}
 
-		Ok(Witness::from_slice(&[
-			&local_delayedsig.serialize()[..],
-			&[], // MINIMALIF
-			witness_script.as_bytes(),
-		]))
+		Ok(chan_utils::get_to_local_witness(
+			&descriptor.revocation_pubkey,
+			descriptor.to_self_delay,
+			&delayed_payment_key,
+			spend_tx,
+			input_idx,
+			descriptor.output.value,
+			secp_ctx,
+			&self,
+		))
 	}
 }
 

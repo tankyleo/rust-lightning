@@ -28,6 +28,7 @@ use bitcoin::hash_types::Txid;
 use crate::chain::chaininterface::fee_for_weight;
 use crate::chain::package::WEIGHT_REVOKED_OUTPUT;
 use crate::sign::EntropySource;
+use crate::sign::ecdsa::EcdsaChannelSigner;
 use crate::types::payment::{PaymentHash, PaymentPreimage};
 use crate::ln::msgs::DecodeError;
 use crate::util::ser::{Readable, RequiredWrapper, Writeable, Writer};
@@ -36,7 +37,7 @@ use crate::util::transaction_utils;
 use bitcoin::locktime::absolute::LockTime;
 use bitcoin::ecdsa::Signature as BitcoinSignature;
 use bitcoin::secp256k1::{SecretKey, PublicKey, Scalar};
-use bitcoin::secp256k1::{Secp256k1, ecdsa::Signature, Message};
+use bitcoin::secp256k1::{Secp256k1, ecdsa::Signature, Message, All};
 use bitcoin::{secp256k1, Sequence, Witness};
 
 use crate::io;
@@ -548,6 +549,54 @@ pub fn get_revokeable_redeemscript(revocation_key: &RevocationKey, contest_delay
 	res
 }
 
+/// Document this
+pub fn get_revokeable_spk(revocation_key: &RevocationKey, contest_delay: u16, broadcaster_delayed_payment_key: &DelayedPaymentKey) -> ScriptBuf {
+	let revokeable_redeemscript = get_revokeable_redeemscript(revocation_key, contest_delay, broadcaster_delayed_payment_key);
+	revokeable_redeemscript.to_p2wsh()
+}
+
+/// Document this please
+pub fn get_justice_witness<S: EcdsaChannelSigner>(revocation_key: &RevocationKey, contest_delay: u16, broadcaster_delayed_payment_key: &DelayedPaymentKey, signer: &S, justice_tx: &Transaction, input_idx: usize, amount: u64, per_commitment_key: &SecretKey, secp_ctx: &Secp256k1<All>) -> Witness {
+	let sig = signer.sign_justice_revoked_output(justice_tx, input_idx, amount, per_commitment_key, secp_ctx).unwrap();
+	let revokeable_redeemscript = get_revokeable_redeemscript(revocation_key, contest_delay, broadcaster_delayed_payment_key);
+	let mut witness = Witness::new();
+	witness.push_ecdsa_signature(&BitcoinSignature::sighash_all(sig));
+	witness.push(&[1u8]);
+	witness.push(revokeable_redeemscript.as_bytes());
+	witness
+}
+
+/// Document this please
+pub fn get_to_local_witness<C: secp256k1::Signing, ES: Deref>(revocation_key: &RevocationKey, contest_delay: u16, delayed_payment_key: &SecretKey, spend_tx: &Transaction, input_idx: usize, amount: Amount, secp_ctx: &Secp256k1<C>, entropy_source: &ES) -> Witness
+	where ES::Target: crate::sign::EntropySource
+{
+	let delayed_payment_pubkey = DelayedPaymentKey::from_secret_key(secp_ctx, delayed_payment_key);
+	let witness_script = get_revokeable_redeemscript(
+		revocation_key,
+		contest_delay,
+		&delayed_payment_pubkey
+	);
+	let sighash = hash_to_message!(
+		&sighash::SighashCache::new(spend_tx)
+			.p2wsh_signature_hash(
+				input_idx,
+				&witness_script,
+				amount,
+				EcdsaSighashType::All
+			)
+			.unwrap()[..]
+	);
+	let local_delayedsig = bitcoin::ecdsa::Signature {
+		signature: sign_with_aux_rand(secp_ctx, &sighash, delayed_payment_key, entropy_source),
+		sighash_type: EcdsaSighashType::All,
+	};
+	Witness::from_slice(&[
+		&local_delayedsig.serialize()[..],
+		&[],
+		witness_script.as_bytes(),
+	])
+}
+
 /// Returns the script for the counterparty's output on a holder's commitment transaction based on
 /// the channel type.
 pub fn get_counterparty_payment_script(channel_type_features: &ChannelTypeFeatures, payment_key: &PublicKey) -> ScriptBuf {
@@ -750,7 +799,7 @@ pub(crate) fn build_htlc_output(
 	};
 
 	TxOut {
-		script_pubkey: get_revokeable_redeemscript(revocation_key, contest_delay, broadcaster_delayed_payment_key).to_p2wsh(),
+		script_pubkey: get_revokeable_spk(revocation_key, contest_delay, broadcaster_delayed_payment_key),
 		value: output_value,
 	}
 }
@@ -1529,14 +1578,14 @@ impl CommitmentTransaction {
 		}
 
 		if to_broadcaster_value_sat > Amount::ZERO {
-			let redeem_script = get_revokeable_redeemscript(
+			let script_pubkey = get_revokeable_spk(
 				&keys.revocation_key,
 				contest_delay,
 				&keys.broadcaster_delayed_payment_key,
 			);
 			txouts.push((
 				TxOut {
-					script_pubkey: redeem_script.to_p2wsh(),
+					script_pubkey,
 					value: to_broadcaster_value_sat,
 				},
 				None,
@@ -1806,15 +1855,14 @@ impl<'a> TrustedCommitmentTransaction<'a> {
 	/// commitment transaction previously didn't contain enough information to locate the
 	/// revokeable output.
 	pub fn revokeable_output_index(&self) -> Option<usize> {
-		let revokeable_redeemscript = get_revokeable_redeemscript(
+		let revokeable_scriptpubkey = get_revokeable_spk(
 			&self.keys.revocation_key,
 			self.to_broadcaster_delay?,
 			&self.keys.broadcaster_delayed_payment_key,
 		);
-		let revokeable_p2wsh = revokeable_redeemscript.to_p2wsh();
 		let outputs = &self.inner.built.transaction.output;
 		outputs.iter().enumerate()
-			.find(|(_, out)| out.script_pubkey == revokeable_p2wsh)
+			.find(|(_, out)| out.script_pubkey == revokeable_scriptpubkey)
 			.map(|(idx, _)| idx)
 	}
 

@@ -29,7 +29,6 @@ use bitcoin::hashes::Hash;
 use bitcoin::hashes::sha256::Hash as Sha256;
 use bitcoin::hash_types::{Txid, BlockHash};
 
-use bitcoin::ecdsa::Signature as BitcoinSignature;
 use bitcoin::secp256k1::{self, SecretKey, PublicKey, Secp256k1, ecdsa::Signature};
 
 use crate::ln::channel::INITIAL_COMMITMENT_NUMBER;
@@ -3433,14 +3432,18 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			&self.holder_revocation_basepoint, &their_per_commitment_point);
 		let delayed_key = DelayedPaymentKey::from_basepoint(&self.onchain_tx_handler.secp_ctx,
 			&self.counterparty_commitment_params.counterparty_delayed_payment_base_key, &their_per_commitment_point);
-		let revokeable_redeemscript = chan_utils::get_revokeable_redeemscript(&revocation_pubkey,
-			self.counterparty_commitment_params.on_counterparty_tx_csv, &delayed_key);
-
-		let sig = self.onchain_tx_handler.signer.sign_justice_revoked_output(
-			&justice_tx, input_idx, value, &per_commitment_key, &self.onchain_tx_handler.secp_ctx)?;
-		justice_tx.input[input_idx].witness.push_ecdsa_signature(&BitcoinSignature::sighash_all(sig));
-		justice_tx.input[input_idx].witness.push(&[1u8]);
-		justice_tx.input[input_idx].witness.push(revokeable_redeemscript.as_bytes());
+		let witness = chan_utils::get_justice_witness(
+			&revocation_pubkey,
+			self.counterparty_commitment_params.on_counterparty_tx_csv,
+			&delayed_key,
+			&self.onchain_tx_handler.signer,
+			&justice_tx,
+			input_idx,
+			value,
+			&per_commitment_key,
+			&self.onchain_tx_handler.secp_ctx
+		);
+		justice_tx.input[input_idx].witness = witness;
 		Ok(justice_tx)
 	}
 
@@ -3495,13 +3498,11 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			let per_commitment_point = PublicKey::from_secret_key(&self.onchain_tx_handler.secp_ctx, &per_commitment_key);
 			let revocation_pubkey = RevocationKey::from_basepoint(&self.onchain_tx_handler.secp_ctx,  &self.holder_revocation_basepoint, &per_commitment_point,);
 			let delayed_key = DelayedPaymentKey::from_basepoint(&self.onchain_tx_handler.secp_ctx, &self.counterparty_commitment_params.counterparty_delayed_payment_base_key, &PublicKey::from_secret_key(&self.onchain_tx_handler.secp_ctx, &per_commitment_key));
-
-			let revokeable_redeemscript = chan_utils::get_revokeable_redeemscript(&revocation_pubkey, self.counterparty_commitment_params.on_counterparty_tx_csv, &delayed_key);
-			let revokeable_p2wsh = revokeable_redeemscript.to_p2wsh();
+			let revokeable_spk = chan_utils::get_revokeable_spk(&revocation_pubkey, self.counterparty_commitment_params.on_counterparty_tx_csv, &delayed_key);
 
 			// First, process non-htlc outputs (to_holder & to_counterparty)
 			for (idx, outp) in tx.output.iter().enumerate() {
-				if outp.script_pubkey == revokeable_p2wsh {
+				if outp.script_pubkey == revokeable_spk {
 					let revk_outp = RevokedOutput::build(per_commitment_point, self.counterparty_commitment_params.counterparty_delayed_payment_base_key, self.counterparty_commitment_params.counterparty_htlc_base_key, per_commitment_key, outp.value, self.counterparty_commitment_params.on_counterparty_tx_csv, self.onchain_tx_handler.channel_type_features().supports_anchors_zero_fee_htlc_tx());
 					let justice_package = PackageTemplate::build_package(
 						commitment_txid, idx as u32,
@@ -3616,11 +3617,11 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 
 			let delayed_key = DelayedPaymentKey::from_basepoint(&self.onchain_tx_handler.secp_ctx, &self.counterparty_commitment_params.counterparty_delayed_payment_base_key, &per_commitment_point);
 
-			let revokeable_p2wsh = chan_utils::get_revokeable_redeemscript(&revocation_pubkey,
+			let revokeable_spk = chan_utils::get_revokeable_spk(&revocation_pubkey,
 				self.counterparty_commitment_params.on_counterparty_tx_csv,
-				&delayed_key).to_p2wsh();
+				&delayed_key);
 			for (idx, outp) in transaction.output.iter().enumerate() {
-				if outp.script_pubkey == revokeable_p2wsh {
+				if outp.script_pubkey == revokeable_spk {
 					to_counterparty_output_info =
 						Some((idx.try_into().expect("Can't have > 2^32 outputs"), outp.value));
 				}
@@ -3713,8 +3714,8 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 	fn get_broadcasted_holder_claims(&self, holder_tx: &HolderSignedTx, conf_height: u32) -> (Vec<PackageTemplate>, Option<(ScriptBuf, PublicKey, RevocationKey)>) {
 		let mut claim_requests = Vec::with_capacity(holder_tx.htlc_outputs.len());
 
-		let redeemscript = chan_utils::get_revokeable_redeemscript(&holder_tx.revocation_key, self.on_holder_tx_csv, &holder_tx.delayed_payment_key);
-		let broadcasted_holder_revokable_script = Some((redeemscript.to_p2wsh(), holder_tx.per_commitment_point.clone(), holder_tx.revocation_key.clone()));
+		let revokeable_spk = chan_utils::get_revokeable_spk(&holder_tx.revocation_key, self.on_holder_tx_csv, &holder_tx.delayed_payment_key);
+		let broadcasted_holder_revokable_script = Some((revokeable_spk, holder_tx.per_commitment_point.clone(), holder_tx.revocation_key.clone()));
 
 		for &(ref htlc, _, _) in holder_tx.htlc_outputs.iter() {
 			if let Some(transaction_output_index) = htlc.transaction_output_index {
