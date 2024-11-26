@@ -14,7 +14,6 @@
 
 use bitcoin::amount::Amount;
 use bitcoin::bip32::{ChildNumber, Xpriv, Xpub};
-use bitcoin::ecdsa::Signature as EcdsaSignature;
 use bitcoin::locktime::absolute::LockTime;
 use bitcoin::network::Network;
 use bitcoin::opcodes;
@@ -31,8 +30,6 @@ use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::secp256k1::ecdh::SharedSecret;
 use bitcoin::secp256k1::ecdsa::{RecoverableSignature, Signature};
 use bitcoin::secp256k1::schnorr;
-#[cfg(taproot)]
-use bitcoin::secp256k1::All;
 use bitcoin::secp256k1::{Keypair, PublicKey, Scalar, Secp256k1, SecretKey, Signing};
 use bitcoin::{secp256k1, Psbt, Sequence, Txid, WPubkeyHash, Witness};
 
@@ -42,7 +39,7 @@ use crate::chain::transaction::OutPoint;
 use crate::crypto::utils::{hkdf_extract_expand_twice, sign, sign_with_aux_rand};
 use crate::ln::chan_utils;
 use crate::ln::chan_utils::{
-	get_revokeable_redeemscript, make_funding_redeemscript, ChannelPublicKeys,
+	get_revokeable_redeemscript, get_revokeable_spk, make_funding_redeemscript, ChannelPublicKeys,
 	ChannelTransactionParameters, ClosingTransaction, CommitmentTransaction,
 	HTLCOutputInCommitment, HolderCommitmentTransaction,
 };
@@ -729,6 +726,18 @@ impl HTLCDescriptor {
 /// is not yet complete, and panics may occur in certain situations when returning errors
 /// for these methods.
 pub trait ChannelSigner {
+	/// Should this go on a channel signer? We'll see later. See above eas well.
+	fn get_revokeable_spk(
+		&self, revocation_key: &RevocationKey, contest_delay: u16,
+		broadcaster_delayed_payment_key: &DelayedPaymentKey,
+	) -> ScriptBuf {
+		let revokeable_redeemscript = chan_utils::get_revokeable_redeemscript(
+			revocation_key,
+			contest_delay,
+			broadcaster_delayed_payment_key,
+		);
+		revokeable_redeemscript.to_p2wsh()
+	}
 	/// Document this next
 	fn get_counterparty_payment_script(
 		&self, channel_type_features: &ChannelTypeFeatures, payment_key: &PublicKey,
@@ -1300,37 +1309,26 @@ impl InMemorySigner {
 		);
 		let delayed_payment_pubkey =
 			DelayedPaymentKey::from_secret_key(&secp_ctx, &delayed_payment_key);
-		let witness_script = chan_utils::get_revokeable_redeemscript(
+
+		let revokeable_spk = get_revokeable_spk(
 			&descriptor.revocation_pubkey,
 			descriptor.to_self_delay,
 			&delayed_payment_pubkey,
 		);
-		let sighash = hash_to_message!(
-			&sighash::SighashCache::new(spend_tx)
-				.p2wsh_signature_hash(
-					input_idx,
-					&witness_script,
-					descriptor.output.value,
-					EcdsaSighashType::All
-				)
-				.unwrap()[..]
-		);
-		let local_delayedsig = EcdsaSignature {
-			signature: sign_with_aux_rand(secp_ctx, &sighash, &delayed_payment_key, &self),
-			sighash_type: EcdsaSighashType::All,
-		};
-		let payment_script =
-			bitcoin::Address::p2wsh(&witness_script, Network::Bitcoin).script_pubkey();
-
-		if descriptor.output.script_pubkey != payment_script {
+		if descriptor.output.script_pubkey != revokeable_spk {
 			return Err(());
 		}
 
-		Ok(Witness::from_slice(&[
-			&local_delayedsig.serialize()[..],
-			&[], // MINIMALIF
-			witness_script.as_bytes(),
-		]))
+		Ok(chan_utils::get_to_local_witness(
+			&descriptor.revocation_pubkey,
+			descriptor.to_self_delay,
+			&delayed_payment_key,
+			spend_tx,
+			input_idx,
+			descriptor.output.value,
+			secp_ctx,
+			&self,
+		))
 	}
 }
 
