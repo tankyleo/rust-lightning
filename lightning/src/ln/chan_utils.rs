@@ -20,14 +20,13 @@ use bitcoin::sighash::EcdsaSighashType;
 use bitcoin::transaction::Version;
 
 use bitcoin::hashes::{Hash, HashEngine};
-use bitcoin::hashes::hash160::Hash as Hash160;
 use bitcoin::hashes::sha256::Hash as Sha256;
 use bitcoin::hashes::ripemd160::Hash as Ripemd160;
 use bitcoin::hash_types::Txid;
 
 use crate::chain::chaininterface::fee_for_weight;
 use crate::chain::package::WEIGHT_REVOKED_OUTPUT;
-use crate::sign::EntropySource;
+use crate::sign::{ChannelSigner, EntropySource};
 use crate::types::payment::{PaymentHash, PaymentPreimage};
 use crate::ln::msgs::DecodeError;
 use crate::util::ser::{Readable, RequiredWrapper, Writeable, Writer};
@@ -1104,7 +1103,7 @@ impl_writeable_tlv_based!(HolderCommitmentTransaction, {
 
 impl HolderCommitmentTransaction {
 	#[cfg(test)]
-	pub fn dummy(htlcs: &mut Vec<(HTLCOutputInCommitment, ())>) -> Self {
+	pub fn dummy<Signer: ChannelSigner>(signer: &Signer, htlcs: &mut Vec<(HTLCOutputInCommitment, ())>) -> Self {
 		let secp_ctx = Secp256k1::new();
 		let dummy_key = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
 		let dummy_sig = sign(&secp_ctx, &secp256k1::Message::from_digest([42; 32]), &SecretKey::from_slice(&[42; 32]).unwrap());
@@ -1135,7 +1134,7 @@ impl HolderCommitmentTransaction {
 		for _ in 0..htlcs.len() {
 			counterparty_htlc_sigs.push(dummy_sig);
 		}
-		let inner = CommitmentTransaction::new_with_auxiliary_htlc_data(0, 0, 0, dummy_key.clone(), dummy_key.clone(), keys, 0, htlcs, &channel_parameters.as_counterparty_broadcastable());
+		let inner = CommitmentTransaction::new_with_auxiliary_htlc_data(signer, 0, 0, 0, dummy_key.clone(), dummy_key.clone(), keys, 0, htlcs, &channel_parameters.as_counterparty_broadcastable());
 		htlcs.sort_by_key(|htlc| htlc.0.transaction_output_index);
 		HolderCommitmentTransaction {
 			inner,
@@ -1445,12 +1444,12 @@ impl CommitmentTransaction {
 	/// Only include HTLCs that are above the dust limit for the channel.
 	///
 	/// This is not exported to bindings users due to the generic though we likely should expose a version without
-	pub fn new_with_auxiliary_htlc_data<T>(commitment_number: u64, to_broadcaster_value_sat: u64, to_countersignatory_value_sat: u64, broadcaster_funding_key: PublicKey, countersignatory_funding_key: PublicKey, keys: TxCreationKeys, feerate_per_kw: u32, htlcs_with_aux: &mut Vec<(HTLCOutputInCommitment, T)>, channel_parameters: &DirectedChannelTransactionParameters) -> CommitmentTransaction {
+	pub fn new_with_auxiliary_htlc_data<Signer: ChannelSigner, T>(signer: &Signer, commitment_number: u64, to_broadcaster_value_sat: u64, to_countersignatory_value_sat: u64, broadcaster_funding_key: PublicKey, countersignatory_funding_key: PublicKey, keys: TxCreationKeys, feerate_per_kw: u32, htlcs_with_aux: &mut Vec<(HTLCOutputInCommitment, T)>, channel_parameters: &DirectedChannelTransactionParameters) -> CommitmentTransaction {
 		let to_broadcaster_value_sat = Amount::from_sat(to_broadcaster_value_sat);
 		let to_countersignatory_value_sat = Amount::from_sat(to_countersignatory_value_sat);
 
 		// Sort outputs and populate output indices while keeping track of the auxiliary data
-		let (outputs, htlcs) = Self::internal_build_outputs(&keys, to_broadcaster_value_sat, to_countersignatory_value_sat, htlcs_with_aux, channel_parameters, &broadcaster_funding_key, &countersignatory_funding_key).unwrap();
+		let (outputs, htlcs) = Self::internal_build_outputs(signer, &keys, to_broadcaster_value_sat, to_countersignatory_value_sat, htlcs_with_aux, channel_parameters, &broadcaster_funding_key, &countersignatory_funding_key).unwrap();
 
 		let (obscured_commitment_transaction_number, txins) = Self::internal_build_inputs(commitment_number, channel_parameters);
 		let transaction = Self::make_transaction(obscured_commitment_transaction_number, txins, outputs);
@@ -1479,11 +1478,11 @@ impl CommitmentTransaction {
 		self
 	}
 
-	fn internal_rebuild_transaction(&self, keys: &TxCreationKeys, channel_parameters: &DirectedChannelTransactionParameters, broadcaster_funding_key: &PublicKey, countersignatory_funding_key: &PublicKey) -> Result<BuiltCommitmentTransaction, ()> {
+	fn internal_rebuild_transaction<Signer: ChannelSigner>(&self, signer: &Signer, keys: &TxCreationKeys, channel_parameters: &DirectedChannelTransactionParameters, broadcaster_funding_key: &PublicKey, countersignatory_funding_key: &PublicKey) -> Result<BuiltCommitmentTransaction, ()> {
 		let (obscured_commitment_transaction_number, txins) = Self::internal_build_inputs(self.commitment_number, channel_parameters);
 
 		let mut htlcs_with_aux = self.htlcs.iter().map(|h| (h.clone(), ())).collect();
-		let (outputs, _) = Self::internal_build_outputs(keys, self.to_broadcaster_value_sat, self.to_countersignatory_value_sat, &mut htlcs_with_aux, channel_parameters, broadcaster_funding_key, countersignatory_funding_key)?;
+		let (outputs, _) = Self::internal_build_outputs(signer, keys, self.to_broadcaster_value_sat, self.to_countersignatory_value_sat, &mut htlcs_with_aux, channel_parameters, broadcaster_funding_key, countersignatory_funding_key)?;
 
 		let transaction = Self::make_transaction(obscured_commitment_transaction_number, txins, outputs);
 		let txid = transaction.compute_txid();
@@ -1507,18 +1506,14 @@ impl CommitmentTransaction {
 	// - initial sorting of outputs / HTLCs in the constructor, in which case T is auxiliary data the
 	//   caller needs to have sorted together with the HTLCs so it can keep track of the output index
 	// - building of a bitcoin transaction during a verify() call, in which case T is just ()
-	fn internal_build_outputs<T>(keys: &TxCreationKeys, to_broadcaster_value_sat: Amount, to_countersignatory_value_sat: Amount, htlcs_with_aux: &mut Vec<(HTLCOutputInCommitment, T)>, channel_parameters: &DirectedChannelTransactionParameters, broadcaster_funding_key: &PublicKey, countersignatory_funding_key: &PublicKey) -> Result<(Vec<TxOut>, Vec<HTLCOutputInCommitment>), ()> {
+	fn internal_build_outputs<Signer: ChannelSigner, T>(signer: &Signer, keys: &TxCreationKeys, to_broadcaster_value_sat: Amount, to_countersignatory_value_sat: Amount, htlcs_with_aux: &mut Vec<(HTLCOutputInCommitment, T)>, channel_parameters: &DirectedChannelTransactionParameters, broadcaster_funding_key: &PublicKey, countersignatory_funding_key: &PublicKey) -> Result<(Vec<TxOut>, Vec<HTLCOutputInCommitment>), ()> {
 		let countersignatory_pubkeys = channel_parameters.countersignatory_pubkeys();
 		let contest_delay = channel_parameters.contest_delay();
 
 		let mut txouts: Vec<(TxOut, Option<&mut HTLCOutputInCommitment>)> = Vec::new();
 
 		if to_countersignatory_value_sat > Amount::ZERO {
-			let script = if channel_parameters.channel_type_features().supports_anchors_zero_fee_htlc_tx() {
-				get_to_countersignatory_with_anchors_redeemscript(&countersignatory_pubkeys.payment_point).to_p2wsh()
-			} else {
-				ScriptBuf::new_p2wpkh(&Hash160::hash(&countersignatory_pubkeys.payment_point.serialize()).into())
-			};
+			let script = signer.get_counterparty_payment_script(channel_parameters.channel_type_features(), &countersignatory_pubkeys.payment_point);
 			txouts.push((
 				TxOut {
 					script_pubkey: script.clone(),
@@ -1680,14 +1675,14 @@ impl CommitmentTransaction {
 	///
 	/// An external validating signer must call this method before signing
 	/// or using the built transaction.
-	pub fn verify<T: secp256k1::Signing + secp256k1::Verification>(&self, channel_parameters: &DirectedChannelTransactionParameters, broadcaster_keys: &ChannelPublicKeys, countersignatory_keys: &ChannelPublicKeys, secp_ctx: &Secp256k1<T>) -> Result<TrustedCommitmentTransaction, ()> {
+	pub fn verify<Signer: ChannelSigner, T: secp256k1::Signing + secp256k1::Verification>(&self, signer: &Signer, channel_parameters: &DirectedChannelTransactionParameters, broadcaster_keys: &ChannelPublicKeys, countersignatory_keys: &ChannelPublicKeys, secp_ctx: &Secp256k1<T>) -> Result<TrustedCommitmentTransaction, ()> {
 		// This is the only field of the key cache that we trust
 		let per_commitment_point = self.keys.per_commitment_point;
 		let keys = TxCreationKeys::from_channel_static_keys(&per_commitment_point, broadcaster_keys, countersignatory_keys, secp_ctx);
 		if keys != self.keys {
 			return Err(());
 		}
-		let tx = self.internal_rebuild_transaction(&keys, channel_parameters, &broadcaster_keys.funding_pubkey, &countersignatory_keys.funding_pubkey)?;
+		let tx = self.internal_rebuild_transaction(signer, &keys, channel_parameters, &broadcaster_keys.funding_pubkey, &countersignatory_keys.funding_pubkey)?;
 		if self.built.transaction != tx.transaction || self.built.txid != tx.txid {
 			return Err(());
 		}
@@ -1904,6 +1899,7 @@ mod tests {
 	use crate::types::payment::PaymentHash;
 	use bitcoin::PublicKey as BitcoinPublicKey;
 	use crate::types::features::ChannelTypeFeatures;
+	use crate::sign::InMemorySigner;
 
 	#[allow(unused_imports)]
 	use crate::prelude::*;
@@ -1956,8 +1952,9 @@ mod tests {
 			}
 		}
 
-		fn build(&mut self, to_broadcaster_sats: u64, to_countersignatory_sats: u64) -> CommitmentTransaction {
+		fn build<Signer: ChannelSigner>(&mut self, signer: &Signer, to_broadcaster_sats: u64, to_countersignatory_sats: u64) -> CommitmentTransaction {
 			CommitmentTransaction::new_with_auxiliary_htlc_data(
+				signer,
 				self.commitment_number, to_broadcaster_sats, to_countersignatory_sats,
 				self.holder_funding_pubkey.clone(),
 				self.counterparty_funding_pubkey.clone(),
@@ -1969,25 +1966,39 @@ mod tests {
 
 	#[test]
 	fn test_anchors() {
+		let secp_ctx = Secp256k1::new();
+		let signer = InMemorySigner::new(
+			&secp_ctx,
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			[41; 32],
+			0,
+			[0; 32],
+			[0; 32],
+		);
+
 		let mut builder = TestCommitmentTxBuilder::new();
 
 		// Generate broadcaster and counterparty outputs
-		let tx = builder.build(1000, 2000);
+		let tx = builder.build(&signer, 1000, 2000);
 		assert_eq!(tx.built.transaction.output.len(), 2);
 		assert_eq!(tx.built.transaction.output[1].script_pubkey, bitcoin::address::Address::p2wpkh(&CompressedPublicKey(builder.counterparty_pubkeys.payment_point), Network::Testnet).script_pubkey());
 
 		// Generate broadcaster and counterparty outputs as well as two anchors
 		builder.channel_parameters.channel_type_features = ChannelTypeFeatures::anchors_zero_htlc_fee_and_dependencies();
-		let tx = builder.build(1000, 2000);
+		let tx = builder.build(&signer, 1000, 2000);
 		assert_eq!(tx.built.transaction.output.len(), 4);
 		assert_eq!(tx.built.transaction.output[3].script_pubkey, get_to_countersignatory_with_anchors_redeemscript(&builder.counterparty_pubkeys.payment_point).to_p2wsh());
 
 		// Generate broadcaster output and anchor
-		let tx = builder.build(3000, 0);
+		let tx = builder.build(&signer, 3000, 0);
 		assert_eq!(tx.built.transaction.output.len(), 2);
 
 		// Generate counterparty output and anchor
-		let tx = builder.build(0, 3000);
+		let tx = builder.build(&signer, 0, 3000);
 		assert_eq!(tx.built.transaction.output.len(), 2);
 
 		let received_htlc = HTLCOutputInCommitment {
@@ -2009,7 +2020,7 @@ mod tests {
 		// Generate broadcaster output and received and offered HTLC outputs,  w/o anchors
 		builder.channel_parameters.channel_type_features = ChannelTypeFeatures::only_static_remote_key();
 		builder.htlcs_with_aux = vec![(received_htlc.clone(), ()), (offered_htlc.clone(), ())];
-		let tx = builder.build(3000, 0);
+		let tx = builder.build(&signer, 3000, 0);
 		let keys = &builder.keys.clone();
 		assert_eq!(tx.built.transaction.output.len(), 3);
 		assert_eq!(tx.built.transaction.output[0].script_pubkey, get_htlc_redeemscript(&received_htlc, &ChannelTypeFeatures::only_static_remote_key(), &keys).to_p2wsh());
@@ -2022,7 +2033,7 @@ mod tests {
 		// Generate broadcaster output and received and offered HTLC outputs,  with anchors
 		builder.channel_parameters.channel_type_features = ChannelTypeFeatures::anchors_zero_htlc_fee_and_dependencies();
 		builder.htlcs_with_aux = vec![(received_htlc.clone(), ()), (offered_htlc.clone(), ())];
-		let tx = builder.build(3000, 0);
+		let tx = builder.build(&signer, 3000, 0);
 		assert_eq!(tx.built.transaction.output.len(), 5);
 		assert_eq!(tx.built.transaction.output[2].script_pubkey, get_htlc_redeemscript(&received_htlc, &ChannelTypeFeatures::anchors_zero_htlc_fee_and_dependencies(), &keys).to_p2wsh());
 		assert_eq!(tx.built.transaction.output[3].script_pubkey, get_htlc_redeemscript(&offered_htlc, &ChannelTypeFeatures::anchors_zero_htlc_fee_and_dependencies(), &keys).to_p2wsh());
@@ -2034,10 +2045,24 @@ mod tests {
 
 	#[test]
 	fn test_finding_revokeable_output_index() {
+		let secp_ctx = Secp256k1::new();
+		let signer = InMemorySigner::new(
+			&secp_ctx,
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			[41; 32],
+			0,
+			[0; 32],
+			[0; 32],
+		);
+
 		let mut builder = TestCommitmentTxBuilder::new();
 
 		// Revokeable output present
-		let tx = builder.build(1000, 2000);
+		let tx = builder.build(&signer, 1000, 2000);
 		assert_eq!(tx.built.transaction.output.len(), 2);
 		assert_eq!(tx.trust().revokeable_output_index(), Some(0));
 
@@ -2047,22 +2072,36 @@ mod tests {
 		assert_eq!(tx.trust().revokeable_output_index(), None);
 
 		// Revokeable output not present (our balance is dust)
-		let tx = builder.build(0, 2000);
+		let tx = builder.build(&signer, 0, 2000);
 		assert_eq!(tx.built.transaction.output.len(), 1);
 		assert_eq!(tx.trust().revokeable_output_index(), None);
 	}
 
 	#[test]
 	fn test_building_to_local_justice_tx() {
+		let secp_ctx = Secp256k1::new();
+		let signer = InMemorySigner::new(
+			&secp_ctx,
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			SecretKey::from_slice(&[41; 32]).unwrap(),
+			[41; 32],
+			0,
+			[0; 32],
+			[0; 32],
+		);
+
 		let mut builder = TestCommitmentTxBuilder::new();
 
 		// Revokeable output not present (our balance is dust)
-		let tx = builder.build(0, 2000);
+		let tx = builder.build(&signer, 0, 2000);
 		assert_eq!(tx.built.transaction.output.len(), 1);
 		assert!(tx.trust().build_to_local_justice_tx(253, ScriptBuf::new()).is_err());
 
 		// Revokeable output present
-		let tx = builder.build(1000, 2000);
+		let tx = builder.build(&signer, 1000, 2000);
 		assert_eq!(tx.built.transaction.output.len(), 2);
 
 		// Too high feerate

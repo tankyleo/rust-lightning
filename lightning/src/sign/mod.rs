@@ -729,6 +729,12 @@ impl HTLCDescriptor {
 /// is not yet complete, and panics may occur in certain situations when returning errors
 /// for these methods.
 pub trait ChannelSigner {
+	/// Document this next
+	fn get_counterparty_payment_script(
+		&self, channel_type_features: &ChannelTypeFeatures, payment_key: &PublicKey,
+	) -> ScriptBuf {
+		chan_utils::get_counterparty_payment_script(channel_type_features, payment_key)
+	}
 	/// Gets the per-commitment point for a specific commitment number
 	///
 	/// Note that the commitment number starts at `(1 << 48) - 1` and counts backwards.

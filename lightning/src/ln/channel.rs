@@ -3165,7 +3165,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		let channel_parameters =
 			if local { self.channel_transaction_parameters.as_holder_broadcastable() }
 			else { self.channel_transaction_parameters.as_counterparty_broadcastable() };
-		let tx = CommitmentTransaction::new_with_auxiliary_htlc_data(commitment_number,
+		let tx = CommitmentTransaction::new_with_auxiliary_htlc_data(self.holder_signer.as_ecdsa().unwrap(), commitment_number,
 		                                                             value_to_a as u64,
 		                                                             value_to_b as u64,
 		                                                             funding_pubkey_a,
