@@ -768,6 +768,7 @@ fn test_update_fee_that_funder_cannot_afford() {
 		let local_chan_signer = local_chan.get_signer();
 		let mut htlcs: Vec<(HTLCOutputInCommitment, ())> = vec![];
 		let commitment_tx = CommitmentTransaction::new_with_auxiliary_htlc_data(
+			local_chan_signer.as_ecdsa().unwrap(),
 			INITIAL_COMMITMENT_NUMBER - 1,
 			push_sats,
 			channel_value - push_sats - commit_tx_fee_msat(non_buffer_feerate + 4, 0, &channel_type_features) / 1000,
@@ -1518,6 +1519,7 @@ fn test_fee_spike_violation_fails_htlc() {
 		).flatten().unwrap();
 		let local_chan_signer = local_chan.get_signer();
 		let commitment_tx = CommitmentTransaction::new_with_auxiliary_htlc_data(
+			local_chan_signer.as_ecdsa().unwrap(),
 			commitment_number,
 			95000,
 			local_chan_balance,

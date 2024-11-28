@@ -1337,7 +1337,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 	) -> ChannelMonitor<Signer> {
 
 		assert!(commitment_transaction_number_obscure_factor <= (1 << 48));
-		let counterparty_payment_script = chan_utils::get_counterparty_payment_script(
+		let counterparty_payment_script = keys.get_counterparty_payment_script(
 			&channel_parameters.channel_type_features, &keys.pubkeys().payment_point
 		);
 
@@ -3388,7 +3388,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		let channel_parameters =
 			&self.onchain_tx_handler.channel_transaction_parameters.as_counterparty_broadcastable();
 
-		CommitmentTransaction::new_with_auxiliary_htlc_data(commitment_number,
+		CommitmentTransaction::new_with_auxiliary_htlc_data(&self.onchain_tx_handler.signer, commitment_number,
 			to_broadcaster_value, to_countersignatory_value, broadcaster_funding_key,
 			countersignatory_funding_key, keys, feerate_per_kw, &mut nondust_htlcs,
 			channel_parameters)
@@ -5277,14 +5277,14 @@ mod tests {
 		// old state.
 		let shutdown_pubkey = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
 		let best_block = BestBlock::from_network(Network::Testnet);
-		let monitor = ChannelMonitor::new(Secp256k1::new(), keys,
+		let monitor = ChannelMonitor::new(Secp256k1::new(), keys.clone(),
 			Some(ShutdownScript::new_p2wpkh_from_pubkey(shutdown_pubkey).into_inner()), 0, &ScriptBuf::new(),
 			(OutPoint { txid: Txid::from_slice(&[43; 32]).unwrap(), index: 0 }, ScriptBuf::new()),
-			&channel_parameters, true, ScriptBuf::new(), 46, 0, HolderCommitmentTransaction::dummy(&mut Vec::new()),
+			&channel_parameters, true, ScriptBuf::new(), 46, 0, HolderCommitmentTransaction::dummy(&keys, &mut Vec::new()),
 			best_block, dummy_key, channel_id);
 
 		let mut htlcs = preimages_slice_to_htlcs!(preimages[0..10]);
-		let dummy_commitment_tx = HolderCommitmentTransaction::dummy(&mut htlcs);
+		let dummy_commitment_tx = HolderCommitmentTransaction::dummy(&keys, &mut htlcs);
 
 		monitor.provide_latest_holder_commitment_tx(dummy_commitment_tx.clone(),
 			htlcs.into_iter().map(|(htlc, _)| (htlc, Some(dummy_sig), None)).collect()).unwrap();
@@ -5323,7 +5323,7 @@ mod tests {
 		// Now update holder commitment tx info, pruning only element 18 as we still care about the
 		// previous commitment tx's preimages too
 		let mut htlcs = preimages_slice_to_htlcs!(preimages[0..5]);
-		let dummy_commitment_tx = HolderCommitmentTransaction::dummy(&mut htlcs);
+		let dummy_commitment_tx = HolderCommitmentTransaction::dummy(&keys, &mut htlcs);
 		monitor.provide_latest_holder_commitment_tx(dummy_commitment_tx.clone(),
 			htlcs.into_iter().map(|(htlc, _)| (htlc, Some(dummy_sig), None)).collect()).unwrap();
 		secret[0..32].clone_from_slice(&<Vec<u8>>::from_hex("2273e227a5b7449b6e70f1fb4652864038b1cbf9cd7c043a7d6456b7fc275ad8").unwrap());
@@ -5334,7 +5334,7 @@ mod tests {
 
 		// But if we do it again, we'll prune 5-10
 		let mut htlcs = preimages_slice_to_htlcs!(preimages[0..3]);
-		let dummy_commitment_tx = HolderCommitmentTransaction::dummy(&mut htlcs);
+		let dummy_commitment_tx = HolderCommitmentTransaction::dummy(&keys, &mut htlcs);
 		monitor.provide_latest_holder_commitment_tx(dummy_commitment_tx,
 			htlcs.into_iter().map(|(htlc, _)| (htlc, Some(dummy_sig), None)).collect()).unwrap();
 		secret[0..32].clone_from_slice(&<Vec<u8>>::from_hex("27cddaa5624534cb6cb9d7da077cf2b22ab21e9b506fd4998a51d54502e99116").unwrap());
@@ -5527,10 +5527,10 @@ mod tests {
 		};
 		let shutdown_pubkey = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
 		let best_block = BestBlock::from_network(Network::Testnet);
-		let monitor = ChannelMonitor::new(Secp256k1::new(), keys,
+		let monitor = ChannelMonitor::new(Secp256k1::new(), keys.clone(),
 			Some(ShutdownScript::new_p2wpkh_from_pubkey(shutdown_pubkey).into_inner()), 0, &ScriptBuf::new(),
 			(OutPoint { txid: Txid::from_slice(&[43; 32]).unwrap(), index: 0 }, ScriptBuf::new()),
-			&channel_parameters, true, ScriptBuf::new(), 46, 0, HolderCommitmentTransaction::dummy(&mut Vec::new()),
+			&channel_parameters, true, ScriptBuf::new(), 46, 0, HolderCommitmentTransaction::dummy(&keys, &mut Vec::new()),
 			best_block, dummy_key, channel_id);
 
 		let chan_id = monitor.inner.lock().unwrap().channel_id();
