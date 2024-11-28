@@ -1338,7 +1338,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 	) -> ChannelMonitor<Signer> {
 
 		assert!(commitment_transaction_number_obscure_factor <= (1 << 48));
-		let counterparty_payment_script = chan_utils::get_counterparty_payment_script(
+		let counterparty_payment_script = keys.get_counterparty_payment_script(
 			&channel_parameters.channel_type_features, &keys.pubkeys().payment_point
 		);
 
@@ -3388,9 +3388,10 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			&broadcaster_keys, &countersignatory_keys, &self.onchain_tx_handler.secp_ctx);
 		let channel_parameters =
 			&self.onchain_tx_handler.channel_transaction_parameters.as_counterparty_broadcastable();
+		let counterparty_payment_script = self.onchain_tx_handler.signer.get_counterparty_payment_script(&channel_parameters.channel_type_features(), &channel_parameters.countersignatory_pubkeys().payment_point);
 
 		CommitmentTransaction::new_with_auxiliary_htlc_data(commitment_number,
-			to_broadcaster_value, to_countersignatory_value, broadcaster_funding_key,
+			to_broadcaster_value, to_countersignatory_value, counterparty_payment_script, broadcaster_funding_key,
 			countersignatory_funding_key, keys, feerate_per_kw, &mut nondust_htlcs,
 			channel_parameters)
 	}

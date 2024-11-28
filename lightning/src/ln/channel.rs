@@ -3165,9 +3165,11 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		let channel_parameters =
 			if local { self.channel_transaction_parameters.as_holder_broadcastable() }
 			else { self.channel_transaction_parameters.as_counterparty_broadcastable() };
+		let counterparty_payment_script = self.holder_signer.as_ref().get_counterparty_payment_script(channel_parameters.channel_type_features(), &channel_parameters.countersignatory_pubkeys().payment_point);
 		let tx = CommitmentTransaction::new_with_auxiliary_htlc_data(commitment_number,
 		                                                             value_to_a as u64,
 		                                                             value_to_b as u64,
+																	 counterparty_payment_script,
 		                                                             funding_pubkey_a,
 		                                                             funding_pubkey_b,
 		                                                             keys.clone(),
