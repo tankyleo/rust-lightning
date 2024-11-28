@@ -592,7 +592,8 @@ impl PackageSolvingData {
 		match self {
 			PackageSolvingData::RevokedOutput(ref outp) => {
 				let chan_keys = TxCreationKeys::derive_new(&onchain_handler.secp_ctx, &outp.per_commitment_point, &outp.counterparty_delayed_payment_base_key, &outp.counterparty_htlc_base_key, &onchain_handler.signer.pubkeys().revocation_basepoint, &onchain_handler.signer.pubkeys().htlc_basepoint);
-				let witness = chan_utils::get_justice_witness(&chan_keys.revocation_key, outp.on_counterparty_tx_csv, &chan_keys.broadcaster_delayed_payment_key, &onchain_handler.signer, &bumped_tx, i, outp.amount.to_sat(), &outp.per_commitment_key, &onchain_handler.secp_ctx);
+				//TODO: What if the signer fails here? Previously, we just returned false.
+				let witness = onchain_handler.signer.get_justice_witness(&chan_keys.revocation_key, outp.on_counterparty_tx_csv, &chan_keys.broadcaster_delayed_payment_key, &bumped_tx, i, outp.amount.to_sat(), &outp.per_commitment_key, &onchain_handler.secp_ctx);
 				bumped_tx.input[i].witness = witness;
 			},
 			PackageSolvingData::RevokedHTLCOutput(ref outp) => {

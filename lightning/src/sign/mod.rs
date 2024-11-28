@@ -30,8 +30,6 @@ use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::secp256k1::ecdh::SharedSecret;
 use bitcoin::secp256k1::ecdsa::{RecoverableSignature, Signature};
 use bitcoin::secp256k1::schnorr;
-#[cfg(taproot)]
-use bitcoin::secp256k1::All;
 use bitcoin::secp256k1::{Keypair, PublicKey, Scalar, Secp256k1, SecretKey, Signing};
 use bitcoin::{secp256k1, Psbt, Sequence, Txid, WPubkeyHash, Witness};
 
@@ -728,6 +726,11 @@ impl HTLCDescriptor {
 /// is not yet complete, and panics may occur in certain situations when returning errors
 /// for these methods.
 pub trait ChannelSigner {
+	/// Should this go on a channel signer? We'll see later. See above eas well.
+	fn get_revokeable_spk(&self, revocation_key: &RevocationKey, contest_delay: u16, broadcaster_delayed_payment_key: &DelayedPaymentKey) -> ScriptBuf {
+		let revokeable_redeemscript = chan_utils::get_revokeable_redeemscript(revocation_key, contest_delay, broadcaster_delayed_payment_key);
+		revokeable_redeemscript.to_p2wsh()
+	}
 	/// Document this next
 	fn get_counterparty_payment_script(
 		&self, channel_type_features: &ChannelTypeFeatures, payment_key: &PublicKey,

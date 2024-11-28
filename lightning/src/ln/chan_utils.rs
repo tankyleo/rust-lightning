@@ -24,10 +24,11 @@ use bitcoin::hashes::sha256::Hash as Sha256;
 use bitcoin::hashes::ripemd160::Hash as Ripemd160;
 use bitcoin::hash_types::Txid;
 
+#[cfg(test)]
 use crate::chain::chaininterface::fee_for_weight;
+#[cfg(test)]
 use crate::chain::package::WEIGHT_REVOKED_OUTPUT;
 use crate::sign::{ChannelSigner, EntropySource};
-use crate::sign::ecdsa::EcdsaChannelSigner;
 use crate::types::payment::{PaymentHash, PaymentPreimage};
 use crate::ln::msgs::DecodeError;
 use crate::util::ser::{Readable, RequiredWrapper, Writeable, Writer};
@@ -36,7 +37,7 @@ use crate::util::transaction_utils;
 use bitcoin::locktime::absolute::LockTime;
 use bitcoin::ecdsa::Signature as BitcoinSignature;
 use bitcoin::secp256k1::{SecretKey, PublicKey, Scalar};
-use bitcoin::secp256k1::{Secp256k1, ecdsa::Signature, Message, All};
+use bitcoin::secp256k1::{Secp256k1, ecdsa::Signature, Message};
 use bitcoin::{secp256k1, Sequence, Witness};
 
 use crate::io;
@@ -552,17 +553,6 @@ pub fn get_revokeable_redeemscript(revocation_key: &RevocationKey, contest_delay
 pub fn get_revokeable_spk(revocation_key: &RevocationKey, contest_delay: u16, broadcaster_delayed_payment_key: &DelayedPaymentKey) -> ScriptBuf {
 	let revokeable_redeemscript = get_revokeable_redeemscript(revocation_key, contest_delay, broadcaster_delayed_payment_key);
 	revokeable_redeemscript.to_p2wsh()
-}
-
-/// Document this please
-pub fn get_justice_witness<S: EcdsaChannelSigner>(revocation_key: &RevocationKey, contest_delay: u16, broadcaster_delayed_payment_key: &DelayedPaymentKey, signer: &S, justice_tx: &Transaction, input_idx: usize, amount: u64, per_commitment_key: &SecretKey, secp_ctx: &Secp256k1<All>) -> Witness {
-	let sig = signer.sign_justice_revoked_output(justice_tx, input_idx, amount, per_commitment_key, secp_ctx).unwrap();
-	let revokeable_redeemscript = get_revokeable_redeemscript(revocation_key, contest_delay, broadcaster_delayed_payment_key);
-	let mut witness = Witness::new();
-	witness.push_ecdsa_signature(&BitcoinSignature::sighash_all(sig));
-	witness.push(&[1u8]);
-	witness.push(revokeable_redeemscript.as_bytes());
-	witness
 }
 
 /// Document this please
@@ -1573,7 +1563,7 @@ impl CommitmentTransaction {
 		}
 
 		if to_broadcaster_value_sat > Amount::ZERO {
-			let script_pubkey = get_revokeable_spk(
+			let script_pubkey = signer.get_revokeable_spk(
 				&keys.revocation_key,
 				contest_delay,
 				&keys.broadcaster_delayed_payment_key,
@@ -1849,6 +1839,7 @@ impl<'a> TrustedCommitmentTransaction<'a> {
 	/// - This commitment was created before LDK 0.0.117. In this case, the
 	/// commitment transaction previously didn't contain enough information to locate the
 	/// revokeable output.
+	#[cfg(test)]
 	pub fn revokeable_output_index(&self) -> Option<usize> {
 		let revokeable_scriptpubkey = get_revokeable_spk(
 			&self.keys.revocation_key,
@@ -1872,6 +1863,7 @@ impl<'a> TrustedCommitmentTransaction<'a> {
 	/// The built transaction will allow fee bumping with RBF, and this method takes
 	/// `feerate_per_kw` as an input such that multiple copies of a justice transaction at different
 	/// fee rates may be built.
+	#[cfg(test)]
 	pub fn build_to_local_justice_tx(&self, feerate_per_kw: u64, destination_script: ScriptBuf)
 	-> Result<Transaction, ()> {
 		let output_idx = self.revokeable_output_index().ok_or(())?;
