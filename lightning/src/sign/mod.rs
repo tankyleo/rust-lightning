@@ -727,8 +727,15 @@ impl HTLCDescriptor {
 /// for these methods.
 pub trait ChannelSigner {
 	/// Should this go on a channel signer? We'll see later. See above eas well.
-	fn get_revokeable_spk(&self, revocation_key: &RevocationKey, contest_delay: u16, broadcaster_delayed_payment_key: &DelayedPaymentKey) -> ScriptBuf {
-		let revokeable_redeemscript = chan_utils::get_revokeable_redeemscript(revocation_key, contest_delay, broadcaster_delayed_payment_key);
+	fn get_revokeable_spk(
+		&self, revocation_key: &RevocationKey, contest_delay: u16,
+		broadcaster_delayed_payment_key: &DelayedPaymentKey,
+	) -> ScriptBuf {
+		let revokeable_redeemscript = chan_utils::get_revokeable_redeemscript(
+			revocation_key,
+			contest_delay,
+			broadcaster_delayed_payment_key,
+		);
 		revokeable_redeemscript.to_p2wsh()
 	}
 	/// Document this next

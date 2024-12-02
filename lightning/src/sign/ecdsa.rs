@@ -2,14 +2,15 @@
 
 use bitcoin::transaction::Transaction;
 
+use bitcoin::ecdsa::Signature as BitcoinSignature;
 use bitcoin::secp256k1;
 use bitcoin::secp256k1::ecdsa::Signature;
-use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey, All};
+use bitcoin::secp256k1::{All, PublicKey, Secp256k1, SecretKey};
 use bitcoin::Witness;
-use bitcoin::ecdsa::Signature as BitcoinSignature;
 
 use crate::ln::chan_utils::{
-	self, ClosingTransaction, CommitmentTransaction, HTLCOutputInCommitment, HolderCommitmentTransaction,
+	self, ClosingTransaction, CommitmentTransaction, HTLCOutputInCommitment,
+	HolderCommitmentTransaction,
 };
 use crate::ln::msgs::UnsignedChannelAnnouncement;
 use crate::types::payment::PaymentPreimage;
@@ -17,7 +18,7 @@ use crate::types::payment::PaymentPreimage;
 #[allow(unused_imports)]
 use crate::prelude::*;
 
-use crate::sign::{ChannelSigner, HTLCDescriptor, RevocationKey, DelayedPaymentKey};
+use crate::sign::{ChannelSigner, DelayedPaymentKey, HTLCDescriptor, RevocationKey};
 
 /// A trait to sign Lightning channel transactions as described in
 /// [BOLT 3](https://github.com/lightning/bolts/blob/master/03-transactions.md).
@@ -28,9 +29,25 @@ use crate::sign::{ChannelSigner, HTLCDescriptor, RevocationKey, DelayedPaymentKe
 /// for an example of such policies.
 pub trait EcdsaChannelSigner: ChannelSigner {
 	/// Document this next please
-	fn get_justice_witness(&self, revocation_key: &RevocationKey, contest_delay: u16, broadcaster_delayed_payment_key: &DelayedPaymentKey, justice_tx: &Transaction, input_idx: usize, amount: u64, per_commitment_key: &SecretKey, secp_ctx: &Secp256k1<All>) -> Witness {
-		let sig = self.sign_justice_revoked_output(justice_tx, input_idx, amount, per_commitment_key, secp_ctx).unwrap();
-		let revokeable_redeemscript = chan_utils::get_revokeable_redeemscript(revocation_key, contest_delay, broadcaster_delayed_payment_key);
+	fn get_justice_witness(
+		&self, revocation_key: &RevocationKey, contest_delay: u16,
+		broadcaster_delayed_payment_key: &DelayedPaymentKey, justice_tx: &Transaction,
+		input_idx: usize, amount: u64, per_commitment_key: &SecretKey, secp_ctx: &Secp256k1<All>,
+	) -> Witness {
+		let sig = self
+			.sign_justice_revoked_output(
+				justice_tx,
+				input_idx,
+				amount,
+				per_commitment_key,
+				secp_ctx,
+			)
+			.unwrap();
+		let revokeable_redeemscript = chan_utils::get_revokeable_redeemscript(
+			revocation_key,
+			contest_delay,
+			broadcaster_delayed_payment_key,
+		);
 		let mut witness = Witness::new();
 		witness.push_ecdsa_signature(&BitcoinSignature::sighash_all(sig));
 		witness.push(&[1u8]);
