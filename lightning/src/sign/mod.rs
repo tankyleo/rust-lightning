@@ -741,7 +741,9 @@ pub trait ChannelSigner {
 	/// Document this next
 	fn get_counterparty_payment_script(
 		&self, channel_type_features: &ChannelTypeFeatures, payment_key: &PublicKey,
-	) -> ScriptBuf;
+	) -> ScriptBuf {
+		chan_utils::get_counterparty_payment_script(channel_type_features, payment_key)
+	}
 	/// Gets the per-commitment point for a specific commitment number
 	///
 	/// Note that the commitment number starts at `(1 << 48) - 1` and counts backwards.
@@ -1337,11 +1339,6 @@ impl EntropySource for InMemorySigner {
 }
 
 impl ChannelSigner for InMemorySigner {
-	fn get_counterparty_payment_script(
-		&self, channel_type_features: &ChannelTypeFeatures, payment_key: &PublicKey,
-	) -> ScriptBuf {
-		chan_utils::get_counterparty_payment_script(channel_type_features, payment_key)
-	}
 	fn get_per_commitment_point(
 		&self, idx: u64, secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<PublicKey, ()> {

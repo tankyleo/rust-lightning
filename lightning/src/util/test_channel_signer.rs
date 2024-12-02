@@ -165,9 +165,6 @@ impl TestChannelSigner {
 }
 
 impl ChannelSigner for TestChannelSigner {
-	fn get_counterparty_payment_script(&self, channel_type_features: &ChannelTypeFeatures, payment_key: &PublicKey) -> ScriptBuf {
-		chan_utils::get_counterparty_payment_script(channel_type_features, payment_key)
-	}
 	fn get_per_commitment_point(&self, idx: u64, secp_ctx: &Secp256k1<secp256k1::All>) -> Result<PublicKey, ()> {
 		#[cfg(test)]
 		if !self.is_signer_available(SignerOp::GetPerCommitmentPoint) {
