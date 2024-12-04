@@ -3388,10 +3388,20 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		let channel_parameters =
 			&self.onchain_tx_handler.channel_transaction_parameters.as_counterparty_broadcastable();
 		let counterparty_payment_script = self.onchain_tx_handler.signer.get_counterparty_payment_script(&channel_parameters.channel_type_features(), &channel_parameters.countersignatory_pubkeys().payment_point);
+		let counterparty_value = Amount::from_sat(to_countersignatory_value);
+		let counterparty_txout = TxOut {
+			script_pubkey: counterparty_payment_script,
+			value: counterparty_value,
+		};
 		let revokeable_spk = self.onchain_tx_handler.signer.get_revokeable_spk(&keys.revocation_key, channel_parameters.contest_delay(), &keys.broadcaster_delayed_payment_key);
+		let to_broadcaster_value = Amount::from_sat(to_broadcaster_value);
+		let broadcaster_txout = TxOut {
+			script_pubkey: revokeable_spk,
+			value: to_broadcaster_value,
+		};
 
 		CommitmentTransaction::new_with_auxiliary_htlc_data(commitment_number,
-			to_broadcaster_value, revokeable_spk, to_countersignatory_value, counterparty_payment_script, broadcaster_funding_key,
+			broadcaster_txout, counterparty_txout, broadcaster_funding_key,
 			countersignatory_funding_key, keys, feerate_per_kw, &mut nondust_htlcs,
 			channel_parameters)
 	}

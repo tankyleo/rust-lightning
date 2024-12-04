@@ -15,7 +15,7 @@ use bitcoin::sighash;
 use bitcoin::sighash::EcdsaSighashType;
 use bitcoin::consensus::encode;
 use bitcoin::absolute::LockTime;
-use bitcoin::Weight;
+use bitcoin::{TxOut, Weight};
 
 use bitcoin::hashes::Hash;
 use bitcoin::hashes::sha256::Hash as Sha256;
@@ -3166,12 +3166,18 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			if local { self.channel_transaction_parameters.as_holder_broadcastable() }
 			else { self.channel_transaction_parameters.as_counterparty_broadcastable() };
 		let counterparty_payment_script = self.holder_signer.as_ref().get_counterparty_payment_script(channel_parameters.channel_type_features(), &channel_parameters.countersignatory_pubkeys().payment_point);
+		let counterparty_txout = TxOut {
+			script_pubkey: counterparty_payment_script,
+			value: Amount::from_sat(value_to_b as u64),
+		};
 		let revokeable_spk = self.holder_signer.as_ref().get_revokeable_spk(&keys.revocation_key, channel_parameters.contest_delay(), &keys.broadcaster_delayed_payment_key);
+		let broadcaster_txout = TxOut {
+			script_pubkey: revokeable_spk,
+			value: Amount::from_sat(value_to_a as u64),
+		};
 		let tx = CommitmentTransaction::new_with_auxiliary_htlc_data(commitment_number,
-		                                                             value_to_a as u64,
-																	 revokeable_spk,
-		                                                             value_to_b as u64,
-																	 counterparty_payment_script,
+																	 broadcaster_txout,
+																	 counterparty_txout,
 		                                                             funding_pubkey_a,
 		                                                             funding_pubkey_b,
 		                                                             keys.clone(),
