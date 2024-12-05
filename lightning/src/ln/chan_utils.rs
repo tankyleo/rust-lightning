@@ -1414,6 +1414,7 @@ pub struct CommitmentTransaction {
 	to_broadcaster_delay: Option<u16>, // Added in 0.0.117
 	feerate_per_kw: u32,
 	htlcs: Vec<HTLCOutputInCommitment>,
+	htlc_txouts: Vec<TxOut>,
 	// Note that on upgrades, some features of existing outputs may be missed.
 	channel_type_features: ChannelTypeFeatures,
 	// A cache of the parties' pubkeys required to construct the transaction, see doc for trust()
@@ -1454,6 +1455,7 @@ impl Writeable for CommitmentTransaction {
 			(12, self.htlcs, required_vec),
 			(14, legacy_deserialization_prevention_marker, option),
 			(15, self.channel_type_features, required),
+			(16, self.htlc_txouts, required_vec),
 		});
 		Ok(())
 	}
@@ -1472,6 +1474,7 @@ impl Readable for CommitmentTransaction {
 			(12, htlcs, required_vec),
 			(14, _legacy_deserialization_prevention_marker, (option, explicit_type: ())),
 			(15, channel_type_features, option),
+			(16, htlc_txouts, required_vec),
 		});
 
 		let mut additional_features = ChannelTypeFeatures::empty();
@@ -1488,6 +1491,7 @@ impl Readable for CommitmentTransaction {
 			built: built.0.unwrap(),
 			htlcs,
 			channel_type_features: channel_type_features.unwrap_or(ChannelTypeFeatures::only_static_remote_key()),
+			htlc_txouts,
 		})
 	}
 }
@@ -1506,7 +1510,7 @@ impl CommitmentTransaction {
 	pub fn new_with_auxiliary_htlc_data<T>(commitment_number: u64, to_broadcaster_txout: TxOut, to_countersignatory_txout: TxOut, broadcaster_funding_key: PublicKey, countersignatory_funding_key: PublicKey, keys: TxCreationKeys, feerate_per_kw: u32, htlc_txouts: Vec<TxOut>, htlcs_with_aux: &mut Vec<(HTLCOutputInCommitment, T)>, channel_parameters: &DirectedChannelTransactionParameters) -> CommitmentTransaction {
 
 		// Sort outputs and populate output indices while keeping track of the auxiliary data
-		let (outputs, htlcs) = Self::internal_build_outputs(&keys, to_broadcaster_txout.clone(), to_countersignatory_txout.clone(), htlc_txouts, htlcs_with_aux, channel_parameters, &broadcaster_funding_key, &countersignatory_funding_key).unwrap();
+		let (outputs, htlcs) = Self::internal_build_outputs(&keys, to_broadcaster_txout.clone(), to_countersignatory_txout.clone(), htlc_txouts.clone(), htlcs_with_aux, channel_parameters, &broadcaster_funding_key, &countersignatory_funding_key).unwrap();
 
 		let (obscured_commitment_transaction_number, txins) = Self::internal_build_inputs(commitment_number, channel_parameters);
 		let transaction = Self::make_transaction(obscured_commitment_transaction_number, txins, outputs);
@@ -1518,6 +1522,7 @@ impl CommitmentTransaction {
 			to_broadcaster_delay: Some(channel_parameters.contest_delay()),
 			feerate_per_kw,
 			htlcs,
+			htlc_txouts,
 			channel_type_features: channel_parameters.channel_type_features().clone(),
 			keys,
 			built: BuiltCommitmentTransaction {
@@ -1540,17 +1545,7 @@ impl CommitmentTransaction {
 
 		let mut htlcs_with_aux: Vec<(HTLCOutputInCommitment, ())> = self.htlcs.iter().map(|h| (h.clone(), ())).collect();
 
-		let mut htlc_txouts = Vec::new();
-		for (htlc, _) in htlcs_with_aux.iter() {
-			let script = get_htlc_redeemscript(htlc, &channel_parameters.channel_type_features(), &keys);
-			let txout = TxOut {
-				script_pubkey: script.to_p2wsh(),
-				value: htlc.to_bitcoin_amount(),
-			};
-			htlc_txouts.push(txout);
-		}
-
-		let (outputs, _) = Self::internal_build_outputs(keys, self.to_broadcaster_txout.clone(), self.to_countersignatory_txout.clone(), htlc_txouts, &mut htlcs_with_aux, channel_parameters, broadcaster_funding_key, countersignatory_funding_key)?;
+		let (outputs, _) = Self::internal_build_outputs(keys, self.to_broadcaster_txout.clone(), self.to_countersignatory_txout.clone(), self.htlc_txouts.clone(), &mut htlcs_with_aux, channel_parameters, broadcaster_funding_key, countersignatory_funding_key)?;
 
 		let transaction = Self::make_transaction(obscured_commitment_transaction_number, txins, outputs);
 		let txid = transaction.compute_txid();
