@@ -41,7 +41,7 @@ use crate::ln::chan_utils;
 use crate::ln::chan_utils::{
 	get_revokeable_redeemscript, get_revokeable_spk, make_funding_redeemscript, ChannelPublicKeys,
 	ChannelTransactionParameters, ClosingTransaction, CommitmentTransaction,
-	HTLCOutputInCommitment, HolderCommitmentTransaction,
+	HTLCOutputInCommitment, HolderCommitmentTransaction, TxCreationKeys,
 };
 use crate::ln::channel::ANCHOR_OUTPUT_VALUE_SATOSHI;
 use crate::ln::channel_keys::{
@@ -743,6 +743,14 @@ pub trait ChannelSigner {
 		&self, channel_type_features: &ChannelTypeFeatures, payment_key: &PublicKey,
 	) -> ScriptBuf {
 		chan_utils::get_counterparty_payment_script(channel_type_features, payment_key)
+	}
+	/// Document this please
+	fn get_htlc_spk(
+		&self, htlc: &HTLCOutputInCommitment, channel_type_features: &ChannelTypeFeatures,
+		keys: &TxCreationKeys,
+	) -> ScriptBuf {
+		let script = chan_utils::get_htlc_redeemscript(htlc, channel_type_features, keys);
+		script.to_p2wsh()
 	}
 	/// Gets the per-commitment point for a specific commitment number
 	///

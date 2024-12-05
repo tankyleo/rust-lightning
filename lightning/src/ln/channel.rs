@@ -3178,9 +3178,9 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 		let mut htlc_txouts = Vec::new();
 		for (htlc, _) in included_non_dust_htlcs.iter() {
-			let script = chan_utils::get_htlc_redeemscript(htlc, &channel_parameters.channel_type_features(), &keys);
+			let script = self.holder_signer.as_ref().get_htlc_spk(htlc, &channel_parameters.channel_type_features(), &keys);
 			let txout = TxOut {
-				script_pubkey: script.to_p2wsh(),
+				script_pubkey: script,
 				value: htlc.to_bitcoin_amount(),
 			};
 			htlc_txouts.push(txout);

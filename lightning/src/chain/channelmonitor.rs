@@ -3402,9 +3402,9 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 
 		let mut htlc_txouts = Vec::new();
 		for (htlc, _) in nondust_htlcs.iter() {
-			let script = chan_utils::get_htlc_redeemscript(htlc, &channel_parameters.channel_type_features(), &keys);
+			let script = self.onchain_tx_handler.signer.get_htlc_spk(htlc, &channel_parameters.channel_type_features(), &keys);
 			let txout = TxOut {
-				script_pubkey: script.to_p2wsh(),
+				script_pubkey: script,
 				value: htlc.to_bitcoin_amount(),
 			};
 			htlc_txouts.push(txout);
