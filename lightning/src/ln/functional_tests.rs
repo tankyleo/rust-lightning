@@ -778,6 +778,15 @@ fn test_update_fee_that_funder_cannot_afford() {
 			value: Amount::from_sat(push_sats),
 		};
 		let mut htlcs: Vec<(HTLCOutputInCommitment, ())> = vec![];
+		let mut htlc_txouts = Vec::new();
+		for (htlc, _) in htlcs.iter() {
+			let script = chan_utils::get_htlc_redeemscript(htlc, &channel_parameters.channel_type_features(), &commit_tx_keys);
+			let txout = TxOut {
+				script_pubkey: script.to_p2wsh(),
+				value: htlc.to_bitcoin_amount(),
+			};
+			htlc_txouts.push(txout);
+		}
 		let commitment_tx = CommitmentTransaction::new_with_auxiliary_htlc_data(
 			INITIAL_COMMITMENT_NUMBER - 1,
 			broadcaster_txout,
@@ -785,6 +794,7 @@ fn test_update_fee_that_funder_cannot_afford() {
 			local_funding, remote_funding,
 			commit_tx_keys.clone(),
 			non_buffer_feerate + 4,
+			htlc_txouts,
 			&mut htlcs,
 			&channel_parameters,
 		);
@@ -1539,6 +1549,15 @@ fn test_fee_spike_violation_fails_htlc() {
 			script_pubkey: revokeable_spk,
 			value: Amount::from_sat(95000),
 		};
+		let mut htlc_txouts = Vec::new();
+		for htlc in [&accepted_htlc_info] {
+			let script = chan_utils::get_htlc_redeemscript(htlc, &channel_parameters.channel_type_features(), &commit_tx_keys);
+			let txout = TxOut {
+				script_pubkey: script.to_p2wsh(),
+				value: htlc.to_bitcoin_amount(),
+			};
+			htlc_txouts.push(txout);
+		}
 		let commitment_tx = CommitmentTransaction::new_with_auxiliary_htlc_data(
 			commitment_number,
 			broadcaster_txout,
@@ -1546,6 +1565,7 @@ fn test_fee_spike_violation_fails_htlc() {
 			local_funding, remote_funding,
 			commit_tx_keys.clone(),
 			feerate_per_kw,
+			htlc_txouts,
 			&mut vec![(accepted_htlc_info, ())],
 			&channel_parameters,
 		);

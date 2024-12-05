@@ -3175,6 +3175,17 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			script_pubkey: revokeable_spk,
 			value: Amount::from_sat(value_to_a as u64),
 		};
+
+		let mut htlc_txouts = Vec::new();
+		for (htlc, _) in included_non_dust_htlcs.iter() {
+			let script = chan_utils::get_htlc_redeemscript(htlc, &channel_parameters.channel_type_features(), &keys);
+			let txout = TxOut {
+				script_pubkey: script.to_p2wsh(),
+				value: htlc.to_bitcoin_amount(),
+			};
+			htlc_txouts.push(txout);
+		}
+
 		let tx = CommitmentTransaction::new_with_auxiliary_htlc_data(commitment_number,
 																	 broadcaster_txout,
 																	 counterparty_txout,
@@ -3182,6 +3193,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		                                                             funding_pubkey_b,
 		                                                             keys.clone(),
 		                                                             feerate_per_kw,
+																	 htlc_txouts,
 		                                                             &mut included_non_dust_htlcs,
 		                                                             &channel_parameters
 		);

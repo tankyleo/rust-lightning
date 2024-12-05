@@ -3400,9 +3400,19 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			value: to_broadcaster_value,
 		};
 
+		let mut htlc_txouts = Vec::new();
+		for (htlc, _) in nondust_htlcs.iter() {
+			let script = chan_utils::get_htlc_redeemscript(htlc, &channel_parameters.channel_type_features(), &keys);
+			let txout = TxOut {
+				script_pubkey: script.to_p2wsh(),
+				value: htlc.to_bitcoin_amount(),
+			};
+			htlc_txouts.push(txout);
+		}
+
 		CommitmentTransaction::new_with_auxiliary_htlc_data(commitment_number,
 			broadcaster_txout, counterparty_txout, broadcaster_funding_key,
-			countersignatory_funding_key, keys, feerate_per_kw, &mut nondust_htlcs,
+			countersignatory_funding_key, keys, feerate_per_kw, htlc_txouts, &mut nondust_htlcs,
 			channel_parameters)
 	}
 
