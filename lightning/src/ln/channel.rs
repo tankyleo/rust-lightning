@@ -10368,6 +10368,14 @@ mod tests {
 	}
 
 	#[cfg(ldk_test_vectors)]
+	impl crate::ln::channel::ChannelContext<&Keys> {
+		fn overwrite_channel_features(&mut self, channel_type_features: ChannelTypeFeatures) {
+			self.channel_transaction_parameters.channel_type_features = channel_type_features;
+			self.holder_signer.as_mut_ecdsa().unwrap().overwrite_channel_parameters(&self.channel_transaction_parameters);
+		}
+	}
+
+	#[cfg(ldk_test_vectors)]
 	fn public_from_secret_hex(secp_ctx: &Secp256k1<bitcoin::secp256k1::All>, hex: &str) -> PublicKey {
 		assert!(cfg!(not(feature = "grind_signatures")));
 		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap())
@@ -10963,7 +10971,6 @@ mod tests {
 		use crate::ln::channel::{HTLCOutputInCommitment ,TxCreationKeys};
 		use crate::ln::channel_keys::{DelayedPaymentBasepoint, HtlcBasepoint};
 		use crate::ln::chan_utils::{ChannelPublicKeys, HolderCommitmentTransaction, CounterpartyChannelTransactionParameters};
-		use crate::sign::type_resolver::ChannelSignerType;
 		use crate::util::logger::Logger;
 		use crate::sync::Arc;
 		use core::str::FromStr;
@@ -10973,7 +10980,7 @@ mod tests {
 		let logger : Arc<dyn Logger> = Arc::new(test_utils::TestLogger::new());
 		let secp_ctx = Secp256k1::new();
 
-		let mut signer = InMemorySigner::new(
+		let signer = InMemorySigner::new(
 			&secp_ctx,
 			SecretKey::from_slice(&<Vec<u8>>::from_hex("30ff4956bbdd3222d44cc5e8a1261dab1e07957bdac5ae88fe3261ef321f3749").unwrap()[..]).unwrap(),
 			SecretKey::from_slice(&<Vec<u8>>::from_hex("0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").unwrap()[..]).unwrap(),
@@ -10990,7 +10997,7 @@ mod tests {
 
 		assert_eq!(signer.pubkeys().funding_pubkey.serialize()[..],
 				<Vec<u8>>::from_hex("023da092f6980e58d2c037173180e9a465476026ee50f96695963e8efe436f54eb").unwrap()[..]);
-		let keys_provider = Keys { signer: signer.clone() };
+		let keys_provider = Keys { signer };
 
 		let counterparty_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
 		let mut config = UserConfig::default();
@@ -11014,7 +11021,6 @@ mod tests {
 				selected_contest_delay: 144
 			});
 		chan.context.channel_transaction_parameters.funding_outpoint = Some(funding_info);
-		signer.provide_channel_parameters(&chan.context.channel_transaction_parameters);
 
 		assert_eq!(counterparty_pubkeys.payment_point.serialize()[..],
 		           <Vec<u8>>::from_hex("032c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991").unwrap()[..]);
@@ -11036,20 +11042,14 @@ mod tests {
 
 		macro_rules! test_commitment {
 			( $counterparty_sig_hex: expr, $sig_hex: expr, $tx_hex: expr, $($remain:tt)* ) => {
-				chan.context.channel_transaction_parameters.channel_type_features = ChannelTypeFeatures::only_static_remote_key();
-				let mut holder_signer = keys_provider.derive_channel_signer(chan.context.channel_value_satoshis, chan.context.channel_keys_id);
-				holder_signer.provide_channel_parameters(&chan.context.channel_transaction_parameters);
-				chan.context.holder_signer = ChannelSignerType::Ecdsa(holder_signer);
+				chan.context.overwrite_channel_features(ChannelTypeFeatures::only_static_remote_key());
 				test_commitment_common!($counterparty_sig_hex, $sig_hex, $tx_hex, &ChannelTypeFeatures::only_static_remote_key(), $($remain)*);
 			};
 		}
 
 		macro_rules! test_commitment_with_anchors {
 			( $counterparty_sig_hex: expr, $sig_hex: expr, $tx_hex: expr, $($remain:tt)* ) => {
-				chan.context.channel_transaction_parameters.channel_type_features = ChannelTypeFeatures::anchors_zero_htlc_fee_and_dependencies();
-				let mut holder_signer = keys_provider.derive_channel_signer(chan.context.channel_value_satoshis, chan.context.channel_keys_id);
-				holder_signer.provide_channel_parameters(&chan.context.channel_transaction_parameters);
-				chan.context.holder_signer = ChannelSignerType::Ecdsa(holder_signer);
+				chan.context.overwrite_channel_features(ChannelTypeFeatures::anchors_zero_htlc_fee_and_dependencies());
 				test_commitment_common!($counterparty_sig_hex, $sig_hex, $tx_hex, &ChannelTypeFeatures::anchors_zero_htlc_fee_and_dependencies(), $($remain)*);
 			};
 		}
@@ -11092,7 +11092,7 @@ mod tests {
 					&chan.context.holder_signer.as_ref().pubkeys().funding_pubkey,
 					chan.context.counterparty_funding_pubkey()
 				);
-				let holder_sig = signer.sign_holder_commitment(&holder_commitment_tx, &secp_ctx).unwrap();
+				let holder_sig = chan.context.holder_signer.as_ecdsa().unwrap().sign_holder_commitment(&holder_commitment_tx, &secp_ctx).unwrap();
 				assert_eq!(Signature::from_der(&<Vec<u8>>::from_hex($sig_hex).unwrap()[..]).unwrap(), holder_sig, "holder_sig");
 
 				let funding_redeemscript = chan.context.get_funding_redeemscript();
@@ -11128,7 +11128,7 @@ mod tests {
 					}
 
 					let htlc_counterparty_sig = htlc_counterparty_sig_iter.next().unwrap();
-					let htlc_holder_sig = signer.sign_holder_htlc_transaction(&htlc_tx, 0, &HTLCDescriptor {
+					let htlc_holder_sig = chan.context.holder_signer.as_ecdsa().unwrap().sign_holder_htlc_transaction(&htlc_tx, 0, &HTLCDescriptor {
 						channel_derivation_parameters: ChannelDerivationParameters {
 							value_satoshis: chan.context.channel_value_satoshis,
 							keys_id: chan.context.channel_keys_id,
