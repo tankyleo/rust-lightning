@@ -1708,8 +1708,8 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 	///
 	/// [`ChannelSigner::punish_revokeable_output`]: crate::sign::ChannelSigner::punish_revokeable_output
 	/// [`Persist`]: crate::chain::chainmonitor::Persist
-	pub fn punish_revokeable_output(&self, justice_tx: &Transaction, input_idx: usize, value: u64, commitment_number: u64) -> Result<Transaction, ()> {
-		self.inner.lock().unwrap().punish_revokeable_output(justice_tx, input_idx, value, commitment_number)
+	pub fn punish_revokeable_output(&self, justice_tx: &Transaction, input_idx: usize, prevouts: Vec<TxOut>, commitment_number: u64) -> Result<Transaction, ()> {
+		self.inner.lock().unwrap().punish_revokeable_output(justice_tx, input_idx, prevouts, commitment_number)
 	}
 
 	pub(crate) fn get_min_seen_secret(&self) -> u64 {
@@ -3458,13 +3458,13 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 	}
 
 	fn punish_revokeable_output(
-		&self, justice_tx: &Transaction, input_idx: usize, value: u64, commitment_number: u64
+		&self, justice_tx: &Transaction, input_idx: usize, prevouts: Vec<TxOut>, commitment_number: u64
 	) -> Result<Transaction, ()> {
 		let secret = self.get_secret(commitment_number).ok_or(())?;
 		let per_commitment_key = SecretKey::from_slice(&secret).map_err(|_| ())?;
 		let their_per_commitment_point = PublicKey::from_secret_key(
 			&self.onchain_tx_handler.secp_ctx, &per_commitment_key);
-		self.onchain_tx_handler.signer.punish_revokeable_output(justice_tx, input_idx, value, &per_commitment_key, &self.onchain_tx_handler.secp_ctx, &their_per_commitment_point)
+		self.onchain_tx_handler.signer.punish_revokeable_output(justice_tx, input_idx, prevouts, &per_commitment_key, &self.onchain_tx_handler.secp_ctx, &their_per_commitment_point)
 	}
 
 	/// Can only fail if idx is < get_min_seen_secret
@@ -3498,6 +3498,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		// a spend transaction...so we return no transactions to broadcast
 		let mut claimable_outpoints = Vec::new();
 		let mut to_counterparty_output_info = None;
+		let prevouts = tx.output.clone();
 
 		let commitment_txid = tx.compute_txid(); //TODO: This is gonna be a performance bottleneck for watchtowers!
 		let per_commitment_option = self.counterparty_claimable_outpoints.get(&commitment_txid);
@@ -3521,7 +3522,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			// First, process non-htlc outputs (to_holder & to_counterparty)
 			for (idx, outp) in tx.output.iter().enumerate() {
 				if outp.script_pubkey == revokeable_spk {
-					let revk_outp = RevokedOutput::build(per_commitment_point, self.counterparty_commitment_params.counterparty_delayed_payment_base_key, self.counterparty_commitment_params.counterparty_htlc_base_key, per_commitment_key, outp.value, self.counterparty_commitment_params.on_counterparty_tx_csv, self.onchain_tx_handler.channel_type_features().supports_anchors_zero_fee_htlc_tx());
+					let revk_outp = RevokedOutput::build(per_commitment_point, self.counterparty_commitment_params.counterparty_delayed_payment_base_key, self.counterparty_commitment_params.counterparty_htlc_base_key, per_commitment_key, outp.value, prevouts.clone(), self.counterparty_commitment_params.on_counterparty_tx_csv, self.onchain_tx_handler.channel_type_features().supports_anchors_zero_fee_htlc_tx());
 					let justice_package = PackageTemplate::build_package(
 						commitment_txid, idx as u32,
 						PackageSolvingData::RevokedOutput(revk_outp),
@@ -3702,7 +3703,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 				let revk_outp = RevokedOutput::build(
 					per_commitment_point, self.counterparty_commitment_params.counterparty_delayed_payment_base_key,
 					self.counterparty_commitment_params.counterparty_htlc_base_key, per_commitment_key,
-					tx.output[idx].value, self.counterparty_commitment_params.on_counterparty_tx_csv,
+					tx.output[idx].value, tx.output.clone(), self.counterparty_commitment_params.on_counterparty_tx_csv,
 					false
 				);
 				let justice_package = PackageTemplate::build_package(

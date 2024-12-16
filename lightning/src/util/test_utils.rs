@@ -430,6 +430,7 @@ struct JusticeTxData {
 	justice_tx: Transaction,
 	value: Amount,
 	commitment_number: u64,
+	prevouts: Vec<TxOut>,
 }
 
 #[cfg(test)]
@@ -473,7 +474,8 @@ impl WatchtowerPersister {
 		let justice_tx = trusted_tx.build_to_local_justice_tx(
 			FEERATE_FLOOR_SATS_PER_KW as u64, self.destination_script.clone()).ok()?;
 		let commitment_number = counterparty_commitment_tx.commitment_number();
-		Some(JusticeTxData { justice_tx, value, commitment_number })
+		let prevouts = trusted_tx.built_transaction().transaction.output.clone();
+		Some(JusticeTxData { justice_tx, value, commitment_number, prevouts })
 	}
 }
 
@@ -514,10 +516,10 @@ impl<Signer: sign::ecdsa::EcdsaChannelSigner> chainmonitor::Persist<Signer> for 
 			let channel_state = channels_justice_txs.get_mut(&funding_txo).unwrap();
 			channel_state.extend(justice_datas);
 
-			while let Some(JusticeTxData { justice_tx, value, commitment_number }) = channel_state.front() {
+			while let Some(JusticeTxData { justice_tx, value, commitment_number, prevouts }) = channel_state.front() {
 				let input_idx = 0;
 				let commitment_txid = justice_tx.input[input_idx].previous_output.txid;
-				match data.punish_revokeable_output(justice_tx, input_idx, value.to_sat(), *commitment_number) {
+				match data.punish_revokeable_output(justice_tx, input_idx, prevouts.clone(), *commitment_number) {
 					Ok(signed_justice_tx) => {
 						let dup = self.watchtower_state.lock().unwrap()
 							.get_mut(&funding_txo).unwrap()

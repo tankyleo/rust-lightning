@@ -25,7 +25,7 @@ use crate::sync::{Mutex, Arc};
 use bitcoin::transaction::Transaction;
 use bitcoin::hashes::Hash;
 use bitcoin::sighash;
-use bitcoin::ScriptBuf;
+use bitcoin::{ScriptBuf, TxOut};
 use bitcoin::sighash::EcdsaSighashType;
 
 use bitcoin::secp256k1;
@@ -228,10 +228,10 @@ impl ChannelSigner for TestChannelSigner {
 	}
 
 	fn punish_revokeable_output(
-		&self, justice_tx: &Transaction, input: usize, amount: u64, per_commitment_key: &SecretKey,
+		&self, justice_tx: &Transaction, input: usize, prevouts: Vec<TxOut>, per_commitment_key: &SecretKey,
 		secp_ctx: &Secp256k1<secp256k1::All>, per_commitment_point: &PublicKey,
 	) -> Result<Transaction, ()> {
-		self.inner.punish_revokeable_output(justice_tx, input, amount, per_commitment_key, secp_ctx, per_commitment_point)
+		self.inner.punish_revokeable_output(justice_tx, input, prevouts, per_commitment_key, secp_ctx, per_commitment_point)
 	}
 }
 

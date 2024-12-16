@@ -132,10 +132,11 @@ pub(crate) struct RevokedOutput {
 	amount: Amount,
 	on_counterparty_tx_csv: u16,
 	is_counterparty_balance_on_anchors: Option<()>,
+	prevouts: Vec<TxOut>,
 }
 
 impl RevokedOutput {
-	pub(crate) fn build(per_commitment_point: PublicKey, counterparty_delayed_payment_base_key: DelayedPaymentBasepoint, counterparty_htlc_base_key: HtlcBasepoint, per_commitment_key: SecretKey, amount: Amount, on_counterparty_tx_csv: u16, is_counterparty_balance_on_anchors: bool) -> Self {
+	pub(crate) fn build(per_commitment_point: PublicKey, counterparty_delayed_payment_base_key: DelayedPaymentBasepoint, counterparty_htlc_base_key: HtlcBasepoint, per_commitment_key: SecretKey, amount: Amount, prevouts: Vec<TxOut>, on_counterparty_tx_csv: u16, is_counterparty_balance_on_anchors: bool) -> Self {
 		RevokedOutput {
 			per_commitment_point,
 			counterparty_delayed_payment_base_key,
@@ -144,7 +145,8 @@ impl RevokedOutput {
 			weight: WEIGHT_REVOKED_OUTPUT,
 			amount,
 			on_counterparty_tx_csv,
-			is_counterparty_balance_on_anchors: if is_counterparty_balance_on_anchors { Some(()) } else { None }
+			is_counterparty_balance_on_anchors: if is_counterparty_balance_on_anchors { Some(()) } else { None },
+			prevouts,
 		}
 	}
 }
@@ -157,7 +159,8 @@ impl_writeable_tlv_based!(RevokedOutput, {
 	(8, weight, required),
 	(10, amount, required),
 	(12, on_counterparty_tx_csv, required),
-	(14, is_counterparty_balance_on_anchors, option)
+	(14, is_counterparty_balance_on_anchors, option),
+	(16, prevouts, required_vec),
 });
 
 /// A struct to describe a revoked offered output and corresponding information to generate a
@@ -605,7 +608,7 @@ impl PackageSolvingData {
 		match self {
 			PackageSolvingData::RevokedOutput(ref outp) => {
 				//TODO: should we panic on signer failure ?
-				if let Ok(tx) = onchain_handler.signer.punish_revokeable_output(bumped_tx, i, outp.amount.to_sat(), &outp.per_commitment_key, &onchain_handler.secp_ctx, &outp.per_commitment_point) {
+				if let Ok(tx) = onchain_handler.signer.punish_revokeable_output(bumped_tx, i, outp.prevouts.clone(), &outp.per_commitment_key, &onchain_handler.secp_ctx, &outp.per_commitment_point) {
 					*bumped_tx = tx;
 				} else { return false; }
 			},
@@ -1363,7 +1366,7 @@ mod tests {
 				let secp_ctx = Secp256k1::new();
 				let dumb_scalar = SecretKey::from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
 				let dumb_point = PublicKey::from_secret_key(&secp_ctx, &dumb_scalar);
-				PackageSolvingData::RevokedOutput(RevokedOutput::build(dumb_point, DelayedPaymentBasepoint::from(dumb_point), HtlcBasepoint::from(dumb_point), dumb_scalar, Amount::ZERO, 0, $is_counterparty_balance_on_anchors))
+				PackageSolvingData::RevokedOutput(RevokedOutput::build(dumb_point, DelayedPaymentBasepoint::from(dumb_point), HtlcBasepoint::from(dumb_point), dumb_scalar, Amount::ZERO, Vec::new(), 0, $is_counterparty_balance_on_anchors))
 			}
 		}
 	}

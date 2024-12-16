@@ -820,8 +820,9 @@ pub trait ChannelSigner {
 	///
 	/// TODO(taproot): pass to the `ChannelSigner` all the `TxOut`'s spent by the justice transaction.
 	fn punish_revokeable_output(
-		&self, justice_tx: &Transaction, input: usize, amount: u64, per_commitment_key: &SecretKey,
-		secp_ctx: &Secp256k1<secp256k1::All>, per_commitment_point: &PublicKey,
+		&self, justice_tx: &Transaction, input: usize, prevouts: Vec<TxOut>,
+		per_commitment_key: &SecretKey, secp_ctx: &Secp256k1<secp256k1::All>,
+		per_commitment_point: &PublicKey,
 	) -> Result<Transaction, ()>;
 }
 
@@ -1451,9 +1452,12 @@ impl ChannelSigner for InMemorySigner {
 	}
 
 	fn punish_revokeable_output(
-		&self, justice_tx: &Transaction, input: usize, amount: u64, per_commitment_key: &SecretKey,
-		secp_ctx: &Secp256k1<secp256k1::All>, per_commitment_point: &PublicKey,
+		&self, justice_tx: &Transaction, input: usize, prevouts: Vec<TxOut>,
+		per_commitment_key: &SecretKey, secp_ctx: &Secp256k1<secp256k1::All>,
+		per_commitment_point: &PublicKey,
 	) -> Result<Transaction, ()> {
+		let prevout_idx = justice_tx.input[input].previous_output.vout as usize;
+		let amount = prevouts[prevout_idx].value.to_sat();
 		let params = self.channel_parameters.as_ref().unwrap().as_counterparty_broadcastable();
 		let contest_delay = params.contest_delay();
 		let keys = TxCreationKeys::from_channel_static_keys(
