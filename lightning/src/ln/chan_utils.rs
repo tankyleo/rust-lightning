@@ -86,7 +86,8 @@ pub const HTLC_SUCCESS_INPUT_ANCHOR_WITNESS_WEIGHT: u64 = 327;
 pub fn htlc_success_tx_weight(channel_type_features: &ChannelTypeFeatures) -> u64 {
 	const HTLC_SUCCESS_TX_WEIGHT: u64 = 703;
 	const HTLC_SUCCESS_ANCHOR_TX_WEIGHT: u64 = 706;
-	if channel_type_features.supports_anchors_zero_fee_htlc_tx() { HTLC_SUCCESS_ANCHOR_TX_WEIGHT } else { HTLC_SUCCESS_TX_WEIGHT }
+	assert!(!channel_type_features.supports_anchors_zero_fee_htlc_tx());
+	if channel_type_features.supports_anchors_nonzero_fee_htlc_tx() { HTLC_SUCCESS_ANCHOR_TX_WEIGHT } else { HTLC_SUCCESS_TX_WEIGHT }
 }
 
 /// Gets the weight for an HTLC-Timeout transaction.
@@ -94,7 +95,8 @@ pub fn htlc_success_tx_weight(channel_type_features: &ChannelTypeFeatures) -> u6
 pub fn htlc_timeout_tx_weight(channel_type_features: &ChannelTypeFeatures) -> u64 {
 	const HTLC_TIMEOUT_TX_WEIGHT: u64 = 663;
 	const HTLC_TIMEOUT_ANCHOR_TX_WEIGHT: u64 = 666;
-	if channel_type_features.supports_anchors_zero_fee_htlc_tx() { HTLC_TIMEOUT_ANCHOR_TX_WEIGHT } else { HTLC_TIMEOUT_TX_WEIGHT }
+	assert!(!channel_type_features.supports_anchors_zero_fee_htlc_tx());
+	if channel_type_features.supports_anchors_nonzero_fee_htlc_tx() { HTLC_TIMEOUT_ANCHOR_TX_WEIGHT } else { HTLC_TIMEOUT_TX_WEIGHT }
 }
 
 /// Describes the type of HTLC claim as determined by analyzing the witness.
@@ -200,7 +202,7 @@ pub(crate) fn per_outbound_htlc_counterparty_commit_tx_fee_msat(feerate_per_kw: 
 	// Note that we need to divide before multiplying to round properly,
 	// since the lowest denomination of bitcoin on-chain is the satoshi.
 	let commitment_tx_fee = COMMITMENT_TX_WEIGHT_PER_HTLC * feerate_per_kw as u64 / 1000 * 1000;
-	if channel_type_features.supports_anchors_zero_fee_htlc_tx() {
+	if channel_type_features.supports_anchors_nonzero_fee_htlc_tx() {
 		commitment_tx_fee + htlc_success_tx_weight(channel_type_features) * feerate_per_kw as u64 / 1000
 	} else {
 		commitment_tx_fee
@@ -737,14 +739,15 @@ pub(crate) fn build_htlc_input(commitment_txid: &Txid, htlc: &HTLCOutputInCommit
 pub(crate) fn build_htlc_output(
 	feerate_per_kw: u32, contest_delay: u16, htlc: &HTLCOutputInCommitment, channel_type_features: &ChannelTypeFeatures, broadcaster_delayed_payment_key: &DelayedPaymentKey, revocation_key: &RevocationKey
 ) -> TxOut {
-	let weight = if htlc.offered {
-		htlc_timeout_tx_weight(channel_type_features)
-	} else {
-		htlc_success_tx_weight(channel_type_features)
-	};
-	let output_value = if channel_type_features.supports_anchors_zero_fee_htlc_tx() && !channel_type_features.supports_anchors_nonzero_fee_htlc_tx() {
+	let output_value = if channel_type_features.supports_anchors_zero_fee_htlc_tx() {
+		assert!(!channel_type_features.supports_anchors_nonzero_fee_htlc_tx());
 		htlc.to_bitcoin_amount()
 	} else {
+		let weight = if htlc.offered {
+			htlc_timeout_tx_weight(channel_type_features)
+		} else {
+			htlc_success_tx_weight(channel_type_features)
+		};
 		let total_fee = Amount::from_sat(feerate_per_kw as u64 * weight / 1000);
 		htlc.to_bitcoin_amount() - total_fee
 	};
