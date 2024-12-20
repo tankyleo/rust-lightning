@@ -842,6 +842,10 @@ pub trait ChannelSigner {
 		&self, justice_tx: &Transaction, input: usize, amount: u64, per_commitment_key: &SecretKey,
 		secp_ctx: &Secp256k1<secp256k1::All>, per_commitment_point: &PublicKey,
 	) -> Result<Transaction, ()>;
+
+	/// Return the total weight of the witness required to spend the justice path of the revokeable
+	/// output.
+	fn get_punishment_witness_weight(&self) -> u64;
 }
 
 /// Specifies the recipient of an invoice.
@@ -1501,6 +1505,10 @@ impl ChannelSigner for InMemorySigner {
 		justice_tx.input[input].witness.push(vec![1]);
 		justice_tx.input[input].witness.push(witness_script.into_bytes());
 		Ok(justice_tx)
+	}
+
+	fn get_punishment_witness_weight(&self) -> u64 {
+		crate::chain::package::WEIGHT_REVOKED_OUTPUT
 	}
 }
 

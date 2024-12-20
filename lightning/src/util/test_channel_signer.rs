@@ -237,6 +237,10 @@ impl ChannelSigner for TestChannelSigner {
 		}
 		self.inner.punish_revokeable_output(justice_tx, input, amount, per_commitment_key, secp_ctx, per_commitment_point)
 	}
+
+	fn get_punishment_witness_weight(&self) -> u64 {
+		crate::chain::package::WEIGHT_REVOKED_OUTPUT
+	}
 }
 
 impl EcdsaChannelSigner for TestChannelSigner {
