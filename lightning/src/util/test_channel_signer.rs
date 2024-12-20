@@ -252,6 +252,10 @@ impl ChannelSigner for TestChannelSigner {
 		}
 		self.inner.punish_htlc_output(justice_tx, input, amount, per_commitment_key, secp_ctx, per_commitment_point, htlc)
 	}
+
+	fn get_htlc_punishment_witness_weight(&self, offered: bool) -> u64 {
+		self.inner.get_htlc_punishment_witness_weight(offered)
+	}
 }
 
 impl EcdsaChannelSigner for TestChannelSigner {

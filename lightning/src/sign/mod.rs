@@ -876,6 +876,10 @@ pub trait ChannelSigner {
 		secp_ctx: &Secp256k1<secp256k1::All>, per_commitment_point: &PublicKey,
 		htlc: &HTLCOutputInCommitment,
 	) -> Result<Transaction, ()>;
+
+	/// Return the total weight of the witness required to spend the justice path of a HTLC output in a
+	/// commitment transaction.
+	fn get_htlc_punishment_witness_weight(&self, offered: bool) -> u64;
 }
 
 /// Specifies the recipient of an invoice.
@@ -1573,6 +1577,15 @@ impl ChannelSigner for InMemorySigner {
 			.push(keys.revocation_key.to_public_key().serialize().to_vec());
 		justice_tx.input[input].witness.push(witness_script.clone().into_bytes());
 		Ok(justice_tx)
+	}
+
+	fn get_htlc_punishment_witness_weight(&self, offered: bool) -> u64 {
+		let features = &self.channel_parameters.as_ref().unwrap().channel_type_features;
+		if offered {
+			crate::chain::package::weight_revoked_offered_htlc(features)
+		} else {
+			crate::chain::package::weight_revoked_received_htlc(features)
+		}
 	}
 }
 
