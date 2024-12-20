@@ -880,6 +880,20 @@ pub trait ChannelSigner {
 	/// Return the total weight of the witness required to spend the justice path of a HTLC output in a
 	/// commitment transaction.
 	fn get_htlc_punishment_witness_weight(&self, offered: bool) -> u64;
+
+	/// Sweep a HTLC output on a counterparty commitment transaction with the preimage
+	fn sweep_counterparty_offered_htlc_output(
+		&self, sweep_tx: &Transaction, input: usize, amount: u64,
+		secp_ctx: &Secp256k1<secp256k1::All>, per_commitment_point: &PublicKey,
+		htlc: &HTLCOutputInCommitment, preimage: &PaymentPreimage,
+	) -> Result<Transaction, ()>;
+
+	/// Sweep a HTLC output on a counterparty commitment transaction that timed out
+	fn sweep_counterparty_received_htlc_output(
+		&self, sweep_tx: &Transaction, input: usize, amount: u64,
+		secp_ctx: &Secp256k1<secp256k1::All>, per_commitment_point: &PublicKey,
+		htlc: &HTLCOutputInCommitment,
+	) -> Result<Transaction, ()>;
 }
 
 /// Specifies the recipient of an invoice.
@@ -1586,6 +1600,70 @@ impl ChannelSigner for InMemorySigner {
 		} else {
 			crate::chain::package::weight_revoked_received_htlc(features)
 		}
+	}
+
+	fn sweep_counterparty_offered_htlc_output(
+		&self, sweep_tx: &Transaction, input: usize, amount: u64,
+		secp_ctx: &Secp256k1<secp256k1::All>, per_commitment_point: &PublicKey,
+		htlc: &HTLCOutputInCommitment, preimage: &PaymentPreimage,
+	) -> Result<Transaction, ()> {
+		let params = self.channel_parameters.as_ref().unwrap().as_counterparty_broadcastable();
+		let keys = TxCreationKeys::from_channel_static_keys(
+			per_commitment_point,
+			params.broadcaster_pubkeys(),
+			params.countersignatory_pubkeys(),
+			secp_ctx,
+		);
+		let witness_script =
+			chan_utils::get_htlc_redeemscript(htlc, params.channel_type_features(), &keys);
+		let sig = EcdsaChannelSigner::sign_counterparty_htlc_transaction(
+			self,
+			sweep_tx,
+			input,
+			amount,
+			per_commitment_point,
+			htlc,
+			secp_ctx,
+		)?;
+		let mut sweep_tx = sweep_tx.clone();
+		let mut ser_sig = sig.serialize_der().to_vec();
+		ser_sig.push(EcdsaSighashType::All as u8);
+		sweep_tx.input[input].witness.push(ser_sig);
+		sweep_tx.input[input].witness.push(preimage.0.to_vec());
+		sweep_tx.input[input].witness.push(witness_script.clone().into_bytes());
+		Ok(sweep_tx)
+	}
+
+	fn sweep_counterparty_received_htlc_output(
+		&self, sweep_tx: &Transaction, input: usize, amount: u64,
+		secp_ctx: &Secp256k1<secp256k1::All>, per_commitment_point: &PublicKey,
+		htlc: &HTLCOutputInCommitment,
+	) -> Result<Transaction, ()> {
+		let params = self.channel_parameters.as_ref().unwrap().as_counterparty_broadcastable();
+		let keys = TxCreationKeys::from_channel_static_keys(
+			per_commitment_point,
+			params.broadcaster_pubkeys(),
+			params.countersignatory_pubkeys(),
+			secp_ctx,
+		);
+		let witness_script =
+			chan_utils::get_htlc_redeemscript(htlc, params.channel_type_features(), &keys);
+		let sig = EcdsaChannelSigner::sign_counterparty_htlc_transaction(
+			self,
+			sweep_tx,
+			input,
+			amount,
+			per_commitment_point,
+			htlc,
+			secp_ctx,
+		)?;
+		let mut sweep_tx = sweep_tx.clone();
+		let mut ser_sig = sig.serialize_der().to_vec();
+		ser_sig.push(EcdsaSighashType::All as u8);
+		sweep_tx.input[input].witness.push(ser_sig);
+		sweep_tx.input[input].witness.push(vec![]);
+		sweep_tx.input[input].witness.push(witness_script.clone().into_bytes());
+		Ok(sweep_tx)
 	}
 }
 

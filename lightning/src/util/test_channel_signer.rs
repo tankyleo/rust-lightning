@@ -256,6 +256,32 @@ impl ChannelSigner for TestChannelSigner {
 	fn get_htlc_punishment_witness_weight(&self, offered: bool) -> u64 {
 		self.inner.get_htlc_punishment_witness_weight(offered)
 	}
+
+	/// Sweep a HTLC output on a counterparty commitment transaction with the preimage
+	fn sweep_counterparty_offered_htlc_output(
+		&self, sweep_tx: &Transaction, input: usize, amount: u64,
+		secp_ctx: &Secp256k1<secp256k1::All>, per_commitment_point: &PublicKey,
+		htlc: &HTLCOutputInCommitment, preimage: &PaymentPreimage,
+	) -> Result<Transaction, ()> {
+		#[cfg(test)]
+		if !self.is_signer_available(SignerOp::SignCounterpartyHtlcTransaction) {
+			return Err(());
+		}
+		self.inner.sweep_counterparty_offered_htlc_output(sweep_tx, input, amount, secp_ctx, per_commitment_point, htlc, preimage)
+	}
+
+	/// Sweep a HTLC output on a counterparty commitment transaction that timed out
+	fn sweep_counterparty_received_htlc_output(
+		&self, sweep_tx: &Transaction, input: usize, amount: u64,
+		secp_ctx: &Secp256k1<secp256k1::All>, per_commitment_point: &PublicKey,
+		htlc: &HTLCOutputInCommitment,
+	) -> Result<Transaction, ()> {
+		#[cfg(test)]
+		if !self.is_signer_available(SignerOp::SignCounterpartyHtlcTransaction) {
+			return Err(());
+		}
+		self.inner.sweep_counterparty_received_htlc_output(sweep_tx, input, amount, secp_ctx, per_commitment_point, htlc)
+	}
 }
 
 impl EcdsaChannelSigner for TestChannelSigner {
