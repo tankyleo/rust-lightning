@@ -16,7 +16,7 @@ use bitcoin::amount::Amount;
 use bitcoin::locktime::absolute::LockTime;
 use bitcoin::transaction::Transaction;
 use bitcoin::transaction::OutPoint as BitcoinOutPoint;
-use bitcoin::script::{Script, ScriptBuf};
+use bitcoin::script::ScriptBuf;
 use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::hashes::sha256::Hash as Sha256;
 use bitcoin::hash_types::{Txid, BlockHash};
@@ -1194,9 +1194,8 @@ impl<ChannelSigner: EcdsaChannelSigner> OnchainTxHandler<ChannelSigner> {
 	}
 
 	#[cfg(any(test, feature="unsafe_revoked_tx_signing"))]
-	pub(crate) fn get_fully_signed_copy_holder_tx(&mut self, funding_redeemscript: &Script) -> Transaction {
-		let sig = self.signer.unsafe_sign_holder_commitment(&self.holder_commitment, &self.secp_ctx).expect("sign holder commitment");
-		self.holder_commitment.add_holder_sig(funding_redeemscript, sig)
+	pub(crate) fn get_fully_signed_copy_holder_tx(&mut self) -> Transaction {
+		self.signer.unsafe_sign_holder_commitment(&self.holder_commitment, &self.secp_ctx).expect("sign holder commitment")
 	}
 
 	pub(crate) fn get_maybe_signed_htlc_tx(&mut self, outp: &::bitcoin::OutPoint, preimage: &Option<PaymentPreimage>) -> Option<MaybeSignedTransaction> {
