@@ -1187,9 +1187,8 @@ impl<ChannelSigner: EcdsaChannelSigner> OnchainTxHandler<ChannelSigner> {
 		&self.holder_commitment.trust().built_transaction().transaction
 	}
 
-	pub(crate) fn get_maybe_signed_holder_tx(&mut self, funding_redeemscript: &Script) -> MaybeSignedTransaction {
+	pub(crate) fn get_maybe_signed_holder_tx(&mut self) -> MaybeSignedTransaction {
 		let tx = self.signer.sign_holder_commitment(&self.holder_commitment, &self.secp_ctx)
-			.map(|sig| self.holder_commitment.add_holder_sig(funding_redeemscript, sig))
 			.unwrap_or_else(|_| self.get_unsigned_holder_commitment_tx().clone());
 		MaybeSignedTransaction(tx)
 	}
