@@ -894,6 +894,9 @@ pub trait ChannelSigner {
 		secp_ctx: &Secp256k1<secp256k1::All>, per_commitment_point: &PublicKey,
 		htlc: &HTLCOutputInCommitment,
 	) -> Result<Transaction, ()>;
+
+	/// Weight of the witness that sweeps htlc outputs in counterparty commitment transactions
+	fn counterparty_htlc_output_witness_weight(&self, offered: bool) -> u64;
 }
 
 /// Specifies the recipient of an invoice.
@@ -1664,6 +1667,16 @@ impl ChannelSigner for InMemorySigner {
 		sweep_tx.input[input].witness.push(vec![]);
 		sweep_tx.input[input].witness.push(witness_script.clone().into_bytes());
 		Ok(sweep_tx)
+	}
+
+	fn counterparty_htlc_output_witness_weight(&self, offered: bool) -> u64 {
+		use crate::chain::package::{weight_offered_htlc, weight_received_htlc};
+		let params = self.channel_parameters.as_ref().unwrap().as_counterparty_broadcastable();
+		if offered {
+			weight_offered_htlc(params.channel_type_features())
+		} else {
+			weight_received_htlc(params.channel_type_features())
+		}
 	}
 }
 

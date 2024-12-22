@@ -282,6 +282,10 @@ impl ChannelSigner for TestChannelSigner {
 		}
 		self.inner.sweep_counterparty_received_htlc_output(sweep_tx, input, amount, secp_ctx, per_commitment_point, htlc)
 	}
+
+	fn counterparty_htlc_output_witness_weight(&self, offered: bool) -> u64 {
+		self.inner.counterparty_htlc_output_witness_weight(offered)
+	}
 }
 
 impl EcdsaChannelSigner for TestChannelSigner {
