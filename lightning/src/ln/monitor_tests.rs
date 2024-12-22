@@ -11,7 +11,7 @@
 
 use alloc::collections::BTreeMap;
 
-use crate::sign::{ecdsa::EcdsaChannelSigner, ChannelSigner, OutputSpender, SpendableOutputDescriptor};
+use crate::sign::{ChannelSigner, OutputSpender, SpendableOutputDescriptor};
 use crate::chain::channelmonitor::{ANTI_REORG_DELAY, LATENCY_GRACE_PERIOD_BLOCKS, Balance, BalanceSource, ChannelMonitorUpdateStep};
 use crate::chain::transaction::OutPoint;
 use crate::chain::chaininterface::{ConfirmationTarget, LowerBoundedFeeEstimator, compute_feerate_sat_per_1000_weight};

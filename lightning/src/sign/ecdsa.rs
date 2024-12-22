@@ -13,7 +13,7 @@ use crate::types::payment::PaymentPreimage;
 #[allow(unused_imports)]
 use crate::prelude::*;
 
-use crate::sign::{ChannelSigner, HTLCDescriptor};
+use crate::sign::ChannelSigner;
 
 /// A trait to sign Lightning channel transactions as described in
 /// [BOLT 3](https://github.com/lightning/bolts/blob/master/03-transactions.md).
