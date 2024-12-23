@@ -948,6 +948,10 @@ pub trait ChannelSigner {
 		&self, htlc_tx: &Transaction, input: usize, htlc_descriptor: &HTLCDescriptor,
 		secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<Transaction, ()>;
+
+	/// Gets the weight of the witness of the input that spends the htlc output of a
+	/// holder commitment transaction
+	fn get_holder_htlc_transaction_witness_weight(&self, offered: bool) -> u64;
 }
 
 /// Specifies the recipient of an invoice.
@@ -1799,6 +1803,14 @@ impl ChannelSigner for InMemorySigner {
 		let mut signed_tx = htlc_tx.clone();
 		signed_tx.input[input].witness = witness;
 		Ok(signed_tx)
+	}
+
+	fn get_holder_htlc_transaction_witness_weight(&self, offered: bool) -> u64 {
+		if offered {
+			chan_utils::HTLC_SUCCESS_INPUT_ANCHOR_WITNESS_WEIGHT
+		} else {
+			chan_utils::HTLC_TIMEOUT_INPUT_ANCHOR_WITNESS_WEIGHT
+		}
 	}
 }
 

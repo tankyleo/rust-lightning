@@ -350,6 +350,9 @@ impl ChannelSigner for TestChannelSigner {
 		Ok(self.inner.sign_holder_htlc_transaction(htlc_tx, input, htlc_descriptor, secp_ctx).unwrap())
 	}
 
+	fn get_holder_htlc_transaction_witness_weight(&self, offered: bool) -> u64 {
+		self.inner.get_holder_htlc_transaction_witness_weight(offered)
+	}
 }
 
 impl EcdsaChannelSigner for TestChannelSigner {
