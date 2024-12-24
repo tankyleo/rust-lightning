@@ -3182,14 +3182,9 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			script_pubkey: broadcaster_payment_script,
 			value: Amount::from_sat(value_to_a as u64),
 		};
-		let counterparty_payment_script = self.holder_signer.as_ref().get_counterparty_payment_script(!local);
-		let counterparty_txout = TxOut {
-			script_pubkey: counterparty_payment_script,
-			value: Amount::from_sat(value_to_b as u64),
-		};
 		let tx = CommitmentTransaction::new_with_auxiliary_htlc_data(commitment_number,
 		                                                             broadcaster_txout,
-		                                                             counterparty_txout,
+		                                                             value_to_b as u64,
 		                                                             funding_pubkey_a,
 		                                                             funding_pubkey_b,
 		                                                             keys.clone(),

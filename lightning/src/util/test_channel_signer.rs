@@ -495,12 +495,10 @@ impl Writeable for TestChannelSigner {
 impl TestChannelSigner {
 	fn verify_counterparty_commitment_tx<'a>(&self, commitment_tx: &'a CommitmentTransaction, secp_ctx: &Secp256k1<secp256k1::All>) -> TrustedCommitmentTransaction<'a> {
 		let broadcaster_spk = self.get_revokeable_spk(false, commitment_tx.commitment_number(), &commitment_tx.per_commitment_point(), secp_ctx);
-		let counterparty_spk = self.get_counterparty_payment_script(true);
 		commitment_tx.verify(
 			&self.inner.get_channel_parameters().unwrap().as_counterparty_broadcastable(),
 			self.inner.counterparty_pubkeys().unwrap(), self.inner.pubkeys(), secp_ctx,
 			broadcaster_spk,
-			counterparty_spk,
 			self,
 			false,
 		).expect("derived different per-tx keys or built transaction")
@@ -508,12 +506,10 @@ impl TestChannelSigner {
 
 	fn verify_holder_commitment_tx<'a>(&self, commitment_tx: &'a CommitmentTransaction, secp_ctx: &Secp256k1<secp256k1::All>) -> TrustedCommitmentTransaction<'a> {
 		let broadcaster_spk = self.get_revokeable_spk(true, commitment_tx.commitment_number(), &commitment_tx.per_commitment_point(), secp_ctx);
-		let counterparty_spk = self.get_counterparty_payment_script(false);
 		commitment_tx.verify(
 			&self.inner.get_channel_parameters().unwrap().as_holder_broadcastable(),
 			self.inner.pubkeys(), self.inner.counterparty_pubkeys().unwrap(), secp_ctx,
 			broadcaster_spk,
-			counterparty_spk,
 			self,
 			true,
 		).expect("derived different per-tx keys or built transaction")
