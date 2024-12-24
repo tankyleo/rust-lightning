@@ -1103,7 +1103,7 @@ impl_writeable_tlv_based!(HolderCommitmentTransaction, {
 impl HolderCommitmentTransaction {
 	#[cfg(test)]
 	pub fn dummy(htlcs: &mut Vec<(HTLCOutputInCommitment, ())>) -> Self {
-		use crate::sign::{InMemorySigner, ChannelSigner};
+		use crate::sign::InMemorySigner;
 		let secp_ctx = Secp256k1::new();
 		let dummy_sec = SecretKey::from_slice(&[42; 32]).unwrap();
 		let dummy_key = PublicKey::from_secret_key(&secp_ctx, &dummy_sec);
