@@ -3195,7 +3195,11 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		                                                             keys.clone(),
 		                                                             feerate_per_kw,
 		                                                             &mut included_non_dust_htlcs,
-		                                                             &channel_parameters
+		                                                             &channel_parameters,
+		                                                             // TODO: this is weird!
+		                                                             self.holder_signer.as_ecdsa().unwrap(),
+																	 &self.secp_ctx,
+																	 local,
 		);
 		let mut htlcs_included = included_non_dust_htlcs;
 		// The unwrap is safe, because all non-dust HTLCs have been assigned an output index

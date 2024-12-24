@@ -3428,7 +3428,7 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 		CommitmentTransaction::new_with_auxiliary_htlc_data(commitment_number,
 			to_broadcaster_txout, counterparty_txout, broadcaster_funding_key,
 			countersignatory_funding_key, keys, feerate_per_kw, &mut nondust_htlcs,
-			channel_parameters)
+			channel_parameters, &self.onchain_tx_handler.signer, &self.onchain_tx_handler.secp_ctx, false)
 	}
 
 	fn counterparty_commitment_txs_from_update(&self, update: &ChannelMonitorUpdate) -> Vec<CommitmentTransaction> {

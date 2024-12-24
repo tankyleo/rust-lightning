@@ -353,6 +353,10 @@ impl ChannelSigner for TestChannelSigner {
 	fn get_holder_htlc_transaction_witness_weight(&self, offered: bool) -> u64 {
 		self.inner.get_holder_htlc_transaction_witness_weight(offered)
 	}
+
+	fn get_htlc_spk(&self, htlc: &HTLCOutputInCommitment, holder_tx: bool, per_commitment_point: &PublicKey, secp_ctx: &Secp256k1<secp256k1::All>) -> ScriptBuf {
+		self.inner.get_htlc_spk(htlc, holder_tx, per_commitment_point, secp_ctx)
+	}
 }
 
 impl EcdsaChannelSigner for TestChannelSigner {
@@ -497,6 +501,8 @@ impl TestChannelSigner {
 			self.inner.counterparty_pubkeys().unwrap(), self.inner.pubkeys(), secp_ctx,
 			broadcaster_spk,
 			counterparty_spk,
+			self,
+			false,
 		).expect("derived different per-tx keys or built transaction")
 	}
 
@@ -508,6 +514,8 @@ impl TestChannelSigner {
 			self.inner.pubkeys(), self.inner.counterparty_pubkeys().unwrap(), secp_ctx,
 			broadcaster_spk,
 			counterparty_spk,
+			self,
+			true,
 		).expect("derived different per-tx keys or built transaction")
 	}
 }

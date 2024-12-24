@@ -952,6 +952,12 @@ pub trait ChannelSigner {
 	/// Gets the weight of the witness of the input that spends the htlc output of a
 	/// holder commitment transaction
 	fn get_holder_htlc_transaction_witness_weight(&self, offered: bool) -> u64;
+
+	/// Gets the script pubkey of a htlc output in a commitment transaction
+	fn get_htlc_spk(
+		&self, htlc: &HTLCOutputInCommitment, is_holder_tx: bool, per_commitment_point: &PublicKey,
+		secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> ScriptBuf;
 }
 
 /// Specifies the recipient of an invoice.
@@ -1811,6 +1817,25 @@ impl ChannelSigner for InMemorySigner {
 		} else {
 			chan_utils::HTLC_TIMEOUT_INPUT_ANCHOR_WITNESS_WEIGHT
 		}
+	}
+
+	fn get_htlc_spk(
+		&self, htlc: &HTLCOutputInCommitment, is_holder_tx: bool, per_commitment_point: &PublicKey,
+		secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> ScriptBuf {
+		let params = if is_holder_tx {
+			self.channel_parameters.as_ref().unwrap().as_holder_broadcastable()
+		} else {
+			self.channel_parameters.as_ref().unwrap().as_counterparty_broadcastable()
+		};
+		let keys = TxCreationKeys::from_channel_static_keys(
+			per_commitment_point,
+			params.broadcaster_pubkeys(),
+			params.countersignatory_pubkeys(),
+			secp_ctx,
+		);
+		let script = chan_utils::get_htlc_redeemscript(htlc, params.channel_type_features(), &keys);
+		script.to_p2wsh()
 	}
 }
 
