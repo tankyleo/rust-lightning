@@ -42,9 +42,9 @@ use crate::chain::transaction::OutPoint;
 use crate::crypto::utils::{hkdf_extract_expand_twice, sign, sign_with_aux_rand};
 use crate::ln::chan_utils;
 use crate::ln::chan_utils::{
-	get_counterparty_payment_script, get_revokeable_redeemscript, make_funding_redeemscript,
-	ChannelPublicKeys, ChannelTransactionParameters, ClosingTransaction, CommitmentTransaction,
-	HTLCOutputInCommitment, HolderCommitmentTransaction,
+	get_anchor_redeemscript, get_counterparty_payment_script, get_revokeable_redeemscript,
+	make_funding_redeemscript, ChannelPublicKeys, ChannelTransactionParameters, ClosingTransaction,
+	CommitmentTransaction, HTLCOutputInCommitment, HolderCommitmentTransaction,
 };
 use crate::ln::channel::ANCHOR_OUTPUT_VALUE_SATOSHI;
 use crate::ln::channel_keys::{
@@ -958,6 +958,12 @@ pub trait ChannelSigner {
 		&self, htlc: &HTLCOutputInCommitment, is_holder_tx: bool, per_commitment_point: &PublicKey,
 		secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> ScriptBuf;
+
+	/// Get the broadcaster anchor output of a commit tx
+	fn get_broadcaster_anchor_txout(&self, is_holder_tx: bool) -> Option<TxOut>;
+
+	/// Get the counterparty anchor output of a commit tx
+	fn get_counterparty_anchor_txout(&self, is_holder_tx: bool) -> Option<TxOut>;
 }
 
 /// Specifies the recipient of an invoice.
@@ -1836,6 +1842,54 @@ impl ChannelSigner for InMemorySigner {
 		);
 		let script = chan_utils::get_htlc_redeemscript(htlc, params.channel_type_features(), &keys);
 		script.to_p2wsh()
+	}
+
+	fn get_broadcaster_anchor_txout(&self, is_holder_tx: bool) -> Option<TxOut> {
+		if self
+			.channel_parameters
+			.as_ref()
+			.unwrap()
+			.channel_type_features
+			.supports_anchors_zero_fee_htlc_tx()
+		{
+			let params = if is_holder_tx {
+				self.channel_parameters.as_ref().unwrap().as_holder_broadcastable()
+			} else {
+				self.channel_parameters.as_ref().unwrap().as_counterparty_broadcastable()
+			};
+			let broadcaster_funding_key = params.broadcaster_pubkeys().funding_pubkey;
+			let anchor_script = get_anchor_redeemscript(&broadcaster_funding_key);
+			Some(TxOut {
+				script_pubkey: anchor_script.to_p2wsh(),
+				value: Amount::from_sat(ANCHOR_OUTPUT_VALUE_SATOSHI),
+			})
+		} else {
+			None
+		}
+	}
+
+	fn get_counterparty_anchor_txout(&self, is_holder_tx: bool) -> Option<TxOut> {
+		if self
+			.channel_parameters
+			.as_ref()
+			.unwrap()
+			.channel_type_features
+			.supports_anchors_zero_fee_htlc_tx()
+		{
+			let params = if is_holder_tx {
+				self.channel_parameters.as_ref().unwrap().as_holder_broadcastable()
+			} else {
+				self.channel_parameters.as_ref().unwrap().as_counterparty_broadcastable()
+			};
+			let counterparty_funding_key = params.countersignatory_pubkeys().funding_pubkey;
+			let anchor_script = get_anchor_redeemscript(&counterparty_funding_key);
+			Some(TxOut {
+				script_pubkey: anchor_script.to_p2wsh(),
+				value: Amount::from_sat(ANCHOR_OUTPUT_VALUE_SATOSHI),
+			})
+		} else {
+			None
+		}
 	}
 }
 
