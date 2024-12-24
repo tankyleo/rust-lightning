@@ -3415,14 +3415,9 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 			&broadcaster_keys, &countersignatory_keys, &self.onchain_tx_handler.secp_ctx);
 		let channel_parameters =
 			&self.onchain_tx_handler.channel_transaction_parameters.as_counterparty_broadcastable();
-		let to_broadcaster_spk = self.onchain_tx_handler.signer.get_revokeable_spk(false, commitment_number, their_per_commitment_point, &self.onchain_tx_handler.secp_ctx);
-		let to_broadcaster_txout = TxOut {
-			script_pubkey: to_broadcaster_spk,
-			value: Amount::from_sat(to_broadcaster_value),
-		};
 
 		CommitmentTransaction::new_with_auxiliary_htlc_data(commitment_number,
-			to_broadcaster_txout, to_countersignatory_value, broadcaster_funding_key,
+			to_broadcaster_value, to_countersignatory_value, broadcaster_funding_key,
 			countersignatory_funding_key, keys, feerate_per_kw, &mut nondust_htlcs,
 			channel_parameters, &self.onchain_tx_handler.signer, &self.onchain_tx_handler.secp_ctx, false)
 	}

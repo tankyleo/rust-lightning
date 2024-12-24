@@ -15,7 +15,7 @@ use bitcoin::sighash;
 use bitcoin::sighash::EcdsaSighashType;
 use bitcoin::consensus::encode;
 use bitcoin::absolute::LockTime;
-use bitcoin::{TxOut, Weight};
+use bitcoin::Weight;
 
 use bitcoin::hashes::Hash;
 use bitcoin::hashes::sha256::Hash as Sha256;
@@ -3177,13 +3177,8 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		let channel_parameters =
 			if local { self.channel_transaction_parameters.as_holder_broadcastable() }
 			else { self.channel_transaction_parameters.as_counterparty_broadcastable() };
-		let broadcaster_payment_script = self.holder_signer.as_ref().get_revokeable_spk(local, commitment_number, &keys.per_commitment_point, &self.secp_ctx);
-		let broadcaster_txout = TxOut {
-			script_pubkey: broadcaster_payment_script,
-			value: Amount::from_sat(value_to_a as u64),
-		};
 		let tx = CommitmentTransaction::new_with_auxiliary_htlc_data(commitment_number,
-		                                                             broadcaster_txout,
+		                                                             value_to_a as u64,
 		                                                             value_to_b as u64,
 		                                                             funding_pubkey_a,
 		                                                             funding_pubkey_b,

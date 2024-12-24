@@ -766,15 +766,10 @@ fn test_update_fee_that_funder_cannot_afford() {
 			|phase| if let ChannelPhase::Funded(chan) = phase { Some(chan) } else { None }
 		).flatten().unwrap();
 		let local_chan_signer = local_chan.get_signer();
-		let broadcaster_payment_script = local_chan_signer.as_ref().get_revokeable_spk(false, INITIAL_COMMITMENT_NUMBER - 1, &commit_tx_keys.per_commitment_point, &secp_ctx);
-		let broadcaster_txout = TxOut {
-			script_pubkey: broadcaster_payment_script,
-			value: Amount::from_sat(push_sats),
-		};
 		let mut htlcs: Vec<(HTLCOutputInCommitment, ())> = vec![];
 		let commitment_tx = CommitmentTransaction::new_with_auxiliary_htlc_data(
 			INITIAL_COMMITMENT_NUMBER - 1,
-			broadcaster_txout,
+			push_sats,
 			channel_value - push_sats - commit_tx_fee_msat(non_buffer_feerate + 4, 0, &channel_type_features) / 1000,
 			local_funding, remote_funding,
 			commit_tx_keys.clone(),
@@ -1529,14 +1524,9 @@ fn test_fee_spike_violation_fails_htlc() {
 			|phase| if let ChannelPhase::Funded(chan) = phase { Some(chan) } else { None }
 		).flatten().unwrap();
 		let local_chan_signer = local_chan.get_signer();
-		let broadcaster_payment_script = local_chan_signer.as_ref().get_revokeable_spk(false, commitment_number, &commit_tx_keys.per_commitment_point, &secp_ctx);
-		let broadcaster_txout = TxOut {
-			script_pubkey: broadcaster_payment_script,
-			value: Amount::from_sat(95000),
-		};
 		let commitment_tx = CommitmentTransaction::new_with_auxiliary_htlc_data(
 			commitment_number,
-			broadcaster_txout,
+			95000,
 			local_chan_balance,
 			local_funding, remote_funding,
 			commit_tx_keys.clone(),
