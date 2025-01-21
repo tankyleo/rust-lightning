@@ -286,6 +286,7 @@ struct HolderSignedTx {
 	htlc_outputs: Vec<(HTLCOutputInCommitment, Option<Signature>, Option<HTLCSource>)>,
 	to_self_value_sat: u64,
 	feerate_per_kw: u32,
+	revokeable_spk: ScriptBuf,
 }
 impl_writeable_tlv_based!(HolderSignedTx, {
 	(0, txid, required),
@@ -298,7 +299,8 @@ impl_writeable_tlv_based!(HolderSignedTx, {
 	(8, delayed_payment_key, required),
 	(10, per_commitment_point, required),
 	(12, feerate_per_kw, required),
-	(14, htlc_outputs, required_vec)
+	(14, htlc_outputs, required_vec),
+	(16, revokeable_spk, required),
 });
 
 impl HolderSignedTx {
@@ -1376,6 +1378,7 @@ impl<Signer: ChannelSigner> ChannelMonitor<Signer> {
 				htlc_outputs: Vec::new(), // There are never any HTLCs in the initial commitment transactions
 				to_self_value_sat: initial_holder_commitment_tx.to_broadcaster_value_sat(),
 				feerate_per_kw: trusted_tx.feerate_per_kw(),
+				revokeable_spk: trusted_tx.revokeable_spk(),
 			};
 			(holder_commitment_tx, trusted_tx.commitment_number())
 		};
@@ -2950,6 +2953,7 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 			htlc_outputs,
 			to_self_value_sat: holder_commitment_tx.to_broadcaster_value_sat(),
 			feerate_per_kw: trusted_tx.feerate_per_kw(),
+			revokeable_spk: trusted_tx.revokeable_spk(),
 		};
 		self.onchain_tx_handler.provide_latest_holder_tx(holder_commitment_tx);
 		mem::swap(&mut new_holder_commitment_tx, &mut self.current_holder_commitment_tx);
@@ -3047,21 +3051,21 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 		// holder commitment transactions.
 		if self.broadcasted_holder_revokable_script.is_some() {
 			let holder_commitment_tx = if self.current_holder_commitment_tx.txid == confirmed_spend_txid {
-				Some((&self.current_holder_commitment_tx, false))
+				Some(&self.current_holder_commitment_tx)
 			} else if let Some(prev_holder_commitment_tx) = &self.prev_holder_signed_commitment_tx {
 				if prev_holder_commitment_tx.txid == confirmed_spend_txid {
-					Some((prev_holder_commitment_tx, true))
+					Some(prev_holder_commitment_tx)
 				} else {
 					None
 				}
 			} else {
 				None
 			};
-			if let Some((holder_commitment_tx, is_previous_tx)) = holder_commitment_tx {
+			if let Some(holder_commitment_tx) = holder_commitment_tx {
 				// Assume that the broadcasted commitment transaction confirmed in the current best
 				// block. Even if not, its a reasonable metric for the bump criteria on the HTLC
 				// transactions.
-				let (claim_reqs, _) = self.get_broadcasted_holder_claims(&holder_commitment_tx, self.best_block.height, is_previous_tx);
+				let (claim_reqs, _) = self.get_broadcasted_holder_claims(&holder_commitment_tx, self.best_block.height);
 				let conf_target = self.closure_conf_target();
 				self.onchain_tx_handler.update_claims_view_from_requests(claim_reqs, self.best_block.height, self.best_block.height, broadcaster, conf_target, fee_estimator, logger);
 			}
@@ -3099,7 +3103,7 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 			// assuming it gets confirmed in the next block. Sadly, we have code which considers
 			// "not yet confirmed" things as discardable, so we cannot do that here.
 			let (mut new_outpoints, _) = self.get_broadcasted_holder_claims(
-				&self.current_holder_commitment_tx, self.best_block.height, false,
+				&self.current_holder_commitment_tx, self.best_block.height,
 			);
 			let unsigned_commitment_tx = self.onchain_tx_handler.get_unsigned_holder_commitment_tx();
 			let new_outputs = self.get_broadcasted_holder_watch_outputs(
@@ -3712,14 +3716,9 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 	// Returns (1) `PackageTemplate`s that can be given to the OnchainTxHandler, so that the handler can
 	// broadcast transactions claiming holder HTLC commitment outputs and (2) a holder revokable
 	// script so we can detect whether a holder transaction has been seen on-chain.
-	fn get_broadcasted_holder_claims(&self, holder_tx: &HolderSignedTx, conf_height: u32, is_previous_tx: bool) -> (Vec<PackageTemplate>, Option<(ScriptBuf, PublicKey, RevocationKey)>) {
+	fn get_broadcasted_holder_claims(&self, holder_tx: &HolderSignedTx, conf_height: u32) -> (Vec<PackageTemplate>, Option<(ScriptBuf, PublicKey, RevocationKey)>) {
 		let mut claim_requests = Vec::with_capacity(holder_tx.htlc_outputs.len());
-		let commitment_number = if is_previous_tx {
-			self.current_holder_commitment_number + 1
-		} else {
-			self.current_holder_commitment_number
-		};
-		let revokeable_spk = self.onchain_tx_handler.signer.get_revokeable_spk(true, commitment_number, &holder_tx.per_commitment_point, &self.onchain_tx_handler.secp_ctx);
+		let revokeable_spk = holder_tx.revokeable_spk.clone();
 		let broadcasted_holder_revokable_script = Some((revokeable_spk, holder_tx.per_commitment_point.clone(), holder_tx.revocation_key.clone()));
 
 		for &(ref htlc, _, _) in holder_tx.htlc_outputs.iter() {
@@ -3787,7 +3786,7 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 		if self.current_holder_commitment_tx.txid == commitment_txid {
 			is_holder_tx = true;
 			log_info!(logger, "Got broadcast of latest holder commitment tx {}, searching for available HTLCs to claim", commitment_txid);
-			let res = self.get_broadcasted_holder_claims(&self.current_holder_commitment_tx, height, false);
+			let res = self.get_broadcasted_holder_claims(&self.current_holder_commitment_tx, height);
 			let mut to_watch = self.get_broadcasted_holder_watch_outputs(&self.current_holder_commitment_tx, tx);
 			append_onchain_update!(res, to_watch);
 			fail_unbroadcast_htlcs!(self, "latest holder", commitment_txid, tx, height,
@@ -3797,7 +3796,7 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 			if holder_tx.txid == commitment_txid {
 				is_holder_tx = true;
 				log_info!(logger, "Got broadcast of previous holder commitment tx {}, searching for available HTLCs to claim", commitment_txid);
-				let res = self.get_broadcasted_holder_claims(holder_tx, height, true);
+				let res = self.get_broadcasted_holder_claims(holder_tx, height);
 				let mut to_watch = self.get_broadcasted_holder_watch_outputs(holder_tx, tx);
 				append_onchain_update!(res, to_watch);
 				fail_unbroadcast_htlcs!(self, "previous holder", commitment_txid, tx, height, block_hash,
