@@ -1800,6 +1800,7 @@ trait InitialRemoteCommitmentReceiver<SP: Deref> where SP::Target: SignerProvide
 		let counterparty_initial_commitment_tx = context.build_commitment_transaction(context.cur_counterparty_commitment_transaction_number, &counterparty_keys, false, false, logger).tx;
 		let counterparty_trusted_tx = counterparty_initial_commitment_tx.trust();
 		let counterparty_initial_bitcoin_tx = counterparty_trusted_tx.built_transaction();
+		let counterparty_tolocal_spk = counterparty_trusted_tx.revokeable_spk();
 
 		log_trace!(logger, "Initial counterparty tx for channel {} is: txid {} tx {}",
 			&context.channel_id(), counterparty_initial_bitcoin_tx.txid, encode::serialize_hex(&counterparty_initial_bitcoin_tx.transaction));
@@ -1843,7 +1844,7 @@ trait InitialRemoteCommitmentReceiver<SP: Deref> where SP::Target: SignerProvide
 			counterparty_initial_commitment_tx.feerate_per_kw(),
 			counterparty_initial_commitment_tx.to_broadcaster_value_sat(),
 			counterparty_initial_commitment_tx.to_countersignatory_value_sat(),
-			logger);
+			logger, counterparty_tolocal_spk);
 
 		context.cur_counterparty_commitment_transaction_number -= 1;
 
@@ -5235,7 +5236,7 @@ impl<SP: Deref> FundedChannel<SP> where
 		self.context.holder_signer.as_ref().validate_holder_commitment(&holder_commitment_tx, commitment_stats.outbound_htlc_preimages, &self.context.secp_ctx)
 			.map_err(|_| ChannelError::close("Failed to validate our commitment".to_owned()))?;
 
-		let mut htlcs_cloned: Vec<_> = commitment_stats.htlcs_included.iter().map(|htlc| (htlc.0.clone(), htlc.1.map(|h| h.clone()))).collect();
+		let mut htlcs_cloned: Vec<(HTLCOutputInCommitment, Option<HTLCSource>)> = commitment_stats.htlcs_included.iter().map(|htlc| (htlc.0.clone(), htlc.1.map(|h| h.clone()))).collect();
 
 		// If our counterparty updated the channel fee in this commitment transaction, check that
 		// they can actually afford the new fee now.
@@ -8148,6 +8149,7 @@ impl<SP: Deref> FundedChannel<SP> where
 				feerate_per_kw: Some(counterparty_commitment_tx.feerate_per_kw()),
 				to_broadcaster_value_sat: Some(counterparty_commitment_tx.to_broadcaster_value_sat()),
 				to_countersignatory_value_sat: Some(counterparty_commitment_tx.to_countersignatory_value_sat()),
+				tolocal_spk: counterparty_commitment_tx.trust().revokeable_spk(),
 			}],
 			channel_id: Some(self.context.channel_id()),
 		};

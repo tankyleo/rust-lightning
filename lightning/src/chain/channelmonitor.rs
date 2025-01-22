@@ -543,6 +543,7 @@ pub(crate) enum ChannelMonitorUpdateStep {
 		feerate_per_kw: Option<u32>,
 		to_broadcaster_value_sat: Option<u64>,
 		to_countersignatory_value_sat: Option<u64>,
+		tolocal_spk: ScriptBuf,
 	},
 	PaymentPreimage {
 		payment_preimage: PaymentPreimage,
@@ -594,6 +595,7 @@ impl_writeable_tlv_based_enum_upgradable!(ChannelMonitorUpdateStep,
 		(4, their_per_commitment_point, required),
 		(5, to_countersignatory_value_sat, option),
 		(6, htlc_outputs, required_vec),
+		(8, tolocal_spk, required),
 	},
 	(2, PaymentPreimage) => {
 		(0, payment_preimage, required),
@@ -893,6 +895,8 @@ pub(crate) struct ChannelMonitorImpl<Signer: ChannelSigner> {
 	/// the payment hash from `HTLCOutputInCommitment` to claim even a revoked commitment
 	/// transaction broadcast as we need to be able to construct the witness script in all cases.
 	counterparty_claimable_outpoints: HashMap<Txid, Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>>,
+	/// `to_local` outpoints
+	tolocal_claimable_outpoints: HashMap<Txid, ScriptBuf>,
 	/// We cannot identify HTLC-Success or HTLC-Timeout transactions by themselves on the chain.
 	/// Nor can we figure out their commitment numbers without the commitment transaction they are
 	/// spending. Thus, in order to claim them via revocation key, we track all the counterparty
@@ -1132,6 +1136,11 @@ impl<Signer: ChannelSigner> Writeable for ChannelMonitorImpl<Signer> {
 				serialize_htlc_in_commitment!(htlc_output);
 				htlc_source.as_ref().map(|b| b.as_ref()).write(writer)?;
 			}
+		}
+		writer.write_all(&(self.tolocal_claimable_outpoints.len() as u64).to_be_bytes())?;
+		for (ref txid, ref spk) in self.tolocal_claimable_outpoints.iter() {
+			writer.write_all(&txid[..])?;
+			spk.write(writer)?;
 		}
 
 		writer.write_all(&(self.counterparty_commitment_txn_on_chain.len() as u64).to_be_bytes())?;
@@ -1416,6 +1425,7 @@ impl<Signer: ChannelSigner> ChannelMonitor<Signer> {
 
 			commitment_secrets: CounterpartyCommitmentSecrets::new(),
 			counterparty_claimable_outpoints: new_hash_map(),
+			tolocal_claimable_outpoints: new_hash_map(),
 			counterparty_commitment_txn_on_chain: new_hash_map(),
 			counterparty_hash_commitment_number: new_hash_map(),
 			counterparty_fulfilled_htlcs: new_hash_map(),
@@ -1466,7 +1476,7 @@ impl<Signer: ChannelSigner> ChannelMonitor<Signer> {
 	pub(crate) fn provide_initial_counterparty_commitment_tx<L: Deref>(
 		&self, txid: Txid, htlc_outputs: Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
 		commitment_number: u64, their_cur_per_commitment_point: PublicKey, feerate_per_kw: u32,
-		to_broadcaster_value_sat: u64, to_countersignatory_value_sat: u64, logger: &L,
+		to_broadcaster_value_sat: u64, to_countersignatory_value_sat: u64, logger: &L, tolocal_spk: ScriptBuf,
 	)
 	where L::Target: Logger
 	{
@@ -1474,7 +1484,7 @@ impl<Signer: ChannelSigner> ChannelMonitor<Signer> {
 		let logger = WithChannelMonitor::from_impl(logger, &*inner, None);
 		inner.provide_initial_counterparty_commitment_tx(txid,
 			htlc_outputs, commitment_number, their_cur_per_commitment_point, feerate_per_kw,
-			to_broadcaster_value_sat, to_countersignatory_value_sat, &logger);
+			to_broadcaster_value_sat, to_countersignatory_value_sat, &logger, tolocal_spk);
 	}
 
 	/// Informs this monitor of the latest counterparty (ie non-broadcastable) commitment transaction.
@@ -1489,11 +1499,12 @@ impl<Signer: ChannelSigner> ChannelMonitor<Signer> {
 		commitment_number: u64,
 		their_per_commitment_point: PublicKey,
 		logger: &L,
+		tolocal_spk: ScriptBuf,
 	) where L::Target: Logger {
 		let mut inner = self.inner.lock().unwrap();
 		let logger = WithChannelMonitor::from_impl(logger, &*inner, None);
 		inner.provide_latest_counterparty_commitment_tx(
-			txid, htlc_outputs, commitment_number, their_per_commitment_point, &logger)
+			txid, htlc_outputs, commitment_number, their_per_commitment_point, &logger, tolocal_spk)
 	}
 
 	#[cfg(test)]
@@ -2835,6 +2846,7 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 		&mut self, txid: Txid, htlc_outputs: Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
 		commitment_number: u64, their_per_commitment_point: PublicKey, feerate_per_kw: u32,
 		to_broadcaster_value: u64, to_countersignatory_value: u64, logger: &WithChannelMonitor<L>,
+		tolocal_spk: ScriptBuf,
 	) where L::Target: Logger {
 		self.initial_counterparty_commitment_info = Some((their_per_commitment_point.clone(),
 			feerate_per_kw, to_broadcaster_value, to_countersignatory_value));
@@ -2845,13 +2857,14 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 		}
 
 		self.provide_latest_counterparty_commitment_tx(txid, htlc_outputs, commitment_number,
-				their_per_commitment_point, logger);
+				their_per_commitment_point, logger, tolocal_spk);
 	}
 
 	fn provide_latest_counterparty_commitment_tx<L: Deref>(
 		&mut self, txid: Txid,
 		htlc_outputs: Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
 		commitment_number: u64, their_per_commitment_point: PublicKey, logger: &WithChannelMonitor<L>,
+		tolocal_claimable_spk: ScriptBuf,
 	) where L::Target: Logger {
 		// TODO: Encrypt the htlc_outputs data with the single-hash of the commitment transaction
 		// so that a remote monitor doesn't learn anything unless there is a malicious close.
@@ -2865,6 +2878,7 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 		self.prev_counterparty_commitment_txid = self.current_counterparty_commitment_txid.take();
 		self.current_counterparty_commitment_txid = Some(txid);
 		self.counterparty_claimable_outpoints.insert(txid, htlc_outputs.clone());
+		self.tolocal_claimable_outpoints.insert(txid, tolocal_claimable_spk);
 		self.current_counterparty_commitment_number = commitment_number;
 		//TODO: Merge this into the other per-counterparty-transaction output storage stuff
 		match self.their_cur_per_commitment_points {
@@ -3199,9 +3213,9 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 						ret = Err(());
 					}
 				}
-				ChannelMonitorUpdateStep::LatestCounterpartyCommitmentTXInfo { commitment_txid, htlc_outputs, commitment_number, their_per_commitment_point, .. } => {
+				ChannelMonitorUpdateStep::LatestCounterpartyCommitmentTXInfo { commitment_txid, htlc_outputs, commitment_number, their_per_commitment_point, tolocal_spk, .. } => {
 					log_trace!(logger, "Updating ChannelMonitor with latest counterparty commitment transaction info");
-					self.provide_latest_counterparty_commitment_tx(*commitment_txid, htlc_outputs.clone(), *commitment_number, *their_per_commitment_point, logger)
+					self.provide_latest_counterparty_commitment_tx(*commitment_txid, htlc_outputs.clone(), *commitment_number, *their_per_commitment_point, logger, tolocal_spk.clone())
 				},
 				ChannelMonitorUpdateStep::PaymentPreimage { payment_preimage, payment_info } => {
 					log_trace!(logger, "Updating ChannelMonitor with payment preimage");
@@ -3427,11 +3441,12 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 	fn counterparty_commitment_txs_from_update(&self, update: &ChannelMonitorUpdate) -> Vec<CommitmentTransaction> {
 		update.updates.iter().filter_map(|update| {
 			match update {
+				// TODO: must fix this ignore here - can you build the full commitment transaction back from just the update?
 				&ChannelMonitorUpdateStep::LatestCounterpartyCommitmentTXInfo { commitment_txid,
 					ref htlc_outputs, commitment_number, their_per_commitment_point,
 					feerate_per_kw: Some(feerate_per_kw),
 					to_broadcaster_value_sat: Some(to_broadcaster_value),
-					to_countersignatory_value_sat: Some(to_countersignatory_value) } => {
+					to_countersignatory_value_sat: Some(to_countersignatory_value), ref tolocal_spk } => {
 
 					let nondust_htlcs = htlc_outputs.iter().filter_map(|(htlc, _)| {
 						htlc.transaction_output_index.map(|_| (htlc.clone(), None))
@@ -3441,6 +3456,7 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 							&their_per_commitment_point, to_broadcaster_value,
 							to_countersignatory_value, feerate_per_kw, nondust_htlcs);
 
+					debug_assert_eq!(&commitment_tx.trust().revokeable_spk(), tolocal_spk);
 					debug_assert_eq!(commitment_tx.trust().txid(), commitment_txid);
 
 					Some(commitment_tx)
@@ -3510,21 +3526,22 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 			let secret = self.get_secret(commitment_number).unwrap();
 			let per_commitment_key = ignore_error!(SecretKey::from_slice(&secret));
 			let per_commitment_point = PublicKey::from_secret_key(&self.onchain_tx_handler.secp_ctx, &per_commitment_key);
-			let revokeable_spk = self.onchain_tx_handler.signer.get_revokeable_spk(false, commitment_number, &per_commitment_point, &self.onchain_tx_handler.secp_ctx);
 			let punishment_witness_weight = self.onchain_tx_handler.signer.get_punishment_witness_weight();
 
 			// First, process non-htlc outputs (to_holder & to_counterparty)
-			for (idx, outp) in tx.output.iter().enumerate() {
-				if outp.script_pubkey == revokeable_spk {
-					let revk_outp = RevokedOutput::build(per_commitment_point, per_commitment_key, outp.value, self.onchain_tx_handler.channel_type_features().supports_anchors_zero_fee_htlc_tx(), punishment_witness_weight);
-					let justice_package = PackageTemplate::build_package(
-						commitment_txid, idx as u32,
-						PackageSolvingData::RevokedOutput(revk_outp),
-						height + self.counterparty_commitment_params.on_counterparty_tx_csv as u32,
-					);
-					claimable_outpoints.push(justice_package);
-					to_counterparty_output_info =
-						Some((idx.try_into().expect("Txn can't have more than 2^32 outputs"), outp.value));
+			if let Some(rev_spk) = self.tolocal_claimable_outpoints.get(&commitment_txid) {
+				for (idx, outp) in tx.output.iter().enumerate() {
+					if &outp.script_pubkey == rev_spk {
+						let revk_outp = RevokedOutput::build(per_commitment_point, per_commitment_key, outp.value, self.onchain_tx_handler.channel_type_features().supports_anchors_zero_fee_htlc_tx(), punishment_witness_weight);
+						let justice_package = PackageTemplate::build_package(
+							commitment_txid, idx as u32,
+							PackageSolvingData::RevokedOutput(revk_outp),
+							height + self.counterparty_commitment_params.on_counterparty_tx_csv as u32,
+						);
+						claimable_outpoints.push(justice_package);
+						to_counterparty_output_info =
+							Some((idx.try_into().expect("Txn can't have more than 2^32 outputs"), outp.value));
+					}
 				}
 			}
 
@@ -3626,9 +3643,10 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 			} else { return (claimable_outpoints, to_counterparty_output_info); };
 
 		if let Some(transaction) = tx {
-			let revokeable_spk = self.onchain_tx_handler.signer.get_revokeable_spk(false, commitment_number, &per_commitment_point, &self.onchain_tx_handler.secp_ctx);
+			// unwrap because we are sure to be looking at a counterparty commitment transaction
+			let revokeable_spk = self.tolocal_claimable_outpoints.get(&commitment_txid).unwrap();
 			for (idx, outp) in transaction.output.iter().enumerate() {
-				if outp.script_pubkey == revokeable_spk {
+				if &outp.script_pubkey == revokeable_spk {
 					to_counterparty_output_info =
 						Some((idx.try_into().expect("Can't have > 2^32 outputs"), outp.value));
 				}
@@ -4815,6 +4833,15 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 				return Err(DecodeError::InvalidValue);
 			}
 		}
+		let tolocal_claimable_outpoints_len: u64 = Readable::read(reader)?;
+		let mut tolocal_claimable_outpoints = hash_map_with_capacity(cmp::min(tolocal_claimable_outpoints_len as usize, MAX_ALLOC_SIZE / 64));
+		for _ in 0..tolocal_claimable_outpoints_len {
+			let txid: Txid = Readable::read(reader)?;
+			let spk: ScriptBuf = Readable::read(reader)?;
+			if tolocal_claimable_outpoints.insert(txid, spk).is_some() {
+				return Err(DecodeError::InvalidValue);
+			}
+		}
 
 		let counterparty_commitment_txn_on_chain_len: u64 = Readable::read(reader)?;
 		let mut counterparty_commitment_txn_on_chain = hash_map_with_capacity(cmp::min(counterparty_commitment_txn_on_chain_len as usize, MAX_ALLOC_SIZE / 32));
@@ -5014,6 +5041,7 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 
 			commitment_secrets,
 			counterparty_claimable_outpoints,
+			tolocal_claimable_outpoints,
 			counterparty_commitment_txn_on_chain,
 			counterparty_hash_commitment_number,
 			counterparty_fulfilled_htlcs: counterparty_fulfilled_htlcs.unwrap(),
@@ -5289,9 +5317,9 @@ mod tests {
 		monitor.provide_latest_holder_commitment_tx(dummy_commitment_tx.clone(),
 			htlcs.into_iter().map(|(htlc, _)| (htlc, Some(dummy_sig), None)).collect()).unwrap();
 		monitor.provide_latest_counterparty_commitment_tx(Txid::from_byte_array(Sha256::hash(b"1").to_byte_array()),
-			preimages_slice_to_htlc_outputs!(preimages[5..15]), 281474976710655, dummy_key, &logger);
+			preimages_slice_to_htlc_outputs!(preimages[5..15]), 281474976710655, dummy_key, &logger, dummy_commitment_tx.trust().revokeable_spk());
 		monitor.provide_latest_counterparty_commitment_tx(Txid::from_byte_array(Sha256::hash(b"2").to_byte_array()),
-			preimages_slice_to_htlc_outputs!(preimages[15..20]), 281474976710654, dummy_key, &logger);
+			preimages_slice_to_htlc_outputs!(preimages[15..20]), 281474976710654, dummy_key, &logger, dummy_commitment_tx.trust().revokeable_spk());
 		for &(ref preimage, ref hash) in preimages.iter() {
 			let bounded_fee_estimator = LowerBoundedFeeEstimator::new(&fee_estimator);
 			monitor.provide_payment_preimage_unsafe_legacy(
@@ -5308,7 +5336,7 @@ mod tests {
 		test_preimages_exist!(&preimages[15..20], monitor);
 
 		monitor.provide_latest_counterparty_commitment_tx(Txid::from_byte_array(Sha256::hash(b"3").to_byte_array()),
-			preimages_slice_to_htlc_outputs!(preimages[17..20]), 281474976710653, dummy_key, &logger);
+			preimages_slice_to_htlc_outputs!(preimages[17..20]), 281474976710653, dummy_key, &logger, dummy_commitment_tx.trust().revokeable_spk());
 
 		// Now provide a further secret, pruning preimages 15-17
 		secret[0..32].clone_from_slice(&<Vec<u8>>::from_hex("c7518c8ae4660ed02894df8976fa1a3659c1a8b4b5bec0c4b872abeba4cb8964").unwrap());
@@ -5318,7 +5346,7 @@ mod tests {
 		test_preimages_exist!(&preimages[17..20], monitor);
 
 		monitor.provide_latest_counterparty_commitment_tx(Txid::from_byte_array(Sha256::hash(b"4").to_byte_array()),
-			preimages_slice_to_htlc_outputs!(preimages[18..20]), 281474976710652, dummy_key, &logger);
+			preimages_slice_to_htlc_outputs!(preimages[18..20]), 281474976710652, dummy_key, &logger, dummy_commitment_tx.trust().revokeable_spk());
 
 		// Now update holder commitment tx info, pruning only element 18 as we still care about the
 		// previous commitment tx's preimages too
