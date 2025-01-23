@@ -1374,6 +1374,8 @@ pub struct CommitmentTransaction {
 	built: BuiltCommitmentTransaction,
 	// delayed spk
 	revokeable_spk: ScriptBuf,
+	// to_remote spk
+	to_remote_spk: ScriptBuf,
 }
 
 impl Eq for CommitmentTransaction {}
@@ -1386,7 +1388,8 @@ impl PartialEq for CommitmentTransaction {
 			self.htlcs == o.htlcs &&
 			self.channel_type_features == o.channel_type_features &&
 			self.keys == o.keys &&
-			self.revokeable_spk == o.revokeable_spk;
+			self.revokeable_spk == o.revokeable_spk &&
+			self.to_remote_spk == o.to_remote_spk;
 		if eq {
 			debug_assert_eq!(self.built.transaction, o.built.transaction);
 			debug_assert_eq!(self.built.txid, o.built.txid);
@@ -1410,6 +1413,7 @@ impl Writeable for CommitmentTransaction {
 			(14, legacy_deserialization_prevention_marker, option),
 			(15, self.channel_type_features, required),
 			(16, self.revokeable_spk, required),
+			(18, self.to_remote_spk, required),
 		});
 		Ok(())
 	}
@@ -1429,6 +1433,7 @@ impl Readable for CommitmentTransaction {
 			(14, _legacy_deserialization_prevention_marker, (option, explicit_type: ())),
 			(15, channel_type_features, option),
 			(16, revokeable_spk, required),
+			(18, to_remote_spk, required),
 		});
 
 		let mut additional_features = ChannelTypeFeatures::empty();
@@ -1446,6 +1451,7 @@ impl Readable for CommitmentTransaction {
 			htlcs,
 			channel_type_features: channel_type_features.unwrap_or(ChannelTypeFeatures::only_static_remote_key()),
 			revokeable_spk: revokeable_spk.0.unwrap(),
+			to_remote_spk: to_remote_spk.0.unwrap(),
 		})
 	}
 }
@@ -1466,7 +1472,7 @@ impl CommitmentTransaction {
 		let to_countersignatory_value_sat = Amount::from_sat(to_countersignatory_value_sat);
 
 		// Sort outputs and populate output indices while keeping track of the auxiliary data
-		let (outputs, htlcs, revokeable_spk) = Self::internal_build_outputs(&keys.per_commitment_point, to_broadcaster_value_sat, to_countersignatory_value_sat, htlcs_with_aux, signer, secp_ctx, is_holder_tx, commitment_number).unwrap();
+		let (outputs, htlcs, revokeable_spk, to_remote_spk) = Self::internal_build_outputs(&keys.per_commitment_point, to_broadcaster_value_sat, to_countersignatory_value_sat, htlcs_with_aux, signer, secp_ctx, is_holder_tx, commitment_number).unwrap();
 
 		let (obscured_commitment_transaction_number, txins) = Self::internal_build_inputs(commitment_number, channel_parameters);
 		let transaction = Self::make_transaction(obscured_commitment_transaction_number, txins, outputs);
@@ -1485,6 +1491,7 @@ impl CommitmentTransaction {
 				txid
 			},
 			revokeable_spk,
+			to_remote_spk,
 		}
 	}
 
@@ -1500,7 +1507,7 @@ impl CommitmentTransaction {
 		let (obscured_commitment_transaction_number, txins) = Self::internal_build_inputs(self.commitment_number, channel_parameters);
 
 		let mut htlcs_with_aux = self.htlcs.iter().map(|h| (h.clone(), ())).collect();
-		let (outputs, _, _) = Self::internal_build_outputs(per_commitment_point, self.to_broadcaster_value_sat, self.to_countersignatory_value_sat, &mut htlcs_with_aux, signer, secp_ctx, is_holder_tx, self.commitment_number)?;
+		let (outputs, _, _, _) = Self::internal_build_outputs(per_commitment_point, self.to_broadcaster_value_sat, self.to_countersignatory_value_sat, &mut htlcs_with_aux, signer, secp_ctx, is_holder_tx, self.commitment_number)?;
 
 		let transaction = Self::make_transaction(obscured_commitment_transaction_number, txins, outputs);
 		let txid = transaction.compute_txid();
@@ -1524,13 +1531,14 @@ impl CommitmentTransaction {
 	// - initial sorting of outputs / HTLCs in the constructor, in which case T is auxiliary data the
 	//   caller needs to have sorted together with the HTLCs so it can keep track of the output index
 	// - building of a bitcoin transaction during a verify() call, in which case T is just ()
-	fn internal_build_outputs<T, Signer: ChannelSigner>(per_commitment_point: &PublicKey, to_broadcaster_value_sat: Amount, to_countersignatory_value_sat: Amount, htlcs_with_aux: &mut Vec<(HTLCOutputInCommitment, T)>, signer: &Signer, secp_ctx: &Secp256k1<secp256k1::All>, is_holder_tx: bool, commitment_number: u64) -> Result<(Vec<TxOut>, Vec<HTLCOutputInCommitment>, ScriptBuf), ()> {
+	fn internal_build_outputs<T, Signer: ChannelSigner>(per_commitment_point: &PublicKey, to_broadcaster_value_sat: Amount, to_countersignatory_value_sat: Amount, htlcs_with_aux: &mut Vec<(HTLCOutputInCommitment, T)>, signer: &Signer, secp_ctx: &Secp256k1<secp256k1::All>, is_holder_tx: bool, commitment_number: u64) -> Result<(Vec<TxOut>, Vec<HTLCOutputInCommitment>, ScriptBuf, ScriptBuf), ()> {
 		let mut txouts: Vec<(TxOut, Option<&mut HTLCOutputInCommitment>)> = Vec::new();
 
+		let to_remote_spk = signer.get_counterparty_payment_script(is_holder_tx);
 		if to_countersignatory_value_sat > Amount::ZERO {
 			txouts.push((
 				TxOut {
-					script_pubkey: signer.get_counterparty_payment_script(is_holder_tx),
+					script_pubkey: to_remote_spk.clone(),
 					value: to_countersignatory_value_sat,
 				},
 				None,
@@ -1593,7 +1601,7 @@ impl CommitmentTransaction {
 			}
 			outputs.push(out.0);
 		}
-		Ok((outputs, htlcs, revokeable_spk))
+		Ok((outputs, htlcs, revokeable_spk, to_remote_spk))
 	}
 
 	fn internal_build_inputs(commitment_number: u64, channel_parameters: &DirectedChannelTransactionParameters) -> (u64, Vec<TxIn>) {
@@ -1760,6 +1768,11 @@ impl<'a> TrustedCommitmentTransaction<'a> {
 	/// Revokeable spk
 	pub fn revokeable_spk(&self) -> ScriptBuf {
 		self.inner.revokeable_spk.clone()
+	}
+
+	/// To remote spk
+	pub fn to_remote_spk(&self) -> ScriptBuf {
+		self.inner.to_remote_spk.clone()
 	}
 
 	/// Helper method to build an unsigned justice transaction spending the revokeable

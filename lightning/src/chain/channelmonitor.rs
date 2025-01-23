@@ -544,6 +544,7 @@ pub(crate) enum ChannelMonitorUpdateStep {
 		to_broadcaster_value_sat: Option<u64>,
 		to_countersignatory_value_sat: Option<u64>,
 		tolocal_spk: ScriptBuf,
+		toremote_spk: ScriptBuf,
 	},
 	PaymentPreimage {
 		payment_preimage: PaymentPreimage,
@@ -596,6 +597,7 @@ impl_writeable_tlv_based_enum_upgradable!(ChannelMonitorUpdateStep,
 		(5, to_countersignatory_value_sat, option),
 		(6, htlc_outputs, required_vec),
 		(8, tolocal_spk, required),
+		(10, toremote_spk, required),
 	},
 	(2, PaymentPreimage) => {
 		(0, payment_preimage, required),
@@ -3446,7 +3448,7 @@ impl<Signer: ChannelSigner> ChannelMonitorImpl<Signer> {
 					ref htlc_outputs, commitment_number, their_per_commitment_point,
 					feerate_per_kw: Some(feerate_per_kw),
 					to_broadcaster_value_sat: Some(to_broadcaster_value),
-					to_countersignatory_value_sat: Some(to_countersignatory_value), ref tolocal_spk } => {
+					to_countersignatory_value_sat: Some(to_countersignatory_value), ref tolocal_spk, toremote_spk: _ } => {
 
 					let nondust_htlcs = htlc_outputs.iter().filter_map(|(htlc, _)| {
 						htlc.transaction_output_index.map(|_| (htlc.clone(), None))

@@ -8150,6 +8150,7 @@ impl<SP: Deref> FundedChannel<SP> where
 				to_broadcaster_value_sat: Some(counterparty_commitment_tx.to_broadcaster_value_sat()),
 				to_countersignatory_value_sat: Some(counterparty_commitment_tx.to_countersignatory_value_sat()),
 				tolocal_spk: counterparty_commitment_tx.trust().revokeable_spk(),
+				toremote_spk: counterparty_commitment_tx.trust().to_remote_spk(),
 			}],
 			channel_id: Some(self.context.channel_id()),
 		};
