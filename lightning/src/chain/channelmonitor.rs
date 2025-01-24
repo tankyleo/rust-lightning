@@ -3727,7 +3727,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 
 	/// Attempts to claim a counterparty HTLC-Success/HTLC-Timeout's outputs using the revocation key
 	fn check_spend_counterparty_htlc<L: Deref>(
-		&mut self, tx: &Transaction, commitment_number: u64, commitment_txid: &Txid, height: u32, logger: &L
+		&mut self, tx: &Transaction, commitment_number: u64, height: u32, logger: &L
 	) -> (Vec<PackageTemplate>, Option<TransactionOutputs>) where L::Target: Logger {
 		let secret = if let Some(secret) = self.get_secret(commitment_number) { secret } else { return (Vec::new(), None); };
 		let per_commitment_key = match SecretKey::from_slice(&secret) {
@@ -3735,6 +3735,10 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			Err(_) => return (Vec::new(), None)
 		};
 		let per_commitment_point = PublicKey::from_secret_key(&self.onchain_tx_handler.secp_ctx, &per_commitment_key);
+		let revocation_pubkey = RevocationKey::from_basepoint(&self.onchain_tx_handler.secp_ctx,  &self.holder_revocation_basepoint, &per_commitment_point);
+		let delayed_key = DelayedPaymentKey::from_basepoint(&self.onchain_tx_handler.secp_ctx, &self.counterparty_commitment_params.counterparty_delayed_payment_base_key, &per_commitment_point);
+		let revokeable_redeemscript = chan_utils::get_revokeable_redeemscript(&revocation_pubkey, self.counterparty_commitment_params.on_counterparty_tx_csv, &delayed_key);
+		let revokeable_p2wsh = revokeable_redeemscript.to_p2wsh();
 
 		let htlc_txid = tx.compute_txid();
 		let mut claimable_outpoints = vec![];
@@ -3746,11 +3750,10 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		// confirmed revoked HTLC transaction (for more details, see
 		// https://lists.linuxfoundation.org/pipermail/lightning-dev/2022-April/003561.html).
 		//
-		// We make sure we're not vulnerable to this case by checking all inputs of the transaction,
-		// and claim those which spend the commitment transaction, have a witness of 5 elements, and
-		// have a corresponding output at the same index within the transaction.
-		for (idx, input) in tx.input.iter().enumerate() {
-			if input.previous_output.txid == *commitment_txid && input.witness.len() == 5 && tx.output.get(idx).is_some() {
+		// We make sure we're not vulnerable to this case by checking all outputs of the transaction,
+		// and claim those which have the expected revokeable script pubkey for the given commitment number.
+		for (idx, outp) in tx.output.iter().enumerate() {
+			if outp.script_pubkey == revokeable_p2wsh {
 				log_error!(logger, "Got broadcast of revoked counterparty HTLC transaction, spending {}:{}", htlc_txid, idx);
 				let revk_outp = RevokedOutput::build(
 					per_commitment_point, self.counterparty_commitment_params.counterparty_delayed_payment_base_key,
@@ -4119,7 +4122,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 					let commitment_txid = tx_input.previous_output.txid;
 					if let Some(&commitment_number) = self.counterparty_commitment_txn_on_chain.get(&commitment_txid) {
 						let (mut new_outpoints, new_outputs_option) = self.check_spend_counterparty_htlc(
-							&tx, commitment_number, &commitment_txid, height, &logger
+							&tx, commitment_number, height, &logger
 						);
 						claimable_outpoints.append(&mut new_outpoints);
 						if let Some(new_outputs) = new_outputs_option {
