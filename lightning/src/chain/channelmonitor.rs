@@ -4076,27 +4076,25 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 						&self.channel_id(), txid);
 					self.funding_spend_seen = true;
 					let mut commitment_tx_to_counterparty_output = None;
-					if (tx.input[0].sequence.0 >> 8*3) as u8 == 0x80 && (tx.lock_time.to_consensus_u32() >> 8*3) as u8 == 0x20 {
-						if let Some((mut new_outpoints, new_outputs)) = self.check_spend_holder_transaction(&tx, height, &block_hash, &logger) {
-							if !new_outputs.1.is_empty() {
-								watch_outputs.push(new_outputs);
-							}
-
-							claimable_outpoints.append(&mut new_outpoints);
-							balance_spendable_csv = Some(self.on_holder_tx_csv);
-						} else {
-							let mut new_watch_outputs = Vec::new();
-							for (idx, outp) in tx.output.iter().enumerate() {
-								new_watch_outputs.push((idx as u32, outp.clone()));
-							}
-							watch_outputs.push((txid, new_watch_outputs));
-
-							let (mut new_outpoints, counterparty_output_idx_sats) =
-								self.check_spend_counterparty_transaction(&tx, height, &block_hash, &logger);
-							commitment_tx_to_counterparty_output = counterparty_output_idx_sats;
-
-							claimable_outpoints.append(&mut new_outpoints);
+					if let Some((mut new_outpoints, new_outputs)) = self.check_spend_holder_transaction(&tx, height, &block_hash, &logger) {
+						if !new_outputs.1.is_empty() {
+							watch_outputs.push(new_outputs);
 						}
+
+						claimable_outpoints.append(&mut new_outpoints);
+						balance_spendable_csv = Some(self.on_holder_tx_csv);
+					} else {
+						let mut new_watch_outputs = Vec::new();
+						for (idx, outp) in tx.output.iter().enumerate() {
+							new_watch_outputs.push((idx as u32, outp.clone()));
+						}
+						watch_outputs.push((txid, new_watch_outputs));
+
+						let (mut new_outpoints, counterparty_output_idx_sats) =
+							self.check_spend_counterparty_transaction(&tx, height, &block_hash, &logger);
+						commitment_tx_to_counterparty_output = counterparty_output_idx_sats;
+
+						claimable_outpoints.append(&mut new_outpoints);
 					}
 					self.onchain_events_awaiting_threshold_conf.push(OnchainEventEntry {
 						txid,
