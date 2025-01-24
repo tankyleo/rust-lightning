@@ -3611,14 +3611,6 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 						block_hash, per_commitment_claimable_data.iter().map(|(htlc, htlc_source)|
 							(htlc, htlc_source.as_ref().map(|htlc_source| htlc_source.as_ref()))
 						), logger);
-				} else {
-					// Our fuzzers aren't constrained by pesky things like valid signatures, so can
-					// spend our funding output with a transaction which doesn't match our past
-					// commitment transactions. Thus, we can only debug-assert here when not
-					// fuzzing.
-					debug_assert!(cfg!(fuzzing), "We should have per-commitment option for any recognized old commitment txn");
-					fail_unbroadcast_htlcs!(self, "revoked counterparty", commitment_txid, tx, height,
-						block_hash, [].iter().map(|reference| *reference), logger);
 				}
 			}
 		} else if let Some(per_commitment_claimable_data) = per_commitment_option {
