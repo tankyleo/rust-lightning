@@ -3578,11 +3578,6 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			if let Some(per_commitment_claimable_data) = per_commitment_option {
 				for (htlc, _) in per_commitment_claimable_data {
 					if let Some(transaction_output_index) = htlc.transaction_output_index {
-						if transaction_output_index as usize >= tx.output.len() ||
-								tx.output[transaction_output_index as usize].value != htlc.to_bitcoin_amount() {
-							// per_commitment_data is corrupt or our commitment signing key leaked!
-							return (claimable_outpoints, to_counterparty_output_info);
-						}
 						let revk_htlc_outp = RevokedHTLCOutput::build(per_commitment_point, self.counterparty_commitment_params.counterparty_delayed_payment_base_key, self.counterparty_commitment_params.counterparty_htlc_base_key, per_commitment_key, htlc.amount_msat / 1000, htlc.clone(), &self.onchain_tx_handler.channel_transaction_parameters.channel_type_features);
 						let counterparty_spendable_height = if htlc.offered {
 							htlc.cltv_expiry
