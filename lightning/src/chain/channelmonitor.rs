@@ -3225,6 +3225,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 				}
 				ChannelMonitorUpdateStep::LatestCounterpartyCommitmentTXInfo { commitment_txid, htlc_outputs, commitment_number, their_per_commitment_point, .. } => {
 					log_trace!(logger, "Updating ChannelMonitor with latest counterparty commitment transaction info");
+					println!("HAHA: {}", commitment_txid);
 					self.provide_latest_counterparty_commitment_tx(*commitment_txid, htlc_outputs.clone(), *commitment_number, *their_per_commitment_point, logger)
 				},
 				ChannelMonitorUpdateStep::PaymentPreimage { payment_preimage, payment_info } => {
@@ -3528,16 +3529,13 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 	///
 	/// Returns packages to claim the revoked output(s) and general information about the output that
 	/// is to the counterparty in the commitment transaction.
-	fn check_spend_counterparty_transaction<L: Deref>(&mut self, tx: &Transaction, height: u32, block_hash: &BlockHash, logger: &L)
+	fn check_spend_counterparty_transaction<L: Deref>(&mut self, tx: &Transaction, height: u32, block_hash: &BlockHash, logger: &L, per_commitment_claimable_data: Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>, commitment_txid: Txid)
 		-> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo)
 	where L::Target: Logger {
 		// Most secp and related errors trying to create keys means we have no hope of constructing
 		// a spend transaction...so we return no transactions to broadcast
 		let mut claimable_outpoints = Vec::new();
 		let mut to_counterparty_output_info = None;
-
-		let commitment_txid = tx.compute_txid(); //TODO: This is gonna be a performance bottleneck for watchtowers!
-		let per_commitment_option = self.counterparty_claimable_outpoints.get(&commitment_txid);
 
 		macro_rules! ignore_error {
 			( $thing : expr ) => {
@@ -3547,7 +3545,8 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 				}
 			};
 		}
-
+		
+		let msg;
 		let commitment_number = 0xffffffffffff - ((((tx.input[0].sequence.0 as u64 & 0xffffff) << 3*8) | (tx.lock_time.to_consensus_u32() as u64 & 0xffffff)) ^ self.commitment_transaction_number_obscure_factor);
 		if commitment_number >= self.get_min_seen_secret() {
 			let secret = self.get_secret(commitment_number).unwrap();
@@ -3575,62 +3574,101 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			}
 
 			// Then, try to find revoked htlc outputs
-			if let Some(per_commitment_claimable_data) = per_commitment_option {
-				for (htlc, _) in per_commitment_claimable_data {
-					if let Some(transaction_output_index) = htlc.transaction_output_index {
-						let revk_htlc_outp = RevokedHTLCOutput::build(per_commitment_point, self.counterparty_commitment_params.counterparty_delayed_payment_base_key, self.counterparty_commitment_params.counterparty_htlc_base_key, per_commitment_key, htlc.amount_msat / 1000, htlc.clone(), &self.onchain_tx_handler.channel_transaction_parameters.channel_type_features);
-						let counterparty_spendable_height = if htlc.offered {
-							htlc.cltv_expiry
-						} else {
-							height
-						};
-						let justice_package = PackageTemplate::build_package(
-							commitment_txid,
-							transaction_output_index,
-							PackageSolvingData::RevokedHTLCOutput(revk_htlc_outp),
-							counterparty_spendable_height,
-						);
-						claimable_outpoints.push(justice_package);
-					}
+			for (htlc, _) in &per_commitment_claimable_data {
+				if let Some(transaction_output_index) = htlc.transaction_output_index {
+					let revk_htlc_outp = RevokedHTLCOutput::build(per_commitment_point, self.counterparty_commitment_params.counterparty_delayed_payment_base_key, self.counterparty_commitment_params.counterparty_htlc_base_key, per_commitment_key, htlc.amount_msat / 1000, htlc.clone(), &self.onchain_tx_handler.channel_transaction_parameters.channel_type_features);
+					let counterparty_spendable_height = if htlc.offered {
+						htlc.cltv_expiry
+					} else {
+						height
+					};
+					let justice_package = PackageTemplate::build_package(
+						commitment_txid,
+						transaction_output_index,
+						PackageSolvingData::RevokedHTLCOutput(revk_htlc_outp),
+						counterparty_spendable_height,
+					);
+					claimable_outpoints.push(justice_package);
 				}
 			}
 
 			// Last, track onchain revoked commitment transaction and fail backward outgoing HTLCs as payment path is broken
-			if !claimable_outpoints.is_empty() || per_commitment_option.is_some() { // ie we're confident this is actually ours
-				// We're definitely a counterparty commitment transaction!
-				log_error!(logger, "Got broadcast of revoked counterparty commitment transaction, going to generate general spend tx with {} inputs", claimable_outpoints.len());
-				self.counterparty_commitment_txn_on_chain.insert(commitment_txid, commitment_number);
+			// We're definitely a counterparty commitment transaction!
+			log_error!(logger, "Got broadcast of revoked counterparty commitment transaction, going to generate general spend tx with {} inputs", claimable_outpoints.len());
 
-				if let Some(per_commitment_claimable_data) = per_commitment_option {
-					fail_unbroadcast_htlcs!(self, "revoked_counterparty", commitment_txid, tx, height,
-						block_hash, per_commitment_claimable_data.iter().map(|(htlc, htlc_source)|
-							(htlc, htlc_source.as_ref().map(|htlc_source| htlc_source.as_ref()))
-						), logger);
-				}
-			}
-		} else if let Some(per_commitment_claimable_data) = per_commitment_option {
-			// While this isn't useful yet, there is a potential race where if a counterparty
-			// revokes a state at the same time as the commitment transaction for that state is
-			// confirmed, and the watchtower receives the block before the user, the user could
-			// upload a new ChannelMonitor with the revocation secret but the watchtower has
-			// already processed the block, resulting in the counterparty_commitment_txn_on_chain entry
-			// not being generated by the above conditional. Thus, to be safe, we go ahead and
-			// insert it here.
-			self.counterparty_commitment_txn_on_chain.insert(commitment_txid, commitment_number);
+			msg = "revoked_counterparty";
+		} else {
+			let per_commitment_point = if commitment_number == self.their_cur_per_commitment_points.unwrap().0 {
+				self.their_cur_per_commitment_points.unwrap().1
+			} else {
+				assert_eq!(commitment_number, self.their_cur_per_commitment_points.unwrap().0 - 1, "WHAA");
+				self.their_cur_per_commitment_points.unwrap().2.unwrap()
+			};
+
+			let revocation_pubkey = RevocationKey::from_basepoint(&self.onchain_tx_handler.secp_ctx,  &self.holder_revocation_basepoint, &per_commitment_point,);
+			let delayed_key = DelayedPaymentKey::from_basepoint(&self.onchain_tx_handler.secp_ctx, &self.counterparty_commitment_params.counterparty_delayed_payment_base_key, &per_commitment_point);
+
+			let revokeable_redeemscript = chan_utils::get_revokeable_redeemscript(&revocation_pubkey, self.counterparty_commitment_params.on_counterparty_tx_csv, &delayed_key);
+			let revokeable_p2wsh = revokeable_redeemscript.to_p2wsh();
 
 			log_info!(logger, "Got broadcast of non-revoked counterparty commitment transaction {}", commitment_txid);
-			fail_unbroadcast_htlcs!(self, "counterparty", commitment_txid, tx, height, block_hash,
-				per_commitment_claimable_data.iter().map(|(htlc, htlc_source)|
-					(htlc, htlc_source.as_ref().map(|htlc_source| htlc_source.as_ref()))
-				), logger);
-			let (htlc_claim_reqs, counterparty_output_info) =
-				self.get_counterparty_output_claim_info(commitment_number, commitment_txid, Some(tx), per_commitment_option);
+			let (htlc_claim_reqs, counterparty_output_info) = {
+				let mut claimable_outpoints = Vec::new();
+				let mut to_counterparty_output_info: CommitmentTxCounterpartyOutputInfo = None;
+
+				for (idx, outp) in tx.output.iter().enumerate() {
+					if outp.script_pubkey == revokeable_p2wsh {
+						to_counterparty_output_info =
+							Some((idx.try_into().expect("Can't have > 2^32 outputs"), outp.value));
+					}
+				}
+
+				for  &(ref htlc, _) in per_commitment_claimable_data.iter() {
+					if let Some(transaction_output_index) = htlc.transaction_output_index {
+						let preimage = if htlc.offered { if let Some((p, _)) = self.payment_preimages.get(&htlc.payment_hash) { Some(*p) } else { None } } else { None };
+						if preimage.is_some() || !htlc.offered {
+							let counterparty_htlc_outp = if htlc.offered {
+								PackageSolvingData::CounterpartyOfferedHTLCOutput(
+									CounterpartyOfferedHTLCOutput::build(per_commitment_point,
+										self.counterparty_commitment_params.counterparty_delayed_payment_base_key,
+										self.counterparty_commitment_params.counterparty_htlc_base_key,
+										preimage.unwrap(), htlc.clone(), self.onchain_tx_handler.channel_type_features().clone()))
+							} else {
+								PackageSolvingData::CounterpartyReceivedHTLCOutput(
+									CounterpartyReceivedHTLCOutput::build(per_commitment_point,
+										self.counterparty_commitment_params.counterparty_delayed_payment_base_key,
+										self.counterparty_commitment_params.counterparty_htlc_base_key,
+										htlc.clone(), self.onchain_tx_handler.channel_type_features().clone()))
+							};
+							let counterparty_package = PackageTemplate::build_package(commitment_txid, transaction_output_index, counterparty_htlc_outp, htlc.cltv_expiry);
+							claimable_outpoints.push(counterparty_package);
+						}
+					}
+				}
+
+				(claimable_outpoints, to_counterparty_output_info)
+			};
+
 			to_counterparty_output_info = counterparty_output_info;
 			for req in htlc_claim_reqs {
 				claimable_outpoints.push(req);
 			}
-
+			msg = "counterparty";
 		}
+
+		// While this isn't useful yet, there is a potential race where if a counterparty
+		// revokes a state at the same time as the commitment transaction for that state is
+		// confirmed, and the watchtower receives the block before the user, the user could
+		// upload a new ChannelMonitor with the revocation secret but the watchtower has
+		// already processed the block, resulting in the counterparty_commitment_txn_on_chain entry
+		// not being generated by the above conditional. Thus, to be safe, we go ahead and
+		// insert it here.
+		self.counterparty_commitment_txn_on_chain.insert(commitment_txid, commitment_number);
+		fail_unbroadcast_htlcs!(self, msg, commitment_txid, tx, height, block_hash,
+			per_commitment_claimable_data.iter().map(|(htlc, htlc_source)|
+				(htlc, htlc_source.as_ref().map(|htlc_source| htlc_source.as_ref()))
+			), logger);
+
 		(claimable_outpoints, to_counterparty_output_info)
 	}
 
@@ -4070,7 +4108,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 
 						claimable_outpoints.append(&mut new_outpoints);
 						balance_spendable_csv = Some(self.on_holder_tx_csv);
-					} else {
+					} else if self.counterparty_claimable_outpoints.get(&txid).is_some() {
 						let mut new_watch_outputs = Vec::new();
 						for (idx, outp) in tx.output.iter().enumerate() {
 							new_watch_outputs.push((idx as u32, outp.clone()));
@@ -4078,7 +4116,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 						watch_outputs.push((txid, new_watch_outputs));
 
 						let (mut new_outpoints, counterparty_output_idx_sats) =
-							self.check_spend_counterparty_transaction(&tx, height, &block_hash, &logger);
+							self.check_spend_counterparty_transaction(&tx, height, &block_hash, &logger, self.counterparty_claimable_outpoints.get(&txid).unwrap().clone(), txid);
 						commitment_tx_to_counterparty_output = counterparty_output_idx_sats;
 
 						claimable_outpoints.append(&mut new_outpoints);
