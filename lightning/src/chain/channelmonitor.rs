@@ -3012,7 +3012,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		// First check if a counterparty commitment transaction has been broadcasted:
 		macro_rules! claim_htlcs {
 			($commitment_number: expr, $txid: expr, $htlcs: expr) => {
-				let htlc_claim_reqs = self.get_counterparty_output_claim_info($commitment_number, $txid, $htlcs);
+				let htlc_claim_reqs = self.scan_onchain_htlc_outputs($commitment_number, $txid, $htlcs);
 				let conf_target = self.closure_conf_target();
 				self.onchain_tx_handler.update_claims_view_from_requests(htlc_claim_reqs, self.best_block.height, self.best_block.height, broadcaster, conf_target, fee_estimator, logger);
 			}
@@ -3623,8 +3623,8 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		(claimable_outpoints, to_counterparty_output_info)
 	}
 
-	/// Returns the HTLC claim package templates and the counterparty output info
-	fn get_counterparty_output_claim_info(&self, commitment_number: u64, commitment_txid: Txid, per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>)
+	/// Returns the HTLC claim package templates
+	fn scan_onchain_htlc_outputs(&self, commitment_number: u64, commitment_txid: Txid, per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>)
 	-> Vec<PackageTemplate> {
 		let mut claimable_outpoints = Vec::new();
 
@@ -3725,6 +3725,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 	fn get_broadcasted_holder_claims(&self, holder_tx: &HolderSignedTx, conf_height: u32) -> (Vec<PackageTemplate>, Option<(ScriptBuf, PublicKey, RevocationKey)>) {
 		let mut claim_requests = Vec::with_capacity(holder_tx.htlc_outputs.len());
 
+		// refactor this
 		let redeemscript = chan_utils::get_revokeable_redeemscript(&holder_tx.revocation_key, self.on_holder_tx_csv, &holder_tx.delayed_payment_key);
 		let broadcasted_holder_revokable_script = Some((redeemscript.to_p2wsh(), holder_tx.per_commitment_point.clone(), holder_tx.revocation_key.clone()));
 
