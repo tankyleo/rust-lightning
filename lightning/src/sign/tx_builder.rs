@@ -1,7 +1,7 @@
 //! Defines Tx Builder Methods.
 
 use bitcoin::secp256k1::{self, PublicKey, Secp256k1};
-use bitcoin::{Amount, Transaction, ScriptBuf};
+use bitcoin::{Amount, ScriptBuf, Transaction};
 
 use crate::chain::transaction::OutPoint;
 use crate::sign::chan_utils::{self, TxCreationKeys};
@@ -53,10 +53,10 @@ pub(crate) trait TxBuilder: ChannelParameters {
 	fn get_funding_spk(&self) -> ScriptBuf {
 		let params = self.get_channel_parameters();
 		let holder_pubkey = params.holder_pubkeys.funding_pubkey;
-		let counterparty_pubkey = params.counterparty_parameters.as_ref().unwrap().pubkeys.funding_pubkey;
+		let counterparty_pubkey =
+			params.counterparty_parameters.as_ref().unwrap().pubkeys.funding_pubkey;
 		make_funding_redeemscript(&holder_pubkey, &counterparty_pubkey).to_p2wsh()
 	}
-
 }
 
 #[derive(Clone, Debug, Default)]
