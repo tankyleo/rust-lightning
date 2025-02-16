@@ -2115,7 +2115,7 @@ impl<SP: Deref> PendingV2Channel<SP> where SP::Target: SignerProvider {
 		let transaction_number = self.unfunded_context.transaction_number();
 
 		let mut output_index = None;
-		let expected_spk = self.context.get_funding_redeemscript().to_p2wsh();
+		let expected_spk = self.context.get_funding_spk();
 		for (idx, outp) in signing_session.unsigned_tx.outputs().enumerate() {
 			if outp.script_pubkey() == &expected_spk && outp.value() == self.context.get_value_satoshis() {
 				if output_index.is_some() {
@@ -3550,6 +3550,11 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 	/// Panics if called before accept_channel/InboundV1Channel::new
 	pub fn get_funding_redeemscript(&self) -> ScriptBuf {
 		make_funding_redeemscript(&self.get_holder_pubkeys().funding_pubkey, self.counterparty_funding_pubkey())
+	}
+
+	/// Hello world
+	pub fn get_funding_spk(&self) -> ScriptBuf {
+		self.tx_builder.get_funding_spk()
 	}
 
 	fn counterparty_funding_pubkey(&self) -> &PublicKey {
@@ -7669,7 +7674,7 @@ impl<SP: Deref> FundedChannel<SP> where
 				if self.context.funding_tx_confirmation_height == 0 {
 					if tx.compute_txid() == funding_txo.txid {
 						let txo_idx = funding_txo.index as usize;
-						if txo_idx >= tx.output.len() || tx.output[txo_idx].script_pubkey != self.context.get_funding_redeemscript().to_p2wsh() ||
+						if txo_idx >= tx.output.len() || tx.output[txo_idx].script_pubkey != self.context.get_funding_spk() ||
 								tx.output[txo_idx].value.to_sat() != self.context.channel_value_satoshis {
 							if self.context.is_outbound() {
 								// If we generated the funding transaction and it doesn't match what it
@@ -9321,7 +9326,7 @@ impl<SP: Deref> PendingV2Channel<SP> where SP::Target: SignerProvider {
 				is_initiator: false,
 				inputs_to_contribute: our_funding_inputs,
 				outputs_to_contribute: Vec::new(),
-				expected_remote_shared_funding_output: Some((context.get_funding_redeemscript().to_p2wsh(), context.channel_value_satoshis)),
+				expected_remote_shared_funding_output: Some((context.get_funding_spk(), context.channel_value_satoshis)),
 			}
 		).map_err(|_| ChannelError::Close((
 			"V2 channel rejected due to sender error".into(),

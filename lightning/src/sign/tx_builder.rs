@@ -1,17 +1,20 @@
 //! Defines Tx Builder Methods.
 
 use bitcoin::secp256k1::{self, PublicKey, Secp256k1};
-use bitcoin::{Amount, Transaction};
+use bitcoin::{Amount, Transaction, ScriptBuf};
 
 use crate::chain::transaction::OutPoint;
 use crate::sign::chan_utils::{self, TxCreationKeys};
 use crate::sign::{ChannelTransactionParameters, HTLCOutputInCommitment};
+
+use crate::sign::make_funding_redeemscript;
 
 pub(crate) trait ChannelParameters {
 	fn provide_populated_parameters(&mut self, channel_parameters: &ChannelTransactionParameters);
 	fn provide_channel_parameters(&mut self, channel_parameters: &ChannelTransactionParameters);
 	fn provide_funding_outpoint(&mut self, outpoint: OutPoint);
 	fn get_populated_parameters(&self) -> &ChannelTransactionParameters;
+	fn get_channel_parameters(&self) -> &ChannelTransactionParameters;
 }
 
 pub(crate) trait TxBuilder: ChannelParameters {
@@ -46,6 +49,14 @@ pub(crate) trait TxBuilder: ChannelParameters {
 			sorted_htlcs,
 		)
 	}
+
+	fn get_funding_spk(&self) -> ScriptBuf {
+		let params = self.get_channel_parameters();
+		let holder_pubkey = params.holder_pubkeys.funding_pubkey;
+		let counterparty_pubkey = params.counterparty_parameters.as_ref().unwrap().pubkeys.funding_pubkey;
+		make_funding_redeemscript(&holder_pubkey, &counterparty_pubkey).to_p2wsh()
+	}
+
 }
 
 #[derive(Clone, Debug, Default)]
@@ -101,6 +112,12 @@ impl ChannelParameters for SpecTxBuilder {
 	fn get_populated_parameters(&self) -> &ChannelTransactionParameters {
 		let params = self.channel_parameters.as_ref().unwrap();
 		assert!(params.is_populated());
+		params
+	}
+
+	fn get_channel_parameters(&self) -> &ChannelTransactionParameters {
+		let params = self.channel_parameters.as_ref().unwrap();
+		assert!(params.counterparty_parameters.is_some());
 		params
 	}
 }
