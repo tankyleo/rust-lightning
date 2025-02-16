@@ -7,11 +7,14 @@ use crate::chain::transaction::OutPoint;
 use crate::sign::chan_utils::{self, TxCreationKeys};
 use crate::sign::{ChannelTransactionParameters, HTLCOutputInCommitment};
 
-pub(crate) trait TxBuilder {
+pub(crate) trait ChannelParameters {
 	fn provide_populated_parameters(&mut self, channel_parameters: &ChannelTransactionParameters);
 	fn provide_channel_parameters(&mut self, channel_parameters: &ChannelTransactionParameters);
-	fn get_populated_parameters(&self) -> &ChannelTransactionParameters;
 	fn provide_funding_outpoint(&mut self, outpoint: OutPoint);
+	fn get_populated_parameters(&self) -> &ChannelTransactionParameters;
+}
+
+pub(crate) trait TxBuilder: ChannelParameters {
 	fn build_commitment_transaction(
 		&self, is_holder_tx: bool, commitment_number: u64, per_commitment_point: &PublicKey,
 		to_broadcaster_value_sat: Amount, to_countersignatory_value_sat: Amount,
@@ -50,7 +53,7 @@ pub(crate) struct SpecTxBuilder {
 	channel_parameters: Option<ChannelTransactionParameters>,
 }
 
-impl TxBuilder for SpecTxBuilder {
+impl ChannelParameters for SpecTxBuilder {
 	fn provide_populated_parameters(&mut self, channel_parameters: &ChannelTransactionParameters) {
 		assert!(
 			self.channel_parameters.is_none()
@@ -101,3 +104,5 @@ impl TxBuilder for SpecTxBuilder {
 		params
 	}
 }
+
+impl TxBuilder for SpecTxBuilder {}
