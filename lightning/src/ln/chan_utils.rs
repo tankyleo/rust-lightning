@@ -1364,6 +1364,30 @@ pub struct CommitmentTransaction {
 	built: BuiltCommitmentTransaction,
 }
 
+impl CommitmentTransaction {
+	pub(crate) fn new(commitment_number: u64, to_broadcaster_value_sat: Amount, to_countersignatory_value_sat: Amount,
+		feerate_per_kw: u32, sorted_htlcs: Vec<HTLCOutputInCommitment>,
+		features: &DirectedChannelTransactionParameters, keys: TxCreationKeys, transaction: Transaction) -> Self {
+		let txid = transaction.compute_txid();
+		let to_broadcaster_delay = Some(features.contest_delay());
+		let channel_type_features = features.channel_type_features().clone();
+		CommitmentTransaction {
+			commitment_number,
+			to_broadcaster_value_sat,
+			to_countersignatory_value_sat,
+			to_broadcaster_delay,
+			feerate_per_kw,
+			htlcs: sorted_htlcs,
+			channel_type_features,
+			keys,
+			built: BuiltCommitmentTransaction {
+				transaction,
+				txid,
+			},
+		}
+	}
+}
+
 impl Eq for CommitmentTransaction {}
 impl PartialEq for CommitmentTransaction {
 	fn eq(&self, o: &Self) -> bool {

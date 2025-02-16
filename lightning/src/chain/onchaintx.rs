@@ -26,6 +26,7 @@ use bitcoin::secp256k1;
 
 use crate::chain::chaininterface::{ConfirmationTarget, compute_feerate_sat_per_1000_weight};
 use crate::sign::{ChannelDerivationParameters, HTLCDescriptor, ChannelSigner, EntropySource, SignerProvider, ecdsa::EcdsaChannelSigner};
+use crate::sign::tx_builder::{TxBuilder, SpecTxBuilder};
 use crate::ln::msgs::DecodeError;
 use crate::types::payment::PaymentPreimage;
 use crate::ln::chan_utils::{self, ChannelTransactionParameters, HTLCOutputInCommitment, HolderCommitmentTransaction};
@@ -237,6 +238,7 @@ pub struct OnchainTxHandler<ChannelSigner: EcdsaChannelSigner> {
 	prev_holder_commitment: Option<HolderCommitmentTransaction>,
 
 	pub(super) signer: ChannelSigner,
+	pub(super) tx_builder: SpecTxBuilder,
 	pub(crate) channel_transaction_parameters: ChannelTransactionParameters,
 
 	// Used to track claiming requests. If claim tx doesn't confirm before height timer expiration we need to bump
@@ -385,6 +387,8 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 
 		let mut signer = signer_provider.derive_channel_signer(channel_value_satoshis, channel_keys_id);
 		signer.provide_channel_parameters(&channel_parameters);
+		let mut tx_builder = SpecTxBuilder::default();
+		tx_builder.provide_populated_parameters(&channel_parameters);
 
 		let pending_claim_requests_len: u64 = Readable::read(reader)?;
 		let mut pending_claim_requests = hash_map_with_capacity(cmp::min(pending_claim_requests_len as usize, MAX_ALLOC_SIZE / 128));
@@ -433,6 +437,7 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 			holder_commitment,
 			prev_holder_commitment,
 			signer,
+			tx_builder,
 			channel_transaction_parameters: channel_parameters,
 			claimable_outpoints,
 			locktimed_packages,
@@ -450,6 +455,8 @@ impl<ChannelSigner: EcdsaChannelSigner> OnchainTxHandler<ChannelSigner> {
 		signer: ChannelSigner, channel_parameters: ChannelTransactionParameters,
 		holder_commitment: HolderCommitmentTransaction, secp_ctx: Secp256k1<secp256k1::All>
 	) -> Self {
+		let mut tx_builder = SpecTxBuilder::default();
+		tx_builder.provide_populated_parameters(&channel_parameters);
 		OnchainTxHandler {
 			channel_value_satoshis,
 			channel_keys_id,
@@ -457,6 +464,7 @@ impl<ChannelSigner: EcdsaChannelSigner> OnchainTxHandler<ChannelSigner> {
 			holder_commitment,
 			prev_holder_commitment: None,
 			signer,
+			tx_builder,
 			channel_transaction_parameters: channel_parameters,
 			pending_claim_requests: new_hash_map(),
 			claimable_outpoints: new_hash_map(),

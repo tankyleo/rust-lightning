@@ -72,6 +72,7 @@ use core::ops::Deref;
 #[cfg(any(test, fuzzing, debug_assertions))]
 use crate::sync::Mutex;
 use crate::sign::type_resolver::ChannelSignerType;
+use crate::sign::tx_builder::{SpecTxBuilder, TxBuilder};
 
 use super::channel_keys::{DelayedPaymentBasepoint, HtlcBasepoint, RevocationBasepoint};
 
@@ -1580,6 +1581,7 @@ pub(super) struct ChannelContext<SP: Deref> where SP::Target: SignerProvider {
 	latest_monitor_update_id: u64,
 
 	holder_signer: ChannelSignerType<SP>,
+	tx_builder: SpecTxBuilder,
 	shutdown_scriptpubkey: Option<ShutdownScript>,
 	destination_script: ScriptBuf,
 
@@ -2137,6 +2139,7 @@ impl<SP: Deref> PendingV2Channel<SP> where SP::Target: SignerProvider {
 		};
 		self.context.channel_transaction_parameters.funding_outpoint = Some(outpoint);
 		self.context.holder_signer.as_mut().provide_channel_parameters(&self.context.channel_transaction_parameters);
+		self.context.tx_builder.provide_funding_outpoint(outpoint);
 
 		self.context.assert_no_commitment_advancement(transaction_number, "initial commitment_signed");
 		let commitment_signed = self.context.get_initial_commitment_signed(logger);
@@ -2421,6 +2424,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			latest_monitor_update_id: 0,
 
 			holder_signer: ChannelSignerType::Ecdsa(holder_signer),
+			tx_builder: SpecTxBuilder::default(),
 			shutdown_scriptpubkey,
 			destination_script,
 
@@ -2652,6 +2656,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			latest_monitor_update_id: 0,
 
 			holder_signer: ChannelSignerType::Ecdsa(holder_signer),
+			tx_builder: SpecTxBuilder::default(),
 			shutdown_scriptpubkey,
 			destination_script,
 
@@ -3055,6 +3060,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			selected_contest_delay: common_fields.to_self_delay,
 			pubkeys: counterparty_pubkeys,
 		});
+		self.tx_builder.provide_channel_parameters(&self.channel_transaction_parameters);
 
 		self.counterparty_cur_commitment_point = Some(common_fields.first_per_commitment_point);
 		self.counterparty_shutdown_scriptpubkey = counterparty_shutdown_scriptpubkey;
@@ -3468,11 +3474,6 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 		let mut value_to_a = if local { value_to_self } else { value_to_remote };
 		let mut value_to_b = if local { value_to_remote } else { value_to_self };
-		let (funding_pubkey_a, funding_pubkey_b) = if local {
-			(self.get_holder_pubkeys().funding_pubkey, self.get_counterparty_pubkeys().funding_pubkey)
-		} else {
-			(self.get_counterparty_pubkeys().funding_pubkey, self.get_holder_pubkeys().funding_pubkey)
-		};
 
 		if value_to_a >= (broadcaster_dust_limit_satoshis as i64) {
 			log_trace!(logger, "   ...including {} output with value {}", if local { "to_local" } else { "to_remote" }, value_to_a);
@@ -3486,21 +3487,20 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			value_to_b = 0;
 		}
 
+		let htlcs = included_non_dust_htlcs.iter_mut().map(|(htlc, _)| htlc).collect();
+		let (tx, sorted_htlcs) = self.tx_builder.build_commitment_transaction(
+			local, commitment_number, &keys.per_commitment_point, Amount::from_sat(value_to_a as u64),
+			Amount::from_sat(value_to_b as u64), htlcs, &self.secp_ctx);
+
 		let num_nondust_htlcs = included_non_dust_htlcs.len();
 
 		let channel_parameters =
 			if local { self.channel_transaction_parameters.as_holder_broadcastable() }
 			else { self.channel_transaction_parameters.as_counterparty_broadcastable() };
-		let tx = CommitmentTransaction::new_with_auxiliary_htlc_data(commitment_number,
-		                                                             value_to_a as u64,
-		                                                             value_to_b as u64,
-		                                                             funding_pubkey_a,
-		                                                             funding_pubkey_b,
-		                                                             keys.clone(),
-		                                                             feerate_per_kw,
-		                                                             &mut included_non_dust_htlcs,
-		                                                             &channel_parameters
-		);
+
+		let tx = CommitmentTransaction::new(commitment_number, Amount::from_sat(value_to_a as u64), Amount::from_sat(value_to_b as u64),
+											feerate_per_kw, sorted_htlcs, &channel_parameters, keys.clone(), tx);
+
 		let mut htlcs_included = included_non_dust_htlcs;
 		// The unwrap is safe, because all non-dust HTLCs have been assigned an output index
 		htlcs_included.sort_unstable_by_key(|h| h.0.transaction_output_index.unwrap());
@@ -8656,6 +8656,7 @@ impl<SP: Deref> OutboundV1Channel<SP> where SP::Target: SignerProvider {
 
 		self.context.channel_transaction_parameters.funding_outpoint = Some(funding_txo);
 		self.context.holder_signer.as_mut().provide_channel_parameters(&self.context.channel_transaction_parameters);
+		self.context.tx_builder.provide_funding_outpoint(funding_txo);
 
 		// Now that we're past error-generating stuff, update our local state:
 
@@ -9042,6 +9043,7 @@ impl<SP: Deref> InboundV1Channel<SP> where SP::Target: SignerProvider {
 		// This is an externally observable change before we finish all our checks.  In particular
 		// check_funding_created_signature may fail.
 		self.context.holder_signer.as_mut().provide_channel_parameters(&self.context.channel_transaction_parameters);
+		self.context.tx_builder.provide_populated_parameters(&self.context.channel_transaction_parameters);
 
 		let (channel_monitor, counterparty_initial_commitment_tx) = match self.initial_commitment_signed(
 			ChannelId::v1_from_funding_outpoint(funding_txo), msg.signature,
@@ -10174,19 +10176,21 @@ impl<'a, 'b, 'c, ES: Deref, SP: Deref> ReadableArgs<(&'a ES, &'b SP, u32, &'c Ch
 			(53, funding_tx_broadcast_safe_event_emitted, option),
 		});
 
-		let (channel_keys_id, holder_signer) = if let Some(channel_keys_id) = channel_keys_id {
+		let (channel_keys_id, holder_signer, tx_builder) = if let Some(channel_keys_id) = channel_keys_id {
 			let mut holder_signer = signer_provider.derive_channel_signer(channel_value_satoshis, channel_keys_id);
+			let mut tx_builder = SpecTxBuilder::default();
 			// If we've gotten to the funding stage of the channel, populate the signer with its
 			// required channel parameters.
 			if channel_state >= ChannelState::FundingNegotiated {
 				holder_signer.provide_channel_parameters(&channel_parameters);
+				tx_builder.provide_populated_parameters(&channel_parameters);
 			}
-			(channel_keys_id, holder_signer)
+			(channel_keys_id, holder_signer, tx_builder)
 		} else {
 			// `keys_data` can be `None` if we had corrupted data.
 			let keys_data = keys_data.ok_or(DecodeError::InvalidValue)?;
 			let holder_signer = signer_provider.read_chan_signer(&keys_data)?;
-			(holder_signer.channel_keys_id(), holder_signer)
+			(holder_signer.channel_keys_id(), holder_signer, SpecTxBuilder::default())
 		};
 
 		if let Some(preimages) = preimages_opt {
@@ -10325,6 +10329,7 @@ impl<'a, 'b, 'c, ES: Deref, SP: Deref> ReadableArgs<(&'a ES, &'b SP, u32, &'c Ch
 				latest_monitor_update_id,
 
 				holder_signer: ChannelSignerType::Ecdsa(holder_signer),
+				tx_builder,
 				shutdown_scriptpubkey,
 				destination_script,
 

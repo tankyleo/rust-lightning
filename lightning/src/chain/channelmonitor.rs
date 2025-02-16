@@ -44,6 +44,7 @@ use crate::chain::{BestBlock, WatchedOutput};
 use crate::chain::chaininterface::{BroadcasterInterface, ConfirmationTarget, FeeEstimator, LowerBoundedFeeEstimator};
 use crate::chain::transaction::{OutPoint, TransactionData};
 use crate::sign::{ChannelDerivationParameters, HTLCDescriptor, SpendableOutputDescriptor, StaticPaymentOutputDescriptor, DelayedPaymentOutputDescriptor, ecdsa::EcdsaChannelSigner, SignerProvider, EntropySource};
+use crate::sign::tx_builder::TxBuilder;
 use crate::chain::onchaintx::{ClaimEvent, FeerateStrategy, OnchainTxHandler};
 use crate::chain::package::{CounterpartyOfferedHTLCOutput, CounterpartyReceivedHTLCOutput, HolderFundingOutput, HolderHTLCOutput, PackageSolvingData, PackageTemplate, RevokedOutput, RevokedHTLCOutput};
 use crate::chain::Filter;
@@ -3457,17 +3458,18 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		let countersignatory_keys =
 			&self.onchain_tx_handler.channel_transaction_parameters.holder_pubkeys;
 
-		let broadcaster_funding_key = broadcaster_keys.funding_pubkey;
-		let countersignatory_funding_key = countersignatory_keys.funding_pubkey;
 		let keys = TxCreationKeys::from_channel_static_keys(&their_per_commitment_point,
 			&broadcaster_keys, &countersignatory_keys, &self.onchain_tx_handler.secp_ctx);
 		let channel_parameters =
 			&self.onchain_tx_handler.channel_transaction_parameters.as_counterparty_broadcastable();
 
-		CommitmentTransaction::new_with_auxiliary_htlc_data(commitment_number,
-			to_broadcaster_value, to_countersignatory_value, broadcaster_funding_key,
-			countersignatory_funding_key, keys, feerate_per_kw, &mut nondust_htlcs,
-			channel_parameters)
+		let htlcs = nondust_htlcs.iter_mut().map(|(htlc, _)| htlc).collect();
+		let (tx, sorted_htlcs) = self.onchain_tx_handler.tx_builder.build_commitment_transaction(
+			false, commitment_number, &their_per_commitment_point, Amount::from_sat(to_broadcaster_value),
+			Amount::from_sat(to_countersignatory_value), htlcs, &self.onchain_tx_handler.secp_ctx);
+
+		CommitmentTransaction::new(commitment_number, Amount::from_sat(to_broadcaster_value), Amount::from_sat(to_countersignatory_value),
+								   feerate_per_kw, sorted_htlcs, channel_parameters, keys, tx)
 	}
 
 	fn counterparty_commitment_txs_from_update(&self, update: &ChannelMonitorUpdate) -> Vec<CommitmentTransaction> {
