@@ -82,6 +82,7 @@ pub mod ecdsa;
 #[cfg(taproot)]
 pub mod taproot;
 pub mod tx_builder;
+pub mod witness_builder;
 
 /// Information about a spendable output to a P2WSH script.
 ///
