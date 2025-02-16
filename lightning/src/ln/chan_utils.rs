@@ -1445,15 +1445,16 @@ impl CommitmentTransaction {
 	/// Only include HTLCs that are above the dust limit for the channel.
 	///
 	/// This is not exported to bindings users due to the generic though we likely should expose a version without
-	pub fn new_with_auxiliary_htlc_data<T>(commitment_number: u64, to_broadcaster_value_sat: u64, to_countersignatory_value_sat: u64, broadcaster_funding_key: PublicKey, countersignatory_funding_key: PublicKey, keys: TxCreationKeys, feerate_per_kw: u32, htlcs_with_aux: &mut Vec<(HTLCOutputInCommitment, T)>, channel_parameters: &DirectedChannelTransactionParameters) -> CommitmentTransaction {
+	pub fn new_with_auxiliary_htlc_data<T>(commitment_number: u64, to_broadcaster_value_sat: u64, to_countersignatory_value_sat: u64, _broadcaster_funding_key: PublicKey, _countersignatory_funding_key: PublicKey, keys: TxCreationKeys, feerate_per_kw: u32, htlcs_with_aux: &mut Vec<(HTLCOutputInCommitment, T)>, channel_parameters: &DirectedChannelTransactionParameters) -> CommitmentTransaction {
 		let to_broadcaster_value_sat = Amount::from_sat(to_broadcaster_value_sat);
 		let to_countersignatory_value_sat = Amount::from_sat(to_countersignatory_value_sat);
 
 		// Sort outputs and populate output indices while keeping track of the auxiliary data
-		let (outputs, htlcs) = Self::internal_build_outputs(&keys, to_broadcaster_value_sat, to_countersignatory_value_sat, htlcs_with_aux, channel_parameters, &broadcaster_funding_key, &countersignatory_funding_key).unwrap();
+		let htlcs = htlcs_with_aux.iter_mut().map(|(htlc, _)| htlc).collect();
+		let (outputs, sorted_htlcs) = internal_build_outputs(&keys, to_broadcaster_value_sat, to_countersignatory_value_sat, htlcs, channel_parameters);
 
-		let (obscured_commitment_transaction_number, txins) = Self::internal_build_inputs(commitment_number, channel_parameters);
-		let transaction = Self::make_transaction(obscured_commitment_transaction_number, txins, outputs);
+		let (obscured_commitment_transaction_number, txins) = internal_build_inputs(commitment_number, channel_parameters);
+		let transaction = make_transaction(obscured_commitment_transaction_number, txins, outputs);
 		let txid = transaction.compute_txid();
 		CommitmentTransaction {
 			commitment_number,
@@ -1461,7 +1462,7 @@ impl CommitmentTransaction {
 			to_countersignatory_value_sat,
 			to_broadcaster_delay: Some(channel_parameters.contest_delay()),
 			feerate_per_kw,
-			htlcs,
+			htlcs: sorted_htlcs,
 			channel_type_features: channel_parameters.channel_type_features().clone(),
 			keys,
 			built: BuiltCommitmentTransaction {
@@ -1479,154 +1480,20 @@ impl CommitmentTransaction {
 		self
 	}
 
-	fn internal_rebuild_transaction(&self, keys: &TxCreationKeys, channel_parameters: &DirectedChannelTransactionParameters, broadcaster_funding_key: &PublicKey, countersignatory_funding_key: &PublicKey) -> Result<BuiltCommitmentTransaction, ()> {
-		let (obscured_commitment_transaction_number, txins) = Self::internal_build_inputs(self.commitment_number, channel_parameters);
+	fn internal_rebuild_transaction(&self, keys: &TxCreationKeys, channel_parameters: &DirectedChannelTransactionParameters) -> Result<BuiltCommitmentTransaction, ()> {
+		let (obscured_commitment_transaction_number, txins) = internal_build_inputs(self.commitment_number, channel_parameters);
 
-		let mut htlcs_with_aux = self.htlcs.iter().map(|h| (h.clone(), ())).collect();
-		let (outputs, _) = Self::internal_build_outputs(keys, self.to_broadcaster_value_sat, self.to_countersignatory_value_sat, &mut htlcs_with_aux, channel_parameters, broadcaster_funding_key, countersignatory_funding_key)?;
+		let mut htlcs_with_aux: Vec<HTLCOutputInCommitment> = self.htlcs.clone();
+		let htlcs = htlcs_with_aux.iter_mut().collect();
+		let (outputs, _) = internal_build_outputs(keys, self.to_broadcaster_value_sat, self.to_countersignatory_value_sat, htlcs, channel_parameters);
 
-		let transaction = Self::make_transaction(obscured_commitment_transaction_number, txins, outputs);
+		let transaction = make_transaction(obscured_commitment_transaction_number, txins, outputs);
 		let txid = transaction.compute_txid();
 		let built_transaction = BuiltCommitmentTransaction {
 			transaction,
 			txid
 		};
 		Ok(built_transaction)
-	}
-
-	fn make_transaction(obscured_commitment_transaction_number: u64, txins: Vec<TxIn>, outputs: Vec<TxOut>) -> Transaction {
-		Transaction {
-			version: Version::TWO,
-			lock_time: LockTime::from_consensus(((0x20 as u32) << 8 * 3) | ((obscured_commitment_transaction_number & 0xffffffu64) as u32)),
-			input: txins,
-			output: outputs,
-		}
-	}
-
-	// This is used in two cases:
-	// - initial sorting of outputs / HTLCs in the constructor, in which case T is auxiliary data the
-	//   caller needs to have sorted together with the HTLCs so it can keep track of the output index
-	// - building of a bitcoin transaction during a verify() call, in which case T is just ()
-	fn internal_build_outputs<T>(keys: &TxCreationKeys, to_broadcaster_value_sat: Amount, to_countersignatory_value_sat: Amount, htlcs_with_aux: &mut Vec<(HTLCOutputInCommitment, T)>, channel_parameters: &DirectedChannelTransactionParameters, broadcaster_funding_key: &PublicKey, countersignatory_funding_key: &PublicKey) -> Result<(Vec<TxOut>, Vec<HTLCOutputInCommitment>), ()> {
-		let countersignatory_pubkeys = channel_parameters.countersignatory_pubkeys();
-		let contest_delay = channel_parameters.contest_delay();
-
-		let mut txouts: Vec<(TxOut, Option<&mut HTLCOutputInCommitment>)> = Vec::new();
-
-		if to_countersignatory_value_sat > Amount::ZERO {
-			let script = if channel_parameters.channel_type_features().supports_anchors_zero_fee_htlc_tx() {
-				get_to_countersignatory_with_anchors_redeemscript(&countersignatory_pubkeys.payment_point).to_p2wsh()
-			} else {
-				ScriptBuf::new_p2wpkh(&Hash160::hash(&countersignatory_pubkeys.payment_point.serialize()).into())
-			};
-			txouts.push((
-				TxOut {
-					script_pubkey: script.clone(),
-					value: to_countersignatory_value_sat,
-				},
-				None,
-			))
-		}
-
-		if to_broadcaster_value_sat > Amount::ZERO {
-			let redeem_script = get_revokeable_redeemscript(
-				&keys.revocation_key,
-				contest_delay,
-				&keys.broadcaster_delayed_payment_key,
-			);
-			txouts.push((
-				TxOut {
-					script_pubkey: redeem_script.to_p2wsh(),
-					value: to_broadcaster_value_sat,
-				},
-				None,
-			));
-		}
-
-		if channel_parameters.channel_type_features().supports_anchors_zero_fee_htlc_tx() {
-			if to_broadcaster_value_sat > Amount::ZERO || !htlcs_with_aux.is_empty() {
-				let anchor_script = get_anchor_redeemscript(broadcaster_funding_key);
-				txouts.push((
-					TxOut {
-						script_pubkey: anchor_script.to_p2wsh(),
-						value: Amount::from_sat(ANCHOR_OUTPUT_VALUE_SATOSHI),
-					},
-					None,
-				));
-			}
-
-			if to_countersignatory_value_sat > Amount::ZERO || !htlcs_with_aux.is_empty() {
-				let anchor_script = get_anchor_redeemscript(countersignatory_funding_key);
-				txouts.push((
-					TxOut {
-						script_pubkey: anchor_script.to_p2wsh(),
-						value: Amount::from_sat(ANCHOR_OUTPUT_VALUE_SATOSHI),
-					},
-					None,
-				));
-			}
-		}
-
-		let mut htlcs = Vec::with_capacity(htlcs_with_aux.len());
-		for (htlc, _) in htlcs_with_aux {
-			let script = get_htlc_redeemscript(&htlc, &channel_parameters.channel_type_features(), &keys);
-			let txout = TxOut {
-				script_pubkey: script.to_p2wsh(),
-				value: htlc.to_bitcoin_amount(),
-			};
-			txouts.push((txout, Some(htlc)));
-		}
-
-		// Sort output in BIP-69 order (amount, scriptPubkey).  Tie-breaks based on HTLC
-		// CLTV expiration height.
-		sort_outputs(&mut txouts, |a, b| {
-			if let &Some(ref a_htlcout) = a {
-				if let &Some(ref b_htlcout) = b {
-					a_htlcout.cltv_expiry.cmp(&b_htlcout.cltv_expiry)
-						// Note that due to hash collisions, we have to have a fallback comparison
-						// here for fuzzing mode (otherwise at least chanmon_fail_consistency
-						// may fail)!
-						.then(a_htlcout.payment_hash.0.cmp(&b_htlcout.payment_hash.0))
-				// For non-HTLC outputs, if they're copying our SPK we don't really care if we
-				// close the channel due to mismatches - they're doing something dumb:
-				} else { cmp::Ordering::Equal }
-			} else { cmp::Ordering::Equal }
-		});
-
-		let mut outputs = Vec::with_capacity(txouts.len());
-		for (idx, out) in txouts.drain(..).enumerate() {
-			if let Some(htlc) = out.1 {
-				htlc.transaction_output_index = Some(idx as u32);
-				htlcs.push(htlc.clone());
-			}
-			outputs.push(out.0);
-		}
-		Ok((outputs, htlcs))
-	}
-
-	fn internal_build_inputs(commitment_number: u64, channel_parameters: &DirectedChannelTransactionParameters) -> (u64, Vec<TxIn>) {
-		let broadcaster_pubkeys = channel_parameters.broadcaster_pubkeys();
-		let countersignatory_pubkeys = channel_parameters.countersignatory_pubkeys();
-		let commitment_transaction_number_obscure_factor = get_commitment_transaction_number_obscure_factor(
-			&broadcaster_pubkeys.payment_point,
-			&countersignatory_pubkeys.payment_point,
-			channel_parameters.is_outbound(),
-		);
-
-		let obscured_commitment_transaction_number =
-			commitment_transaction_number_obscure_factor ^ (INITIAL_COMMITMENT_NUMBER - commitment_number);
-
-		let txins = {
-			let ins: Vec<TxIn> = vec![TxIn {
-				previous_output: channel_parameters.funding_outpoint(),
-				script_sig: ScriptBuf::new(),
-				sequence: Sequence(((0x80 as u32) << 8 * 3)
-					| ((obscured_commitment_transaction_number >> 3 * 8) as u32)),
-				witness: Witness::new(),
-			}];
-			ins
-		};
-		(obscured_commitment_transaction_number, txins)
 	}
 
 	/// The backwards-counting commitment number
@@ -1680,20 +1547,166 @@ impl CommitmentTransaction {
 	///
 	/// An external validating signer must call this method before signing
 	/// or using the built transaction.
-	pub fn verify<T: secp256k1::Signing + secp256k1::Verification>(&self, channel_parameters: &DirectedChannelTransactionParameters, broadcaster_keys: &ChannelPublicKeys, countersignatory_keys: &ChannelPublicKeys, secp_ctx: &Secp256k1<T>) -> Result<TrustedCommitmentTransaction, ()> {
+	pub fn verify<T: secp256k1::Signing + secp256k1::Verification>(&self, channel_parameters: &DirectedChannelTransactionParameters, _broadcaster_keys: &ChannelPublicKeys, _countersignatory_keys: &ChannelPublicKeys, secp_ctx: &Secp256k1<T>) -> Result<TrustedCommitmentTransaction, ()> {
 		// This is the only field of the key cache that we trust
 		let per_commitment_point = self.keys.per_commitment_point;
-		let keys = TxCreationKeys::from_channel_static_keys(&per_commitment_point, broadcaster_keys, countersignatory_keys, secp_ctx);
+		let keys = TxCreationKeys::from_channel_static_keys(&per_commitment_point, channel_parameters.broadcaster_pubkeys(), channel_parameters.countersignatory_pubkeys(), secp_ctx);
 		if keys != self.keys {
 			return Err(());
 		}
-		let tx = self.internal_rebuild_transaction(&keys, channel_parameters, &broadcaster_keys.funding_pubkey, &countersignatory_keys.funding_pubkey)?;
+		let tx = self.internal_rebuild_transaction(&keys, channel_parameters)?;
 		if self.built.transaction != tx.transaction || self.built.txid != tx.txid {
 			return Err(());
 		}
 		Ok(TrustedCommitmentTransaction { inner: self })
 	}
 }
+
+// This is used in two cases:
+// - initial sorting of outputs / HTLCs in the constructor, in which case T is auxiliary data the
+//   caller needs to have sorted together with the HTLCs so it can keep track of the output index
+// - building of a bitcoin transaction during a verify() call, in which case T is just ()
+pub(crate) fn internal_build_outputs(
+	keys: &TxCreationKeys, to_broadcaster_value_sat: Amount, to_countersignatory_value_sat: Amount,
+	htlcs_with_aux: Vec<&mut HTLCOutputInCommitment>,
+	channel_parameters: &DirectedChannelTransactionParameters,
+) -> (Vec<TxOut>, Vec<HTLCOutputInCommitment>) {
+	let broadcaster_funding_key = &channel_parameters.broadcaster_pubkeys().funding_pubkey;
+	let countersignatory_funding_key =
+		&channel_parameters.countersignatory_pubkeys().funding_pubkey;
+	let countersignatory_payment_point =
+		channel_parameters.countersignatory_pubkeys().payment_point;
+	let contest_delay = channel_parameters.contest_delay();
+
+	let mut txouts: Vec<(TxOut, Option<&mut HTLCOutputInCommitment>)> = Vec::new();
+
+	if to_countersignatory_value_sat > Amount::ZERO {
+		let script =
+			if channel_parameters.channel_type_features().supports_anchors_zero_fee_htlc_tx() {
+				get_to_countersignatory_with_anchors_redeemscript(&countersignatory_payment_point)
+					.to_p2wsh()
+			} else {
+				ScriptBuf::new_p2wpkh(
+					&Hash160::hash(&countersignatory_payment_point.serialize()).into(),
+				)
+			};
+		txouts.push((
+			TxOut { script_pubkey: script.clone(), value: to_countersignatory_value_sat },
+			None,
+		))
+	}
+
+	if to_broadcaster_value_sat > Amount::ZERO {
+		let redeem_script = get_revokeable_redeemscript(
+			&keys.revocation_key,
+			contest_delay,
+			&keys.broadcaster_delayed_payment_key,
+		);
+		txouts.push((
+			TxOut { script_pubkey: redeem_script.to_p2wsh(), value: to_broadcaster_value_sat },
+			None,
+		));
+	}
+
+	if channel_parameters.channel_type_features().supports_anchors_zero_fee_htlc_tx() {
+		if to_broadcaster_value_sat > Amount::ZERO || !htlcs_with_aux.is_empty() {
+			let anchor_script = get_anchor_redeemscript(broadcaster_funding_key);
+			txouts.push((
+				TxOut {
+					script_pubkey: anchor_script.to_p2wsh(),
+					value: Amount::from_sat(ANCHOR_OUTPUT_VALUE_SATOSHI),
+				},
+				None,
+			));
+		}
+
+		if to_countersignatory_value_sat > Amount::ZERO || !htlcs_with_aux.is_empty() {
+			let anchor_script = get_anchor_redeemscript(countersignatory_funding_key);
+			txouts.push((
+				TxOut {
+					script_pubkey: anchor_script.to_p2wsh(),
+					value: Amount::from_sat(ANCHOR_OUTPUT_VALUE_SATOSHI),
+				},
+				None,
+			));
+		}
+	}
+
+	let mut htlcs = Vec::with_capacity(htlcs_with_aux.len());
+	for htlc in htlcs_with_aux {
+		let script =
+			get_htlc_redeemscript(&htlc, &channel_parameters.channel_type_features(), &keys);
+		let txout = TxOut { script_pubkey: script.to_p2wsh(), value: htlc.to_bitcoin_amount() };
+		txouts.push((txout, Some(htlc)));
+	}
+
+	// Sort output in BIP-69 order (amount, scriptPubkey).  Tie-breaks based on HTLC
+	// CLTV expiration height.
+	sort_outputs(&mut txouts, |a, b| {
+		if let &Some(ref a_htlcout) = a {
+			if let &Some(ref b_htlcout) = b {
+				a_htlcout
+					.cltv_expiry
+					.cmp(&b_htlcout.cltv_expiry)
+					// Note that due to hash collisions, we have to have a fallback comparison
+					// here for fuzzing mode (otherwise at least chanmon_fail_consistency
+					// may fail)!
+					.then(a_htlcout.payment_hash.0.cmp(&b_htlcout.payment_hash.0))
+			// For non-HTLC outputs, if they're copying our SPK we don't really care if we
+			// close the channel due to mismatches - they're doing something dumb:
+			} else {
+				cmp::Ordering::Equal
+			}
+		} else {
+			cmp::Ordering::Equal
+		}
+	});
+
+	let mut outputs = Vec::with_capacity(txouts.len());
+	for (idx, out) in txouts.drain(..).enumerate() {
+		if let Some(htlc) = out.1 {
+			htlc.transaction_output_index = Some(idx as u32);
+			htlcs.push(htlc.clone());
+		}
+		outputs.push(out.0);
+	}
+	(outputs, htlcs)
+}
+
+pub(crate) fn make_transaction(obscured_commitment_transaction_number: u64, txins: Vec<TxIn>, outputs: Vec<TxOut>) -> Transaction {
+	Transaction {
+		version: Version::TWO,
+		lock_time: LockTime::from_consensus(((0x20 as u32) << 8 * 3) | ((obscured_commitment_transaction_number & 0xffffffu64) as u32)),
+		input: txins,
+		output: outputs,
+	}
+}
+
+pub(crate) fn internal_build_inputs(commitment_number: u64, channel_parameters: &DirectedChannelTransactionParameters) -> (u64, Vec<TxIn>) {
+	let broadcaster_pubkeys = channel_parameters.broadcaster_pubkeys();
+	let countersignatory_pubkeys = channel_parameters.countersignatory_pubkeys();
+	let commitment_transaction_number_obscure_factor = get_commitment_transaction_number_obscure_factor(
+		&broadcaster_pubkeys.payment_point,
+		&countersignatory_pubkeys.payment_point,
+		channel_parameters.is_outbound(),
+	);
+
+	let obscured_commitment_transaction_number =
+		commitment_transaction_number_obscure_factor ^ (INITIAL_COMMITMENT_NUMBER - commitment_number);
+
+	let txins = {
+		let ins: Vec<TxIn> = vec![TxIn {
+			previous_output: channel_parameters.funding_outpoint(),
+			script_sig: ScriptBuf::new(),
+			sequence: Sequence(((0x80 as u32) << 8 * 3)
+				| ((obscured_commitment_transaction_number >> 3 * 8) as u32)),
+			witness: Witness::new(),
+		}];
+		ins
+	};
+	(obscured_commitment_transaction_number, txins)
+}
+
 
 /// A wrapper on CommitmentTransaction indicating that the derived fields (the built bitcoin
 /// transaction and the transaction creation keys) are trusted.
