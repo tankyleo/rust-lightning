@@ -12,7 +12,7 @@ use crate::ln::chan_utils::{self, TxCreationKeys};
 use crate::sign::{EcdsaSignature, HTLCOutputInCommitment};
 use crate::types::payment::PaymentPreimage;
 
-trait WitnessBuilder: ChannelParameters {
+pub(crate) trait WitnessBuilder: ChannelParameters {
 	fn spend_justice_revoked_output(
 		&self, justice_tx: &Transaction, input: usize, amount: u64, per_commitment_key: &SecretKey,
 		secp_ctx: &Secp256k1<secp256k1::All>,

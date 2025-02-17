@@ -83,6 +83,7 @@ pub mod ecdsa;
 pub mod taproot;
 pub mod tx_builder;
 pub mod witness_builder;
+pub mod claims_sweeper;
 
 /// Information about a spendable output to a P2WSH script.
 ///

@@ -127,7 +127,7 @@ pub(crate) struct RevokedOutput {
 	per_commitment_point: PublicKey,
 	counterparty_delayed_payment_base_key: DelayedPaymentBasepoint,
 	counterparty_htlc_base_key: HtlcBasepoint,
-	per_commitment_key: SecretKey,
+	pub(crate) per_commitment_key: SecretKey,
 	weight: u64,
 	amount: Amount,
 	on_counterparty_tx_csv: u16,
@@ -173,10 +173,10 @@ pub(crate) struct RevokedHTLCOutput {
 	per_commitment_point: PublicKey,
 	counterparty_delayed_payment_base_key: DelayedPaymentBasepoint,
 	counterparty_htlc_base_key: HtlcBasepoint,
-	per_commitment_key: SecretKey,
+	pub(crate) per_commitment_key: SecretKey,
 	weight: u64,
 	amount: u64,
-	htlc: HTLCOutputInCommitment,
+	pub(crate) htlc: HTLCOutputInCommitment,
 }
 
 impl RevokedHTLCOutput {
@@ -214,11 +214,11 @@ impl_writeable_tlv_based!(RevokedHTLCOutput, {
 /// Note that on upgrades, some features of existing outputs may be missed.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct CounterpartyOfferedHTLCOutput {
-	per_commitment_point: PublicKey,
+	pub(crate) per_commitment_point: PublicKey,
 	counterparty_delayed_payment_base_key: DelayedPaymentBasepoint,
 	counterparty_htlc_base_key: HtlcBasepoint,
-	preimage: PaymentPreimage,
-	htlc: HTLCOutputInCommitment,
+	pub(crate) preimage: PaymentPreimage,
+	pub(crate) htlc: HTLCOutputInCommitment,
 	channel_type_features: ChannelTypeFeatures,
 }
 
@@ -292,10 +292,10 @@ impl Readable for CounterpartyOfferedHTLCOutput {
 /// Note that on upgrades, some features of existing outputs may be missed.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct CounterpartyReceivedHTLCOutput {
-	per_commitment_point: PublicKey,
+	pub(crate) per_commitment_point: PublicKey,
 	counterparty_delayed_payment_base_key: DelayedPaymentBasepoint,
 	counterparty_htlc_base_key: HtlcBasepoint,
-	htlc: HTLCOutputInCommitment,
+	pub(crate) htlc: HTLCOutputInCommitment,
 	channel_type_features: ChannelTypeFeatures,
 }
 
@@ -507,7 +507,7 @@ pub(crate) enum PackageSolvingData {
 }
 
 impl PackageSolvingData {
-	fn amount(&self) -> u64 {
+	pub(crate) fn amount(&self) -> u64 {
 		let amt = match self {
 			PackageSolvingData::RevokedOutput(ref outp) => outp.amount.to_sat(),
 			PackageSolvingData::RevokedHTLCOutput(ref outp) => outp.amount,
@@ -1014,6 +1014,7 @@ impl PackageTemplate {
 		&self, onchain_handler: &mut OnchainTxHandler<Signer>, logger: &L,
 	) -> Option<MaybeSignedTransaction> {
 		debug_assert!(!self.is_malleable());
+		assert!(self.inputs.len() == 1);
 		if let Some((outpoint, outp)) = self.inputs.first() {
 			if let Some(final_tx) = outp.get_maybe_finalized_tx(outpoint, onchain_handler) {
 				log_debug!(logger, "Adding claiming input for outpoint {}:{}", outpoint.txid, outpoint.vout);
