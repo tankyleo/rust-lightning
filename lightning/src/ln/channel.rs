@@ -1881,11 +1881,6 @@ pub(super) struct ChannelContext<SP: Deref> where SP::Target: SignerProvider {
 	counterparty_dust_limit_satoshis: u64,
 
 	#[cfg(test)]
-	pub(super) holder_dust_limit_satoshis: u64,
-	#[cfg(not(test))]
-	holder_dust_limit_satoshis: u64,
-
-	#[cfg(test)]
 	pub(super) counterparty_max_htlc_value_in_flight_msat: u64,
 	#[cfg(not(test))]
 	counterparty_max_htlc_value_in_flight_msat: u64,
@@ -2669,7 +2664,6 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 			feerate_per_kw: open_channel_fields.commitment_feerate_sat_per_1000_weight,
 			counterparty_dust_limit_satoshis: open_channel_fields.dust_limit_satoshis,
-			holder_dust_limit_satoshis: MIN_CHAN_DUST_LIMIT_SATOSHIS,
 			counterparty_max_htlc_value_in_flight_msat: cmp::min(open_channel_fields.max_htlc_value_in_flight_msat, channel_value_satoshis * 1000),
 			holder_max_htlc_value_in_flight_msat: get_holder_max_htlc_value_in_flight_msat(channel_value_satoshis, &config.channel_handshake_config),
 			counterparty_htlc_minimum_msat: open_channel_fields.htlc_minimum_msat,
@@ -2903,7 +2897,6 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 			feerate_per_kw: commitment_feerate,
 			counterparty_dust_limit_satoshis: 0,
-			holder_dust_limit_satoshis: MIN_CHAN_DUST_LIMIT_SATOSHIS,
 			counterparty_max_htlc_value_in_flight_msat: 0,
 			// We'll adjust this to include our counterparty's `funding_satoshis` when we
 			// receive `accept_channel2`.
@@ -3475,7 +3468,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		let num_htlcs = self.pending_inbound_htlcs.len() + self.pending_outbound_htlcs.len();
 		let mut included_non_dust_htlcs: Vec<(HTLCOutputInCommitment, Option<&HTLCSource>)> = Vec::with_capacity(num_htlcs);
 
-		let broadcaster_dust_limit_satoshis = if local { self.holder_dust_limit_satoshis } else { self.counterparty_dust_limit_satoshis };
+		let broadcaster_dust_limit_satoshis = if local { funding.channel_transaction_parameters.holder_dust_limit_satoshis } else { self.counterparty_dust_limit_satoshis };
 		let mut remote_htlc_total_msat = 0;
 		let mut local_htlc_total_msat = 0;
 		let mut value_to_self_msat_offset = 0;
@@ -3757,7 +3750,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 	}
 
 	/// Returns a HTLCStats about pending htlcs
-	fn get_pending_htlc_stats(&self, outbound_feerate_update: Option<u32>, dust_exposure_limiting_feerate: u32) -> HTLCStats {
+	fn get_pending_htlc_stats(&self, funding: &FundingScope, outbound_feerate_update: Option<u32>, dust_exposure_limiting_feerate: u32) -> HTLCStats {
 		let context = self;
 		let uses_0_htlc_fee_anchors = self.get_channel_type().supports_anchors_zero_fee_htlc_tx();
 
@@ -3779,7 +3772,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 		{
 			let counterparty_dust_limit_timeout_sat = htlc_timeout_dust_limit + context.counterparty_dust_limit_satoshis;
-			let holder_dust_limit_success_sat = htlc_success_dust_limit + context.holder_dust_limit_satoshis;
+			let holder_dust_limit_success_sat = htlc_success_dust_limit + funding.channel_transaction_parameters.holder_dust_limit_satoshis;
 			for ref htlc in context.pending_inbound_htlcs.iter() {
 				pending_inbound_htlcs_value_msat += htlc.amount_msat;
 				if htlc.amount_msat / 1000 < counterparty_dust_limit_timeout_sat {
@@ -3799,7 +3792,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		let mut pending_outbound_htlcs = self.pending_outbound_htlcs.len();
 		{
 			let counterparty_dust_limit_success_sat = htlc_success_dust_limit + context.counterparty_dust_limit_satoshis;
-			let holder_dust_limit_timeout_sat = htlc_timeout_dust_limit + context.holder_dust_limit_satoshis;
+			let holder_dust_limit_timeout_sat = htlc_timeout_dust_limit + funding.channel_transaction_parameters.holder_dust_limit_satoshis;
 			for ref htlc in context.pending_outbound_htlcs.iter() {
 				pending_outbound_htlcs_value_msat += htlc.amount_msat;
 				if htlc.amount_msat / 1000 < counterparty_dust_limit_success_sat {
@@ -3858,7 +3851,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 	}
 
 	/// Returns information on all pending inbound HTLCs.
-	pub fn get_pending_inbound_htlc_details(&self) -> Vec<InboundHTLCDetails> {
+	pub fn get_pending_inbound_htlc_details(&self, funding: &FundingScope) -> Vec<InboundHTLCDetails> {
 		let mut holding_cell_states = new_hash_map();
 		for holding_cell_update in self.holding_cell_htlc_updates.iter() {
 			match holding_cell_update {
@@ -3891,7 +3884,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			let dust_buffer_feerate = self.get_dust_buffer_feerate(None) as u64;
 			dust_buffer_feerate * htlc_success_tx_weight(self.get_channel_type()) / 1000
 		};
-		let holder_dust_limit_success_sat = htlc_success_dust_limit + self.holder_dust_limit_satoshis;
+		let holder_dust_limit_success_sat = htlc_success_dust_limit + funding.channel_transaction_parameters.holder_dust_limit_satoshis;
 		for htlc in self.pending_inbound_htlcs.iter() {
 			if let Some(state_details) = (&htlc.state).into() {
 				inbound_details.push(InboundHTLCDetails{
@@ -3908,7 +3901,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 	}
 
 	/// Returns information on all pending outbound HTLCs.
-	pub fn get_pending_outbound_htlc_details(&self) -> Vec<OutboundHTLCDetails> {
+	pub fn get_pending_outbound_htlc_details(&self, funding: &FundingScope) -> Vec<OutboundHTLCDetails> {
 		let mut outbound_details = Vec::new();
 		let htlc_timeout_dust_limit = if self.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
 			0
@@ -3916,7 +3909,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			let dust_buffer_feerate = self.get_dust_buffer_feerate(None) as u64;
 			dust_buffer_feerate * htlc_success_tx_weight(self.get_channel_type()) / 1000
 		};
-		let holder_dust_limit_timeout_sat = htlc_timeout_dust_limit + self.holder_dust_limit_satoshis;
+		let holder_dust_limit_timeout_sat = htlc_timeout_dust_limit + funding.channel_transaction_parameters.holder_dust_limit_satoshis;
 		for htlc in self.pending_outbound_htlcs.iter() {
 			outbound_details.push(OutboundHTLCDetails{
 				htlc_id: Some(htlc.htlc_id),
@@ -3965,7 +3958,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		// here.
 
 		let dust_exposure_limiting_feerate = self.get_dust_exposure_limiting_feerate(&fee_estimator);
-		let htlc_stats = context.get_pending_htlc_stats(None, dust_exposure_limiting_feerate);
+		let htlc_stats = context.get_pending_htlc_stats(funding, None, dust_exposure_limiting_feerate);
 
 		let outbound_capacity_msat = funding.value_to_self_msat
 				.saturating_sub(htlc_stats.pending_outbound_htlcs_value_msat)
@@ -3987,7 +3980,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			// and the answer will in turn change the amount itself — making it a circular
 			// dependency.
 			// This complicates the computation around dust-values, up to the one-htlc-value.
-			let mut real_dust_limit_timeout_sat = context.holder_dust_limit_satoshis;
+			let mut real_dust_limit_timeout_sat = funding.channel_transaction_parameters.holder_dust_limit_satoshis;
 			if !context.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
 				real_dust_limit_timeout_sat += context.feerate_per_kw as u64 * htlc_timeout_tx_weight(context.get_channel_type()) / 1000;
 			}
@@ -4048,11 +4041,11 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		let max_dust_htlc_exposure_msat = context.get_max_dust_htlc_exposure_msat(dust_exposure_limiting_feerate);
 
 		let (htlc_success_dust_limit, htlc_timeout_dust_limit) = if context.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
-			(context.counterparty_dust_limit_satoshis, context.holder_dust_limit_satoshis)
+			(context.counterparty_dust_limit_satoshis, funding.channel_transaction_parameters.holder_dust_limit_satoshis)
 		} else {
 			let dust_buffer_feerate = context.get_dust_buffer_feerate(None) as u64;
 			(context.counterparty_dust_limit_satoshis + dust_buffer_feerate * htlc_success_tx_weight(context.get_channel_type()) / 1000,
-			 context.holder_dust_limit_satoshis       + dust_buffer_feerate * htlc_timeout_tx_weight(context.get_channel_type()) / 1000)
+			 funding.channel_transaction_parameters.holder_dust_limit_satoshis       + dust_buffer_feerate * htlc_timeout_tx_weight(context.get_channel_type()) / 1000)
 		};
 
 		if let Some(extra_htlc_dust_exposure) = htlc_stats.extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat {
@@ -4128,8 +4121,8 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			(context.feerate_per_kw as u64 * htlc_success_tx_weight(context.get_channel_type()) / 1000,
 				context.feerate_per_kw as u64 * htlc_timeout_tx_weight(context.get_channel_type()) / 1000)
 		};
-		let real_dust_limit_success_sat = htlc_success_dust_limit + context.holder_dust_limit_satoshis;
-		let real_dust_limit_timeout_sat = htlc_timeout_dust_limit + context.holder_dust_limit_satoshis;
+		let real_dust_limit_success_sat = htlc_success_dust_limit + funding.channel_transaction_parameters.holder_dust_limit_satoshis;
+		let real_dust_limit_timeout_sat = htlc_timeout_dust_limit + funding.channel_transaction_parameters.holder_dust_limit_satoshis;
 
 		let mut addl_htlcs = 0;
 		if fee_spike_buffer_htlc.is_some() { addl_htlcs += 1; }
@@ -4855,7 +4848,7 @@ impl<SP: Deref> FundedChannel<SP> where
 		if value_to_counterparty < 0 {
 			return Err(ChannelError::close(format!("Value to counterparty below 0: {}", value_to_counterparty)))
 		}
-		if skip_remote_output || value_to_counterparty as u64 <= self.context.holder_dust_limit_satoshis {
+		if skip_remote_output || value_to_counterparty as u64 <= self.funding.channel_transaction_parameters.holder_dust_limit_satoshis {
 			value_to_counterparty = 0;
 		}
 
@@ -4863,7 +4856,7 @@ impl<SP: Deref> FundedChannel<SP> where
 		if value_to_holder < 0 {
 			return Err(ChannelError::close(format!("Value to holder below 0: {}", value_to_holder)))
 		}
-		if value_to_holder as u64 <= self.context.holder_dust_limit_satoshis {
+		if value_to_holder as u64 <= self.funding.channel_transaction_parameters.holder_dust_limit_satoshis {
 			value_to_holder = 0;
 		}
 
@@ -5293,7 +5286,7 @@ impl<SP: Deref> FundedChannel<SP> where
 		}
 
 		let dust_exposure_limiting_feerate = self.context.get_dust_exposure_limiting_feerate(&fee_estimator);
-		let htlc_stats = self.context.get_pending_htlc_stats(None, dust_exposure_limiting_feerate);
+		let htlc_stats = self.context.get_pending_htlc_stats(&self.funding, None, dust_exposure_limiting_feerate);
 		if htlc_stats.pending_inbound_htlcs + 1 > self.context.holder_max_accepted_htlcs as usize {
 			return Err(ChannelError::close(format!("Remote tried to push more than our max accepted HTLCs ({})", self.context.holder_max_accepted_htlcs)));
 		}
@@ -6277,7 +6270,7 @@ impl<SP: Deref> FundedChannel<SP> where
 
 		// Before proposing a feerate update, check that we can actually afford the new fee.
 		let dust_exposure_limiting_feerate = self.context.get_dust_exposure_limiting_feerate(&fee_estimator);
-		let htlc_stats = self.context.get_pending_htlc_stats(Some(feerate_per_kw), dust_exposure_limiting_feerate);
+		let htlc_stats = self.context.get_pending_htlc_stats(&self.funding, Some(feerate_per_kw), dust_exposure_limiting_feerate);
 		let keys = self.context.build_holder_transaction_keys(&self.funding, self.holder_commitment_point.current_point());
 		let commitment_stats = self.context.build_commitment_transaction(&self.funding, self.holder_commitment_point.transaction_number(), &keys, true, true, logger);
 		let buffer_fee_msat = commit_tx_fee_sat(feerate_per_kw, commitment_stats.num_nondust_htlcs + htlc_stats.on_holder_tx_outbound_holding_cell_htlcs_count as usize + CONCURRENT_INBOUND_HTLC_FEE_BUFFER as usize, self.context.get_channel_type()) * 1000;
@@ -6571,7 +6564,7 @@ impl<SP: Deref> FundedChannel<SP> where
 		self.context.update_time_counter += 1;
 		// Check that we won't be pushed over our dust exposure limit by the feerate increase.
 		let dust_exposure_limiting_feerate = self.context.get_dust_exposure_limiting_feerate(&fee_estimator);
-		let htlc_stats = self.context.get_pending_htlc_stats(None, dust_exposure_limiting_feerate);
+		let htlc_stats = self.context.get_pending_htlc_stats(&self.funding, None, dust_exposure_limiting_feerate);
 		let max_dust_htlc_exposure_msat = self.context.get_max_dust_htlc_exposure_msat(dust_exposure_limiting_feerate);
 		if htlc_stats.on_holder_tx_dust_exposure_msat > max_dust_htlc_exposure_msat {
 			return Err(ChannelError::close(format!("Peer sent update_fee with a feerate ({}) which may over-expose us to dust-in-flight on our own transactions (totaling {} msat)",
@@ -7540,7 +7533,7 @@ impl<SP: Deref> FundedChannel<SP> where
 		}
 
 		let dust_exposure_limiting_feerate = self.context.get_dust_exposure_limiting_feerate(&fee_estimator);
-		let htlc_stats = self.context.get_pending_htlc_stats(None, dust_exposure_limiting_feerate);
+		let htlc_stats = self.context.get_pending_htlc_stats(&self.funding, None, dust_exposure_limiting_feerate);
 		let max_dust_htlc_exposure_msat = self.context.get_max_dust_htlc_exposure_msat(dust_exposure_limiting_feerate);
 		let on_counterparty_tx_dust_htlc_exposure_msat = htlc_stats.on_counterparty_tx_dust_exposure_msat;
 		if on_counterparty_tx_dust_htlc_exposure_msat > max_dust_htlc_exposure_msat {
@@ -7555,7 +7548,7 @@ impl<SP: Deref> FundedChannel<SP> where
 			let dust_buffer_feerate = self.context.get_dust_buffer_feerate(None) as u64;
 			dust_buffer_feerate * htlc_success_tx_weight(self.context.get_channel_type()) / 1000
 		};
-		let exposure_dust_limit_success_sats = htlc_success_dust_limit + self.context.holder_dust_limit_satoshis;
+		let exposure_dust_limit_success_sats = htlc_success_dust_limit + self.funding.channel_transaction_parameters.holder_dust_limit_satoshis;
 		if msg.amount_msat / 1000 < exposure_dust_limit_success_sats {
 			let on_holder_tx_dust_htlc_exposure_msat = htlc_stats.on_holder_tx_dust_exposure_msat;
 			if on_holder_tx_dust_htlc_exposure_msat > max_dust_htlc_exposure_msat {
@@ -9172,7 +9165,7 @@ impl<SP: Deref> OutboundV1Channel<SP> where SP::Target: SignerProvider {
 				chain_hash,
 				temporary_channel_id: self.context.channel_id,
 				funding_satoshis: self.funding.get_value_satoshis(),
-				dust_limit_satoshis: self.context.holder_dust_limit_satoshis,
+				dust_limit_satoshis: self.funding.channel_transaction_parameters.holder_dust_limit_satoshis,
 				max_htlc_value_in_flight_msat: self.context.holder_max_htlc_value_in_flight_msat,
 				htlc_minimum_msat: self.context.holder_htlc_minimum_msat,
 				commitment_feerate_sat_per_1000_weight: self.context.feerate_per_kw as u32,
@@ -9425,7 +9418,7 @@ impl<SP: Deref> InboundV1Channel<SP> where SP::Target: SignerProvider {
 		Some(msgs::AcceptChannel {
 			common_fields: msgs::CommonAcceptChannelFields {
 				temporary_channel_id: self.context.channel_id,
-				dust_limit_satoshis: self.context.holder_dust_limit_satoshis,
+				dust_limit_satoshis: self.funding.channel_transaction_parameters.holder_dust_limit_satoshis,
 				max_htlc_value_in_flight_msat: self.context.holder_max_htlc_value_in_flight_msat,
 				htlc_minimum_msat: self.context.holder_htlc_minimum_msat,
 				minimum_depth: self.context.minimum_depth.unwrap(),
@@ -9660,7 +9653,7 @@ impl<SP: Deref> PendingV2Channel<SP> where SP::Target: SignerProvider {
 				chain_hash,
 				temporary_channel_id: self.context.temporary_channel_id.unwrap(),
 				funding_satoshis: self.funding.get_value_satoshis(),
-				dust_limit_satoshis: self.context.holder_dust_limit_satoshis,
+				dust_limit_satoshis: self.funding.channel_transaction_parameters.holder_dust_limit_satoshis,
 				max_htlc_value_in_flight_msat: self.context.holder_max_htlc_value_in_flight_msat,
 				htlc_minimum_msat: self.context.holder_htlc_minimum_msat,
 				commitment_feerate_sat_per_1000_weight: self.context.feerate_per_kw,
@@ -9831,7 +9824,7 @@ impl<SP: Deref> PendingV2Channel<SP> where SP::Target: SignerProvider {
 		msgs::AcceptChannelV2 {
 			common_fields: msgs::CommonAcceptChannelFields {
 				temporary_channel_id: self.context.temporary_channel_id.unwrap(),
-				dust_limit_satoshis: self.context.holder_dust_limit_satoshis,
+				dust_limit_satoshis: self.funding.channel_transaction_parameters.holder_dust_limit_satoshis,
 				max_htlc_value_in_flight_msat: self.context.holder_max_htlc_value_in_flight_msat,
 				htlc_minimum_msat: self.context.holder_htlc_minimum_msat,
 				minimum_depth: self.context.minimum_depth.unwrap(),
@@ -10173,7 +10166,7 @@ impl<SP: Deref> Writeable for FundedChannel<SP> where SP::Target: SignerProvider
 		self.context.short_channel_id.write(writer)?;
 
 		self.context.counterparty_dust_limit_satoshis.write(writer)?;
-		self.context.holder_dust_limit_satoshis.write(writer)?;
+		self.funding.channel_transaction_parameters.holder_dust_limit_satoshis.write(writer)?;
 		self.context.counterparty_max_htlc_value_in_flight_msat.write(writer)?;
 
 		// Note that this field is ignored by 0.0.99+ as the TLV Optional variant is used instead.
@@ -10480,7 +10473,7 @@ impl<'a, 'b, 'c, ES: Deref, SP: Deref> ReadableArgs<(&'a ES, &'b SP, u32, &'c Ch
 		let short_channel_id = Readable::read(reader)?;
 
 		let counterparty_dust_limit_satoshis = Readable::read(reader)?;
-		let holder_dust_limit_satoshis = Readable::read(reader)?;
+		let _holder_dust_limit_satoshis: u64 = Readable::read(reader)?;
 		let counterparty_max_htlc_value_in_flight_msat = Readable::read(reader)?;
 		let mut counterparty_selected_channel_reserve_satoshis = None;
 		if ver == 1 {
@@ -10830,7 +10823,6 @@ impl<'a, 'b, 'c, ES: Deref, SP: Deref> ReadableArgs<(&'a ES, &'b SP, u32, &'c Ch
 				channel_creation_height: channel_creation_height.unwrap(),
 
 				counterparty_dust_limit_satoshis,
-				holder_dust_limit_satoshis,
 				counterparty_max_htlc_value_in_flight_msat,
 				holder_max_htlc_value_in_flight_msat: holder_max_htlc_value_in_flight_msat.unwrap(),
 				counterparty_htlc_minimum_msat,
@@ -11082,7 +11074,7 @@ mod tests {
 		let mut accept_channel_msg = node_b_chan.accept_inbound_channel(&&logger).unwrap();
 		accept_channel_msg.common_fields.dust_limit_satoshis = 546;
 		node_a_chan.accept_channel(&accept_channel_msg, &config.channel_handshake_limits, &channelmanager::provided_init_features(&config)).unwrap();
-		node_a_chan.context.holder_dust_limit_satoshis = 1560;
+		node_a_chan.funding.channel_transaction_parameters.holder_dust_limit_satoshis = 1560;
 
 		// Node A --> Node B: funding created
 		let output_script = node_a_chan.funding.get_funding_redeemscript();
@@ -11161,13 +11153,13 @@ mod tests {
 
 		// If HTLC_SUCCESS_TX_WEIGHT and HTLC_TIMEOUT_TX_WEIGHT were swapped: then this HTLC would be
 		// counted as dust when it shouldn't be.
-		let htlc_amt_above_timeout = ((253 * htlc_timeout_tx_weight(chan.context.get_channel_type()) / 1000) + chan.context.holder_dust_limit_satoshis + 1) * 1000;
+		let htlc_amt_above_timeout = ((253 * htlc_timeout_tx_weight(chan.context.get_channel_type()) / 1000) + chan.funding.channel_transaction_parameters.holder_dust_limit_satoshis + 1) * 1000;
 		let htlc_candidate = HTLCCandidate::new(htlc_amt_above_timeout, HTLCInitiator::LocalOffered);
 		let commitment_tx_fee = chan.context.next_local_commit_tx_fee_msat(&chan.funding, htlc_candidate, None);
 		assert_eq!(commitment_tx_fee, commitment_tx_fee_1_htlc);
 
 		// If swapped: this HTLC would be counted as non-dust when it shouldn't be.
-		let dust_htlc_amt_below_success = ((253 * htlc_success_tx_weight(chan.context.get_channel_type()) / 1000) + chan.context.holder_dust_limit_satoshis - 1) * 1000;
+		let dust_htlc_amt_below_success = ((253 * htlc_success_tx_weight(chan.context.get_channel_type()) / 1000) + chan.funding.channel_transaction_parameters.holder_dust_limit_satoshis - 1) * 1000;
 		let htlc_candidate = HTLCCandidate::new(dust_htlc_amt_below_success, HTLCInitiator::RemoteOffered);
 		let commitment_tx_fee = chan.context.next_local_commit_tx_fee_msat(&chan.funding, htlc_candidate, None);
 		assert_eq!(commitment_tx_fee, commitment_tx_fee_0_htlcs);
@@ -11401,7 +11393,7 @@ mod tests {
 		let mut accept_channel_msg = node_b_chan.accept_inbound_channel(&&logger).unwrap();
 		accept_channel_msg.common_fields.dust_limit_satoshis = 546;
 		node_a_chan.accept_channel(&accept_channel_msg, &config.channel_handshake_limits, &channelmanager::provided_init_features(&config)).unwrap();
-		node_a_chan.context.holder_dust_limit_satoshis = 1560;
+		node_a_chan.funding.channel_transaction_parameters.holder_dust_limit_satoshis = 1560;
 
 		// Node A --> Node B: funding created
 		let output_script = node_a_chan.funding.get_funding_redeemscript();
@@ -11622,7 +11614,7 @@ mod tests {
 		let mut config = UserConfig::default();
 		config.channel_handshake_config.announce_for_forwarding = false;
 		let mut chan = OutboundV1Channel::<&Keys>::new(&LowerBoundedFeeEstimator::new(&feeest), &&keys_provider, &&keys_provider, counterparty_node_id, &channelmanager::provided_init_features(&config), 10_000_000, 0, 42, &config, 0, 42, None, &*logger).unwrap(); // Nothing uses their network key in this test
-		chan.context.holder_dust_limit_satoshis = 546;
+		chan.funding.channel_transaction_parameters.holder_dust_limit_satoshis = 546;
 		chan.funding.counterparty_selected_channel_reserve_satoshis = Some(0); // Filled in in accept_channel
 
 		let funding_info = OutPoint{ txid: Txid::from_str("8984484a580b825b9972d7adb15050b3ab624ccd731946b3eeddb92f4e7ef6be").unwrap(), index: 0 };
@@ -11954,7 +11946,7 @@ mod tests {
 		// anchors: commitment tx with six outputs untrimmed (minimum dust limit)
 		chan.funding.value_to_self_msat = 6993000000; // 7000000000 - 7000000
 		chan.context.feerate_per_kw = 645;
-		chan.context.holder_dust_limit_satoshis = 1001;
+		chan.funding.channel_transaction_parameters.holder_dust_limit_satoshis = 1001;
 
 		test_commitment_with_anchors!("3044022025d97466c8049e955a5afce28e322f4b34d2561118e52332fb400f9b908cc0a402205dc6fba3a0d67ee142c428c535580cd1f2ff42e2f89b47e0c8a01847caffc312",
 		                 "3045022100d57697c707b6f6d053febf24b98e8989f186eea42e37e9e91663ec2c70bb8f70022079b0715a472118f262f43016a674f59c015d9cafccec885968e76d9d9c5d0051",
@@ -11984,7 +11976,7 @@ mod tests {
 		// commitment tx with six outputs untrimmed (maximum feerate)
 		chan.funding.value_to_self_msat = 6993000000; // 7000000000 - 7000000
 		chan.context.feerate_per_kw = 2069;
-		chan.context.holder_dust_limit_satoshis = 546;
+		chan.funding.channel_transaction_parameters.holder_dust_limit_satoshis = 546;
 
 		test_commitment!("304502210090b96a2498ce0c0f2fadbec2aab278fed54c1a7838df793ec4d2c78d96ec096202204fdd439c50f90d483baa7b68feeef4bd33bc277695405447bcd0bfb2ca34d7bc",
 		                 "3045022100ad9a9bbbb75d506ca3b716b336ee3cf975dd7834fcf129d7dd188146eb58a8b4022061a759ee417339f7fe2ea1e8deb83abb6a74db31a09b7648a932a639cda23e33",
@@ -12081,7 +12073,7 @@ mod tests {
 		// anchors: commitment tx with four outputs untrimmed (minimum dust limit)
 		chan.funding.value_to_self_msat = 6993000000; // 7000000000 - 7000000
 		chan.context.feerate_per_kw = 2185;
-		chan.context.holder_dust_limit_satoshis = 2001;
+		chan.funding.channel_transaction_parameters.holder_dust_limit_satoshis = 2001;
 		let cached_channel_type = chan.context.channel_type;
 		chan.context.channel_type = ChannelTypeFeatures::anchors_zero_htlc_fee_and_dependencies();
 
@@ -12103,7 +12095,7 @@ mod tests {
 		// commitment tx with four outputs untrimmed (maximum feerate)
 		chan.funding.value_to_self_msat = 6993000000; // 7000000000 - 7000000
 		chan.context.feerate_per_kw = 3702;
-		chan.context.holder_dust_limit_satoshis = 546;
+		chan.funding.channel_transaction_parameters.holder_dust_limit_satoshis = 546;
 		chan.context.channel_type = cached_channel_type.clone();
 
 		test_commitment!("304502210092a587aeb777f869e7ff0d7898ea619ee26a3dacd1f3672b945eea600be431100220077ee9eae3528d15251f2a52b607b189820e57a6ccfac8d1af502b132ee40169",
@@ -12138,7 +12130,7 @@ mod tests {
 		// anchors: commitment tx with three outputs untrimmed (minimum dust limit)
 		chan.funding.value_to_self_msat = 6993000000; // 7000000000 - 7000000
 		chan.context.feerate_per_kw = 3687;
-		chan.context.holder_dust_limit_satoshis = 3001;
+		chan.funding.channel_transaction_parameters.holder_dust_limit_satoshis = 3001;
 		chan.context.channel_type = ChannelTypeFeatures::anchors_zero_htlc_fee_and_dependencies();
 
 		test_commitment_with_anchors!("3045022100ad6c71569856b2d7ff42e838b4abe74a713426b37f22fa667a195a4c88908c6902202b37272b02a42dc6d9f4f82cab3eaf84ac882d9ed762859e1e75455c2c228377",
@@ -12154,7 +12146,7 @@ mod tests {
 		// commitment tx with three outputs untrimmed (maximum feerate)
 		chan.funding.value_to_self_msat = 6993000000; // 7000000000 - 7000000
 		chan.context.feerate_per_kw = 4914;
-		chan.context.holder_dust_limit_satoshis = 546;
+		chan.funding.channel_transaction_parameters.holder_dust_limit_satoshis = 546;
 		chan.context.channel_type = cached_channel_type.clone();
 
 		test_commitment!("3045022100b4b16d5f8cc9fc4c1aff48831e832a0d8990e133978a66e302c133550954a44d022073573ce127e2200d316f6b612803a5c0c97b8d20e1e44dbe2ac0dd2fb8c95244",
@@ -12170,7 +12162,7 @@ mod tests {
 		// commitment tx with two outputs untrimmed (minimum feerate)
 		chan.funding.value_to_self_msat = 6993000000; // 7000000000 - 7000000
 		chan.context.feerate_per_kw = 4915;
-		chan.context.holder_dust_limit_satoshis = 546;
+		chan.funding.channel_transaction_parameters.holder_dust_limit_satoshis = 546;
 
 		test_commitment!("304402203a286936e74870ca1459c700c71202af0381910a6bfab687ef494ef1bc3e02c902202506c362d0e3bee15e802aa729bf378e051644648253513f1c085b264cc2a720",
 		                 "30450221008a953551f4d67cb4df3037207fc082ddaf6be84d417b0bd14c80aab66f1b01a402207508796dc75034b2dee876fe01dc05a08b019f3e5d689ac8842ade2f1befccf5",
@@ -12179,7 +12171,7 @@ mod tests {
 		// anchors: commitment tx with two outputs untrimmed (minimum dust limit)
 		chan.funding.value_to_self_msat = 6993000000; // 7000000000 - 7000000
 		chan.context.feerate_per_kw = 4894;
-		chan.context.holder_dust_limit_satoshis = 4001;
+		chan.funding.channel_transaction_parameters.holder_dust_limit_satoshis = 4001;
 		chan.context.channel_type = ChannelTypeFeatures::anchors_zero_htlc_fee_and_dependencies();
 
 		test_commitment_with_anchors!("3045022100e784a66b1588575801e237d35e510fd92a81ae3a4a2a1b90c031ad803d07b3f3022021bc5f16501f167607d63b681442da193eb0a76b4b7fd25c2ed4f8b28fd35b95",
@@ -12189,7 +12181,7 @@ mod tests {
 		// commitment tx with two outputs untrimmed (maximum feerate)
 		chan.funding.value_to_self_msat = 6993000000; // 7000000000 - 7000000
 		chan.context.feerate_per_kw = 9651180;
-		chan.context.holder_dust_limit_satoshis = 546;
+		chan.funding.channel_transaction_parameters.holder_dust_limit_satoshis = 546;
 		chan.context.channel_type = cached_channel_type.clone();
 
 		test_commitment!("304402200a8544eba1d216f5c5e530597665fa9bec56943c0f66d98fc3d028df52d84f7002201e45fa5c6bc3a506cc2553e7d1c0043a9811313fc39c954692c0d47cfce2bbd3",
@@ -12207,7 +12199,7 @@ mod tests {
 		// anchors: commitment tx with one output untrimmed (minimum dust limit)
 		chan.funding.value_to_self_msat = 6993000000; // 7000000000 - 7000000
 		chan.context.feerate_per_kw = 6216010;
-		chan.context.holder_dust_limit_satoshis = 4001;
+		chan.funding.channel_transaction_parameters.holder_dust_limit_satoshis = 4001;
 		chan.context.channel_type = ChannelTypeFeatures::anchors_zero_htlc_fee_and_dependencies();
 
 		test_commitment_with_anchors!("30450221008fd5dbff02e4b59020d4cd23a3c30d3e287065fda75a0a09b402980adf68ccda022001e0b8b620cd915ddff11f1de32addf23d81d51b90e6841b2cb8dcaf3faa5ecf",
@@ -12217,7 +12209,7 @@ mod tests {
 		// commitment tx with fee greater than funder amount
 		chan.funding.value_to_self_msat = 6993000000; // 7000000000 - 7000000
 		chan.context.feerate_per_kw = 9651936;
-		chan.context.holder_dust_limit_satoshis = 546;
+		chan.funding.channel_transaction_parameters.holder_dust_limit_satoshis = 546;
 		chan.context.channel_type = cached_channel_type;
 
 		test_commitment!("304402202ade0142008309eb376736575ad58d03e5b115499709c6db0b46e36ff394b492022037b63d78d66404d6504d4c4ac13be346f3d1802928a6d3ad95a6a944227161a2",

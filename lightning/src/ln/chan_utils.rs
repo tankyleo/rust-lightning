@@ -989,6 +989,7 @@ impl Writeable for ChannelTransactionParameters {
 			(10, legacy_deserialization_prevention_marker, option),
 			(11, self.channel_type_features, required),
 			(13, self.channel_value_satoshis, required),
+			(15, self.holder_dust_limit_satoshis, required),
 		});
 		Ok(())
 	}
@@ -1015,7 +1016,7 @@ impl ReadableArgs<u64> for ChannelTransactionParameters {
 			(10, _legacy_deserialization_prevention_marker, option),
 			(11, channel_type_features, option),
 			(13, channel_value_satoshis, option),
-			(15, holder_dust_limit_satoshis, (default_value, MIN_CHAN_DUST_LIMIT_SATOSHIS)),
+			(15, holder_dust_limit_satoshis, option),
 		});
 
 		let channel_value_satoshis = channel_value_satoshis.unwrap_or(read_args);
@@ -1035,7 +1036,7 @@ impl ReadableArgs<u64> for ChannelTransactionParameters {
 			funding_outpoint,
 			channel_type_features: channel_type_features.unwrap_or(ChannelTypeFeatures::only_static_remote_key()),
 			channel_value_satoshis,
-			holder_dust_limit_satoshis: holder_dust_limit_satoshis.unwrap(),
+			holder_dust_limit_satoshis: holder_dust_limit_satoshis.unwrap_or(MIN_CHAN_DUST_LIMIT_SATOSHIS),
 		})
 	}
 }
