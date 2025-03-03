@@ -2596,6 +2596,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 				funding_outpoint: None,
 				channel_type_features: channel_type.clone(),
 				channel_value_satoshis,
+				holder_dust_limit_satoshis: MIN_CHAN_DUST_LIMIT_SATOSHIS,
 			},
 			funding_transaction: None,
 		};
@@ -2831,6 +2832,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 				channel_type_features: channel_type.clone(),
 				// We'll add our counterparty's `funding_satoshis` when we receive `accept_channel2`.
 				channel_value_satoshis,
+				holder_dust_limit_satoshis: MIN_CHAN_DUST_LIMIT_SATOSHIS,
 			},
 			funding_transaction: None,
 		};

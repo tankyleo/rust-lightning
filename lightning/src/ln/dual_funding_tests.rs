@@ -16,7 +16,7 @@ use {
 		make_funding_redeemscript, ChannelPublicKeys, ChannelTransactionParameters,
 		CounterpartyChannelTransactionParameters,
 	},
-	crate::ln::channel::PendingV2Channel,
+	crate::ln::channel::{PendingV2Channel, MIN_CHAN_DUST_LIMIT_SATOSHIS},
 	crate::ln::channel_keys::{DelayedPaymentBasepoint, HtlcBasepoint, RevocationBasepoint},
 	crate::ln::functional_test_utils::*,
 	crate::ln::msgs::ChannelMessageHandler,
@@ -171,6 +171,7 @@ fn do_test_v2_channel_establishment(session: V2ChannelEstablishmentTestSession) 
 		funding_outpoint,
 		channel_type_features,
 		channel_value_satoshis: funding_satoshis,
+		holder_dust_limit_satoshis: MIN_CHAN_DUST_LIMIT_SATOSHIS,
 	};
 
 	let msg_commitment_signed_from_0 = CommitmentSigned {

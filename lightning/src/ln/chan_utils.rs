@@ -42,7 +42,7 @@ use bitcoin::{secp256k1, Sequence, Witness};
 use crate::io;
 use core::cmp;
 use crate::util::transaction_utils::sort_outputs;
-use crate::ln::channel::{INITIAL_COMMITMENT_NUMBER, ANCHOR_OUTPUT_VALUE_SATOSHI};
+use crate::ln::channel::{INITIAL_COMMITMENT_NUMBER, ANCHOR_OUTPUT_VALUE_SATOSHI, MIN_CHAN_DUST_LIMIT_SATOSHIS};
 use core::ops::Deref;
 use crate::chain;
 use crate::types::features::ChannelTypeFeatures;
@@ -885,6 +885,8 @@ pub struct ChannelTransactionParameters {
 	pub channel_type_features: ChannelTypeFeatures,
 	/// The value locked in the channel, denominated in satoshis.
 	pub channel_value_satoshis: u64,
+	/// The holder's dust limit
+	pub holder_dust_limit_satoshis: u64,
 }
 
 /// Late-bound per-channel counterparty data used to build transactions.
@@ -965,6 +967,7 @@ impl ChannelTransactionParameters {
 			}),
 			channel_type_features: ChannelTypeFeatures::empty(),
 			channel_value_satoshis,
+			holder_dust_limit_satoshis: MIN_CHAN_DUST_LIMIT_SATOSHIS,
 		}
 	}
 }
@@ -1001,6 +1004,7 @@ impl ReadableArgs<u64> for ChannelTransactionParameters {
 		let mut _legacy_deserialization_prevention_marker: Option<()> = None;
 		let mut channel_type_features = None;
 		let mut channel_value_satoshis = None;
+		let mut holder_dust_limit_satoshis = None;
 
 		read_tlv_fields!(reader, {
 			(0, holder_pubkeys, required),
@@ -1011,6 +1015,7 @@ impl ReadableArgs<u64> for ChannelTransactionParameters {
 			(10, _legacy_deserialization_prevention_marker, option),
 			(11, channel_type_features, option),
 			(13, channel_value_satoshis, option),
+			(15, holder_dust_limit_satoshis, (default_value, MIN_CHAN_DUST_LIMIT_SATOSHIS)),
 		});
 
 		let channel_value_satoshis = channel_value_satoshis.unwrap_or(read_args);
@@ -1030,6 +1035,7 @@ impl ReadableArgs<u64> for ChannelTransactionParameters {
 			funding_outpoint,
 			channel_type_features: channel_type_features.unwrap_or(ChannelTypeFeatures::only_static_remote_key()),
 			channel_value_satoshis,
+			holder_dust_limit_satoshis: holder_dust_limit_satoshis.unwrap(),
 		})
 	}
 }
@@ -1156,6 +1162,7 @@ impl HolderCommitmentTransaction {
 			funding_outpoint: Some(chain::transaction::OutPoint { txid: Txid::all_zeros(), index: 0 }),
 			channel_type_features: ChannelTypeFeatures::only_static_remote_key(),
 			channel_value_satoshis,
+			holder_dust_limit_satoshis: MIN_CHAN_DUST_LIMIT_SATOSHIS,
 		};
 		let mut counterparty_htlc_sigs = Vec::new();
 		for _ in 0..htlcs.len() {
@@ -1920,6 +1927,7 @@ pub fn get_commitment_transaction_number_obscure_factor(
 mod tests {
 	use super::{CounterpartyCommitmentSecrets, ChannelPublicKeys};
 	use crate::chain;
+	use crate::ln::channel::MIN_CHAN_DUST_LIMIT_SATOSHIS;
 	use crate::ln::chan_utils::{get_htlc_redeemscript, get_to_countersignatory_with_anchors_redeemscript, CommitmentTransaction, TxCreationKeys, ChannelTransactionParameters, CounterpartyChannelTransactionParameters, HTLCOutputInCommitment};
 	use bitcoin::secp256k1::{PublicKey, SecretKey, Secp256k1};
 	use crate::util::test_utils;
@@ -1968,6 +1976,7 @@ mod tests {
 				funding_outpoint: Some(chain::transaction::OutPoint { txid: Txid::all_zeros(), index: 0 }),
 				channel_type_features: ChannelTypeFeatures::only_static_remote_key(),
 				channel_value_satoshis: 3000,
+				holder_dust_limit_satoshis: MIN_CHAN_DUST_LIMIT_SATOSHIS,
 			};
 			let htlcs_with_aux = Vec::new();
 

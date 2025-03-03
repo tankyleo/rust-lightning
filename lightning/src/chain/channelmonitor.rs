@@ -5236,6 +5236,7 @@ mod tests {
 	use crate::types::payment::{PaymentPreimage, PaymentHash};
 	use crate::ln::channel_keys::{DelayedPaymentBasepoint, DelayedPaymentKey, HtlcBasepoint, RevocationBasepoint, RevocationKey};
 	use crate::ln::chan_utils::{self,HTLCOutputInCommitment, ChannelPublicKeys, ChannelTransactionParameters, HolderCommitmentTransaction, CounterpartyChannelTransactionParameters};
+	use crate::ln::channel::MIN_CHAN_DUST_LIMIT_SATOSHIS;
 	use crate::ln::channelmanager::{PaymentId, RecipientOnionFields};
 	use crate::ln::functional_test_utils::*;
 	use crate::ln::script::ShutdownScript;
@@ -5425,6 +5426,7 @@ mod tests {
 			funding_outpoint: Some(funding_outpoint),
 			channel_type_features: ChannelTypeFeatures::only_static_remote_key(),
 			channel_value_satoshis: 0,
+			holder_dust_limit_satoshis: MIN_CHAN_DUST_LIMIT_SATOSHIS,
 		};
 		// Prune with one old state and a holder commitment tx holding a few overlaps with the
 		// old state.
@@ -5677,6 +5679,7 @@ mod tests {
 			funding_outpoint: Some(funding_outpoint),
 			channel_type_features: ChannelTypeFeatures::only_static_remote_key(),
 			channel_value_satoshis: 0,
+			holder_dust_limit_satoshis: MIN_CHAN_DUST_LIMIT_SATOSHIS,
 		};
 		let shutdown_pubkey = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
 		let best_block = BestBlock::from_network(Network::Testnet);

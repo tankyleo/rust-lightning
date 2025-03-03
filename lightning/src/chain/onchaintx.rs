@@ -1293,6 +1293,7 @@ mod tests {
 		HTLCOutputInCommitment, HolderCommitmentTransaction,
 	};
 	use crate::ln::channel_keys::{DelayedPaymentBasepoint, HtlcBasepoint, RevocationBasepoint};
+	use crate::ln::channel::MIN_CHAN_DUST_LIMIT_SATOSHIS;
 	use crate::ln::functional_test_utils::create_dummy_block;
 	use crate::sign::InMemorySigner;
 	use crate::types::payment::{PaymentHash, PaymentPreimage};
@@ -1354,6 +1355,7 @@ mod tests {
 			funding_outpoint: Some(funding_outpoint),
 			channel_type_features: ChannelTypeFeatures::only_static_remote_key(),
 			channel_value_satoshis: 0,
+			holder_dust_limit_satoshis: MIN_CHAN_DUST_LIMIT_SATOSHIS,
 		};
 
 		// Create an OnchainTxHandler for a commitment containing HTLCs with CLTV expiries of 0, 1,
