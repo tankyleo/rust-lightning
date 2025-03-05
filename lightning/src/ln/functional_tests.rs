@@ -26,7 +26,7 @@ use crate::ln::channel::{get_holder_selected_channel_reserve_satoshis, Channel, 
 use crate::ln::channelmanager::{self, PaymentId, RAACommitmentOrder, RecipientOnionFields, BREAKDOWN_TIMEOUT, ENABLE_GOSSIP_TICKS, DISABLE_GOSSIP_TICKS, MIN_CLTV_EXPIRY_DELTA};
 use crate::ln::channel::{DISCONNECT_PEER_AWAITING_RESPONSE_TICKS, ChannelError, MIN_CHAN_DUST_LIMIT_SATOSHIS};
 use crate::ln::{chan_utils, onion_utils};
-use crate::ln::chan_utils::{commitment_tx_base_weight, COMMITMENT_TX_WEIGHT_PER_HTLC, OFFERED_HTLC_SCRIPT_WEIGHT, htlc_success_tx_weight, htlc_timeout_tx_weight, HTLCOutputInCommitment};
+use crate::ln::chan_utils::{commitment_tx_base_weight, COMMITMENT_TX_WEIGHT_PER_HTLC, OFFERED_HTLC_SCRIPT_WEIGHT, htlc_success_tx_weight, htlc_timeout_tx_weight};
 use crate::routing::gossip::{NetworkGraph, NetworkUpdate};
 use crate::routing::router::{Path, PaymentParameters, Route, RouteHop, get_route, RouteParameters};
 use crate::types::features::{ChannelFeatures, ChannelTypeFeatures, NodeFeatures};
@@ -743,14 +743,13 @@ pub fn test_update_fee_that_funder_cannot_afford() {
 		let local_chan_lock = per_peer_state.get(&nodes[1].node.get_our_node_id()).unwrap().lock().unwrap();
 		let local_chan = local_chan_lock.channel_by_id.get(&chan.2).and_then(Channel::as_funded).unwrap();
 		let local_chan_signer = local_chan.get_signer();
-		let mut htlcs: Vec<(HTLCOutputInCommitment, ())> = vec![];
-		let commitment_tx = CommitmentTransaction::new_with_auxiliary_htlc_data(
+		let commitment_tx = CommitmentTransaction::new(
 			INITIAL_COMMITMENT_NUMBER - 1,
 			&remote_point,
 			push_sats,
 			channel_value - push_sats - commit_tx_fee_msat(non_buffer_feerate + 4, 0, &channel_type_features) / 1000,
 			non_buffer_feerate + 4,
-			&mut htlcs,
+			Vec::new(),
 			&local_chan.funding.channel_transaction_parameters.as_counterparty_broadcastable(),
 			&secp_ctx,
 		);
@@ -1463,7 +1462,7 @@ pub fn test_fee_spike_violation_fails_htlc() {
 	// signature for the commitment_signed message.
 	let local_chan_balance = 1313;
 
-	let accepted_htlc_info = chan_utils::HTLCOutputInCommitment {
+	let mut accepted_htlc_info = chan_utils::HTLCOutputInCommitment {
 		offered: false,
 		amount_msat: 3460001,
 		cltv_expiry: htlc_cltv,
@@ -1478,13 +1477,13 @@ pub fn test_fee_spike_violation_fails_htlc() {
 		let local_chan_lock = per_peer_state.get(&nodes[1].node.get_our_node_id()).unwrap().lock().unwrap();
 		let local_chan = local_chan_lock.channel_by_id.get(&chan.2).and_then(Channel::as_funded).unwrap();
 		let local_chan_signer = local_chan.get_signer();
-		let commitment_tx = CommitmentTransaction::new_with_auxiliary_htlc_data(
+		let commitment_tx = CommitmentTransaction::new(
 			commitment_number,
 			&remote_point,
 			95000,
 			local_chan_balance,
 			feerate_per_kw,
-			&mut vec![(accepted_htlc_info, ())],
+			vec![accepted_htlc_info],
 			&local_chan.funding.channel_transaction_parameters.as_counterparty_broadcastable(),
 			&secp_ctx,
 		);
