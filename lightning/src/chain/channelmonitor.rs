@@ -3617,29 +3617,15 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 				}
 			}
 
-			for  &(ref htlc, _) in per_commitment_claimable_data.iter() {
-				if let Some(transaction_output_index) = htlc.transaction_output_index {
-					let preimage = if htlc.offered { if let Some((p, _)) = self.payment_preimages.get(&htlc.payment_hash) { Some(*p) } else { None } } else { None };
-					if preimage.is_some() || !htlc.offered {
-						let counterparty_htlc_outp = if htlc.offered {
-							PackageSolvingData::CounterpartyOfferedHTLCOutput(
-								CounterpartyOfferedHTLCOutput::build(per_commitment_point,
-									self.counterparty_commitment_params.counterparty_delayed_payment_base_key,
-									self.counterparty_commitment_params.counterparty_htlc_base_key,
-									preimage.unwrap(), htlc.clone(), self.onchain_tx_handler.channel_type_features().clone()))
-						} else {
-							PackageSolvingData::CounterpartyReceivedHTLCOutput(
-								CounterpartyReceivedHTLCOutput::build(per_commitment_point,
-									self.counterparty_commitment_params.counterparty_delayed_payment_base_key,
-									self.counterparty_commitment_params.counterparty_htlc_base_key,
-									htlc.clone(), self.onchain_tx_handler.channel_type_features().clone()))
-						};
-						let counterparty_package = PackageTemplate::build_package(commitment_txid, transaction_output_index, counterparty_htlc_outp, htlc.cltv_expiry);
-						claimable_outpoints.push(counterparty_package);
-					}
-				}
-			}
+			let mut packages = self.onchain_tx_handler.signer.generate_claims_from_counterparty_tx(
+				&per_commitment_point,
+				&self.onchain_tx_handler.channel_transaction_parameters,
+				&tx,
+				&per_commitment_claimable_data,
+				&self.payment_preimages,
+			);
 
+			claimable_outpoints.append(&mut packages);
 
 			msg = "counterparty";
 		}

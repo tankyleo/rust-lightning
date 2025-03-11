@@ -27,7 +27,9 @@ use lightning_invoice::RawBolt11Invoice;
 use musig2::types::{PartialSignature, PublicNonce};
 use secp256k1::ecdsa::RecoverableSignature;
 use secp256k1::{ecdh::SharedSecret, ecdsa::Signature, PublicKey, Scalar, Secp256k1, SecretKey};
-use types::payment::PaymentPreimage;
+use types::payment::{PaymentHash, PaymentPreimage};
+use crate::chain::package::PackageTemplate;
+use crate::ln::channelmanager::{HTLCSource, PaymentClaimDetails};
 
 #[cfg(not(taproot))]
 /// A super-trait for all the traits that a dyn signer backing implements
@@ -183,7 +185,14 @@ delegate!(DynSigner, ChannelSigner,
 		splice_parent_funding_txid: Option<Txid>, secp_ctx: &Secp256k1<secp256k1::All>
 	) -> ChannelPublicKeys,
 	fn channel_keys_id(,) -> [u8; 32],
-	fn validate_counterparty_revocation(, idx: u64, secret: &SecretKey) -> Result<(), ()>
+	fn validate_counterparty_revocation(, idx: u64, secret: &SecretKey) -> Result<(), ()>,
+	fn generate_claims_from_counterparty_tx(,
+		per_commitment_point: &PublicKey,
+		channel_parameters: &ChannelTransactionParameters,
+		tx: &Transaction,
+		per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
+		payment_preimage: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>
+		) -> Vec<PackageTemplate>;
 );
 
 impl DynSignerTrait for InMemorySigner {}

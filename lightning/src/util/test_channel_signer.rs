@@ -45,6 +45,9 @@ use bitcoin::secp256k1::{ecdsa::Signature, Secp256k1};
 use bitcoin::secp256k1::{PublicKey, SecretKey};
 #[cfg(taproot)]
 use musig2::types::{PartialSignature, PublicNonce};
+use types::payment::PaymentHash;
+use crate::chain::package::PackageTemplate;
+use crate::ln::channelmanager::{HTLCSource, PaymentClaimDetails};
 
 /// Initial value for revoked commitment downward counter
 pub const INITIAL_REVOKED_COMMITMENT_NUMBER: u64 = 1 << 48;
@@ -219,6 +222,10 @@ impl ChannelSigner for TestChannelSigner {
 
 	fn channel_keys_id(&self) -> [u8; 32] {
 		self.inner.channel_keys_id()
+	}
+
+	fn generate_claims_from_counterparty_tx(&self, per_commitment_point: &PublicKey, channel_parameters: &ChannelTransactionParameters, tx: &Transaction, per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>, payment_preimages: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>) -> Vec<PackageTemplate> {
+		self.inner.generate_claims_from_counterparty_tx(per_commitment_point,channel_parameters,tx,per_commitment_claimable_data,payment_preimages)
 	}
 }
 

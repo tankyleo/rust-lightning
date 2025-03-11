@@ -70,6 +70,9 @@ use core::convert::TryInto;
 use core::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(taproot)]
 use musig2::types::{PartialSignature, PublicNonce};
+use types::payment::PaymentHash;
+use crate::chain::package::{CounterpartyOfferedHTLCOutput, CounterpartyReceivedHTLCOutput, PackageSolvingData, PackageTemplate};
+use crate::ln::channelmanager::{HTLCSource, PaymentClaimDetails};
 
 pub(crate) mod type_resolver;
 
@@ -789,6 +792,15 @@ pub trait ChannelSigner {
 	///
 	/// This method is *not* asynchronous. Instead, the value must be cached locally.
 	fn channel_keys_id(&self) -> [u8; 32];
+
+	/// Returns claims on a counterparty commitment transaction
+	fn generate_claims_from_counterparty_tx(&self,
+											per_commitment_point: &PublicKey,
+											channel_parameters: &ChannelTransactionParameters,
+											tx: &Transaction,
+											per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
+											payment_preimages: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>,
+	) -> Vec<PackageTemplate>;
 }
 
 /// Specifies the recipient of an invoice.
@@ -1328,6 +1340,43 @@ impl ChannelSigner for InMemorySigner {
 
 	fn channel_keys_id(&self) -> [u8; 32] {
 		self.channel_keys_id
+	}
+
+	fn generate_claims_from_counterparty_tx(&self,
+											per_commitment_point: &PublicKey,
+											channel_parameters: &ChannelTransactionParameters,
+											tx: &Transaction,
+											per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
+											payment_preimages: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>,
+	)-> Vec<PackageTemplate> {
+		let mut claimable_outpoints = Vec::new();
+		let commitment_txid = tx.compute_txid();
+		let counterparty_delayed_payment_base_key = channel_parameters.counterparty_pubkeys().unwrap().delayed_payment_basepoint;
+		let counterparty_htlc_base_key = channel_parameters.counterparty_pubkeys().unwrap().htlc_basepoint;
+
+		for  &(ref htlc, _) in per_commitment_claimable_data.iter() {
+			if let Some(transaction_output_index) = htlc.transaction_output_index {
+				let preimage = if htlc.offered { if let Some((p, _)) = payment_preimages.get(&htlc.payment_hash) { Some(*p) } else { None } } else { None };
+				if preimage.is_some() || !htlc.offered {
+					let counterparty_htlc_outp = if htlc.offered {
+						PackageSolvingData::CounterpartyOfferedHTLCOutput(
+							CounterpartyOfferedHTLCOutput::build(*per_commitment_point,
+																 counterparty_delayed_payment_base_key,
+																 counterparty_htlc_base_key,
+																 preimage.unwrap(), htlc.clone(), channel_parameters.channel_type_features.clone()))
+					} else {
+						PackageSolvingData::CounterpartyReceivedHTLCOutput(
+							CounterpartyReceivedHTLCOutput::build(*per_commitment_point,
+																  counterparty_delayed_payment_base_key,
+																  counterparty_htlc_base_key,
+																  htlc.clone(), channel_parameters.channel_type_features.clone()))
+					};
+					let counterparty_package = PackageTemplate::build_package(commitment_txid, transaction_output_index, counterparty_htlc_outp, htlc.cltv_expiry);
+					claimable_outpoints.push(counterparty_package);
+				}
+			}
+		}
+		claimable_outpoints
 	}
 }
 
