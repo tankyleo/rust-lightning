@@ -3051,7 +3051,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		// First check if a counterparty commitment transaction has been broadcasted:
 		macro_rules! claim_htlcs {
 			($commitment_number: expr, $txid: expr, $htlcs: expr) => {
-				let htlc_claim_reqs = self.scan_onchain_htlc_outputs($commitment_number, $txid, $htlcs);
+				let htlc_claim_reqs = self.check_htlc_preimage_claims($commitment_number, $txid, $htlcs);
 				let conf_target = self.closure_conf_target();
 				self.onchain_tx_handler.update_claims_view_from_requests(htlc_claim_reqs, self.best_block.height, self.best_block.height, broadcaster, conf_target, fee_estimator, logger);
 			}
@@ -3225,7 +3225,6 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 				}
 				ChannelMonitorUpdateStep::LatestCounterpartyCommitmentTXInfo { commitment_txid, htlc_outputs, commitment_number, their_per_commitment_point, .. } => {
 					log_trace!(logger, "Updating ChannelMonitor with latest counterparty commitment transaction info");
-					println!("HAHA: {}", commitment_txid);
 					self.provide_latest_counterparty_commitment_tx(*commitment_txid, htlc_outputs.clone(), *commitment_number, *their_per_commitment_point, logger)
 				},
 				ChannelMonitorUpdateStep::PaymentPreimage { payment_preimage, payment_info } => {
@@ -3662,7 +3661,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 	}
 
 	/// Returns the HTLC claim package templates
-	fn scan_onchain_htlc_outputs(&self, commitment_number: u64, commitment_txid: Txid, per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>)
+	fn check_htlc_preimage_claims(&self, commitment_number: u64, commitment_txid: Txid, per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>)
 	-> Vec<PackageTemplate> {
 		let mut claimable_outpoints = Vec::new();
 
@@ -3681,26 +3680,15 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 				} else { return claimable_outpoints; }
 			} else { return claimable_outpoints; };
 
-		for  &(ref htlc, _) in per_commitment_claimable_data.iter() {
-			if let Some(transaction_output_index) = htlc.transaction_output_index {
-				let preimage = if htlc.offered { if let Some((p, _)) = self.payment_preimages.get(&htlc.payment_hash) { Some(*p) } else { None } } else { None };
-				if preimage.is_some() || !htlc.offered {
-					let counterparty_htlc_outp = if htlc.offered {
-						PackageSolvingData::CounterpartyOfferedHTLCOutput(
-							CounterpartyOfferedHTLCOutput::build(*per_commitment_point,
-								self.counterparty_commitment_params.counterparty_delayed_payment_base_key,
-								self.counterparty_commitment_params.counterparty_htlc_base_key,
-								preimage.unwrap(), htlc.clone(), self.onchain_tx_handler.channel_type_features().clone()))
-					} else {
-						PackageSolvingData::CounterpartyReceivedHTLCOutput(
-							CounterpartyReceivedHTLCOutput::build(*per_commitment_point,
-								self.counterparty_commitment_params.counterparty_delayed_payment_base_key,
-								self.counterparty_commitment_params.counterparty_htlc_base_key,
-								htlc.clone(), self.onchain_tx_handler.channel_type_features().clone()))
-					};
-					let counterparty_package = PackageTemplate::build_package(commitment_txid, transaction_output_index, counterparty_htlc_outp, htlc.cltv_expiry);
-					claimable_outpoints.push(counterparty_package);
-				}
+		for  htlc in per_commitment_claimable_data.iter().map(|(htlc, _)| htlc).filter(|htlc| htlc.offered && htlc.transaction_output_index.is_some()) {
+			if let Some(&(preimage, _)) = self.payment_preimages.get(&htlc.payment_hash) {
+				let package_data = PackageSolvingData::CounterpartyOfferedHTLCOutput(
+					CounterpartyOfferedHTLCOutput::build(*per_commitment_point,
+						self.counterparty_commitment_params.counterparty_delayed_payment_base_key,
+						self.counterparty_commitment_params.counterparty_htlc_base_key,
+						preimage, htlc.clone(), self.onchain_tx_handler.channel_type_features().clone()));
+				let counterparty_package = PackageTemplate::build_package(commitment_txid, htlc.transaction_output_index.unwrap(), package_data, htlc.cltv_expiry);
+				claimable_outpoints.push(counterparty_package);
 			}
 		}
 
