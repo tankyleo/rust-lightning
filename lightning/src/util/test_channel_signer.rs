@@ -235,6 +235,24 @@ impl ChannelSigner for TestChannelSigner {
 	) -> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo) {
 		self.inner.generate_claims_from_counterparty_tx(per_commitment_point,channel_parameters,tx,per_commitment_claimable_data,payment_preimages, secp_ctx)
 	}
+	fn generate_claims_from_revoked_tx(
+		&self,
+		per_commitment_key: &SecretKey,
+		channel_parameters: &ChannelTransactionParameters,
+		tx: &Transaction,
+		per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
+		height: u32,
+		secp_ctx: &Secp256k1<secp256k1::All>
+	) -> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo) {
+		self.inner.generate_claims_from_revoked_tx(
+			per_commitment_key,
+			channel_parameters,
+			tx,
+			per_commitment_claimable_data,
+			height,
+			secp_ctx,
+		)
+	}
 }
 
 impl EcdsaChannelSigner for TestChannelSigner {

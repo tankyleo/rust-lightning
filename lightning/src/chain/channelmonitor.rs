@@ -3549,46 +3549,18 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		let commitment_number = 0xffffffffffff - ((((tx.input[0].sequence.0 as u64 & 0xffffff) << 3*8) | (tx.lock_time.to_consensus_u32() as u64 & 0xffffff)) ^ self.commitment_transaction_number_obscure_factor);
 		if let Some(secret) = self.get_secret(commitment_number) {
 			let per_commitment_key = ignore_error!(SecretKey::from_slice(&secret));
-			let per_commitment_point = PublicKey::from_secret_key(&self.onchain_tx_handler.secp_ctx, &per_commitment_key);
-			let revocation_pubkey = RevocationKey::from_basepoint(&self.onchain_tx_handler.secp_ctx,  &self.holder_revocation_basepoint, &per_commitment_point,);
-			let delayed_key = DelayedPaymentKey::from_basepoint(&self.onchain_tx_handler.secp_ctx, &self.counterparty_commitment_params.counterparty_delayed_payment_base_key, &PublicKey::from_secret_key(&self.onchain_tx_handler.secp_ctx, &per_commitment_key));
 
-			let revokeable_redeemscript = chan_utils::get_revokeable_redeemscript(&revocation_pubkey, self.counterparty_commitment_params.on_counterparty_tx_csv, &delayed_key);
-			let revokeable_p2wsh = revokeable_redeemscript.to_p2wsh();
+			let (mut packages, output_info) = self.onchain_tx_handler.signer.generate_claims_from_revoked_tx(
+				&per_commitment_key,
+				&self.onchain_tx_handler.channel_transaction_parameters,
+				&tx,
+				&per_commitment_claimable_data,
+				height,
+				&self.onchain_tx_handler.secp_ctx,
+			);
 
-			// First, process non-htlc outputs (to_holder & to_counterparty)
-			for (idx, outp) in tx.output.iter().enumerate() {
-				if outp.script_pubkey == revokeable_p2wsh {
-					let revk_outp = RevokedOutput::build(per_commitment_point, self.counterparty_commitment_params.counterparty_delayed_payment_base_key, self.counterparty_commitment_params.counterparty_htlc_base_key, per_commitment_key, outp.value, self.counterparty_commitment_params.on_counterparty_tx_csv, self.onchain_tx_handler.channel_type_features().supports_anchors_zero_fee_htlc_tx());
-					let justice_package = PackageTemplate::build_package(
-						commitment_txid, idx as u32,
-						PackageSolvingData::RevokedOutput(revk_outp),
-						height + self.counterparty_commitment_params.on_counterparty_tx_csv as u32,
-					);
-					claimable_outpoints.push(justice_package);
-					to_counterparty_output_info =
-						Some((idx.try_into().expect("Txn can't have more than 2^32 outputs"), outp.value));
-				}
-			}
-
-			// Then, try to find revoked htlc outputs
-			for (htlc, _) in &per_commitment_claimable_data {
-				if let Some(transaction_output_index) = htlc.transaction_output_index {
-					let revk_htlc_outp = RevokedHTLCOutput::build(per_commitment_point, self.counterparty_commitment_params.counterparty_delayed_payment_base_key, self.counterparty_commitment_params.counterparty_htlc_base_key, per_commitment_key, htlc.amount_msat / 1000, htlc.clone(), &self.onchain_tx_handler.channel_transaction_parameters.channel_type_features);
-					let counterparty_spendable_height = if htlc.offered {
-						htlc.cltv_expiry
-					} else {
-						height
-					};
-					let justice_package = PackageTemplate::build_package(
-						commitment_txid,
-						transaction_output_index,
-						PackageSolvingData::RevokedHTLCOutput(revk_htlc_outp),
-						counterparty_spendable_height,
-					);
-					claimable_outpoints.push(justice_package);
-				}
-			}
+			claimable_outpoints.append(&mut packages);
+			to_counterparty_output_info = output_info;
 
 			// Last, track onchain revoked commitment transaction and fail backward outgoing HTLCs as payment path is broken
 			// We're definitely a counterparty commitment transaction!

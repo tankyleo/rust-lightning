@@ -194,7 +194,15 @@ delegate!(DynSigner, ChannelSigner,
 		per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
 		payment_preimage: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>,
 		secp_ctx: &Secp256k1<secp256k1::All>
-		) -> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo);
+		) -> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo),
+	fn generate_claims_from_revoked_tx(,
+		per_commitment_key: &SecretKey,
+		channel_parameters: &ChannelTransactionParameters,
+		tx: &Transaction,
+		per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
+		height: u32,
+		secp_ctx: &Secp256k1<secp256k1::All>
+	) -> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo);
 );
 
 

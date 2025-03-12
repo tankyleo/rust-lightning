@@ -68,8 +68,9 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use musig2::types::{PartialSignature, PublicNonce};
 use types::payment::PaymentHash;
 use crate::chain::channelmonitor::CommitmentTxCounterpartyOutputInfo;
-use crate::chain::package::{CounterpartyOfferedHTLCOutput, CounterpartyReceivedHTLCOutput, PackageSolvingData, PackageTemplate};
+use crate::chain::package::{CounterpartyOfferedHTLCOutput, CounterpartyReceivedHTLCOutput, PackageSolvingData, PackageTemplate, RevokedHTLCOutput, RevokedOutput};
 use crate::ln::channelmanager::{HTLCSource, PaymentClaimDetails};
+use crate::routing::router::PublicHopCandidate;
 
 pub(crate) mod type_resolver;
 
@@ -799,6 +800,17 @@ pub trait ChannelSigner {
 											payment_preimages: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>,
 											secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo);
+
+	/// Returns claims on a counterparty's revoked commitment transaction
+	fn generate_claims_from_revoked_tx(
+		&self,
+		per_commitment_key: &SecretKey,
+		channel_parameters: &ChannelTransactionParameters,
+		tx: &Transaction,
+		per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
+		height: u32,
+		secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo);
 }
 
 /// Specifies the recipient of an invoice.
@@ -1389,6 +1401,81 @@ impl ChannelSigner for InMemorySigner {
 					let counterparty_package = PackageTemplate::build_package(commitment_txid, transaction_output_index, counterparty_htlc_outp, htlc.cltv_expiry);
 					claimable_outpoints.push(counterparty_package);
 				}
+			}
+		}
+		(claimable_outpoints, to_counterparty_output_info)
+	}
+	fn generate_claims_from_revoked_tx(
+		&self,
+		per_commitment_key: &SecretKey,
+		channel_parameters: &ChannelTransactionParameters,
+		tx: &Transaction,
+		per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
+		height: u32,
+		secp_ctx: &Secp256k1<All>
+	) -> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo) {
+		let mut claimable_outpoints = Vec::new();
+		let mut to_counterparty_output_info = None;
+		let per_commitment_point = PublicKey::from_secret_key(secp_ctx, per_commitment_key);
+		let directed_params = channel_parameters.as_counterparty_broadcastable();
+		let tx_keys = TxCreationKeys::from_channel_static_keys(
+			&per_commitment_point,
+			directed_params.broadcaster_pubkeys(),
+			directed_params.countersignatory_pubkeys(),
+			secp_ctx,
+		);
+		let commitment_txid = tx.compute_txid();
+
+		let revokeable_redeemscript = chan_utils::get_revokeable_redeemscript(
+			&tx_keys.revocation_key,
+			directed_params.contest_delay(),
+			&tx_keys.broadcaster_delayed_payment_key
+		);
+		let revokeable_p2wsh = revokeable_redeemscript.to_p2wsh();
+
+		// First, process non-htlc outputs (to_holder & to_counterparty)
+		for (idx, outp) in tx.output.iter().enumerate() {
+			if outp.script_pubkey == revokeable_p2wsh {
+				let revk_outp = RevokedOutput::build(
+					per_commitment_point,
+					channel_parameters.counterparty_pubkeys().unwrap().delayed_payment_basepoint,
+					channel_parameters.counterparty_pubkeys().unwrap().htlc_basepoint,
+					*per_commitment_key, outp.value,
+					directed_params.contest_delay(),
+					channel_parameters.channel_type_features.supports_anchors_zero_fee_htlc_tx()
+				);
+				let justice_package = PackageTemplate::build_package(
+					commitment_txid, idx as u32,
+					PackageSolvingData::RevokedOutput(revk_outp),
+					height + directed_params.contest_delay() as u32,
+				);
+				claimable_outpoints.push(justice_package);
+				to_counterparty_output_info =
+					Some((idx.try_into().expect("Txn can't have more than 2^32 outputs"), outp.value));
+			}
+		}
+
+		// Then, try to find revoked htlc outputs
+		for (htlc, _) in per_commitment_claimable_data {
+			if let Some(transaction_output_index) = htlc.transaction_output_index {
+				let revk_htlc_outp = RevokedHTLCOutput::build(
+					per_commitment_point,
+					channel_parameters.counterparty_pubkeys().unwrap().delayed_payment_basepoint,
+					channel_parameters.counterparty_pubkeys().unwrap().htlc_basepoint,
+					*per_commitment_key, htlc.amount_msat / 1000,
+					htlc.clone(), &channel_parameters.channel_type_features);
+				let counterparty_spendable_height = if htlc.offered {
+					htlc.cltv_expiry
+				} else {
+					height
+				};
+				let justice_package = PackageTemplate::build_package(
+					commitment_txid,
+					transaction_output_index,
+					PackageSolvingData::RevokedHTLCOutput(revk_htlc_outp),
+					counterparty_spendable_height,
+				);
+				claimable_outpoints.push(justice_package);
 			}
 		}
 		(claimable_outpoints, to_counterparty_output_info)
