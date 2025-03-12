@@ -28,7 +28,7 @@ use musig2::types::{PartialSignature, PublicNonce};
 use secp256k1::ecdsa::RecoverableSignature;
 use secp256k1::{ecdh::SharedSecret, ecdsa::Signature, PublicKey, Scalar, Secp256k1, SecretKey};
 use types::payment::{PaymentHash, PaymentPreimage};
-use crate::chain::channelmonitor::CommitmentTxCounterpartyOutputInfo;
+use crate::chain::channelmonitor::{CommitmentTxCounterpartyOutputInfo, HolderSignedTx};
 use crate::chain::package::PackageTemplate;
 use crate::ln::channelmanager::{HTLCSource, PaymentClaimDetails};
 
@@ -202,7 +202,14 @@ delegate!(DynSigner, ChannelSigner,
 		per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
 		height: u32,
 		secp_ctx: &Secp256k1<secp256k1::All>
-	) -> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo);
+	) -> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo),
+	fn generate_claims_from_holder_tx(,
+		holder_tx: &HolderSignedTx,
+		conf_height: u32,
+		channel_parameters: &ChannelTransactionParameters,
+		payment_preimages: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>,
+		secp_ctx: &Secp256k1<secp256k1::All>
+	) -> (Vec<PackageTemplate>);
 );
 
 

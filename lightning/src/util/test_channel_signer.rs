@@ -46,7 +46,7 @@ use bitcoin::secp256k1::{PublicKey, SecretKey};
 #[cfg(taproot)]
 use musig2::types::{PartialSignature, PublicNonce};
 use types::payment::PaymentHash;
-use crate::chain::channelmonitor::CommitmentTxCounterpartyOutputInfo;
+use crate::chain::channelmonitor::{CommitmentTxCounterpartyOutputInfo, HolderSignedTx};
 use crate::chain::package::PackageTemplate;
 use crate::ln::channelmanager::{HTLCSource, PaymentClaimDetails};
 
@@ -252,6 +252,9 @@ impl ChannelSigner for TestChannelSigner {
 			height,
 			secp_ctx,
 		)
+	}
+	fn generate_claims_from_holder_tx(&self, holder_tx: &HolderSignedTx, conf_height: u32, channel_parameters: &ChannelTransactionParameters, payment_preimages: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>, secp_ctx: &Secp256k1<secp256k1::All>) -> Vec<PackageTemplate> {
+		self.inner.generate_claims_from_holder_tx(holder_tx, conf_height, channel_parameters,payment_preimages, secp_ctx)
 	}
 }
 

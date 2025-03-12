@@ -276,15 +276,15 @@ pub(crate) const HTLC_FAIL_BACK_BUFFER: u32 = CLTV_CLAIM_BUFFER + LATENCY_GRACE_
 
 // TODO(devrandom) replace this with HolderCommitmentTransaction
 #[derive(Clone, PartialEq, Eq)]
-struct HolderSignedTx {
+pub(crate) struct HolderSignedTx {
 	/// txid of the transaction in tx, just used to make comparison faster
-	txid: Txid,
+	pub(crate) txid: Txid,
 	revocation_key: RevocationKey,
 	a_htlc_key: HtlcKey,
 	b_htlc_key: HtlcKey,
 	delayed_payment_key: DelayedPaymentKey,
 	per_commitment_point: PublicKey,
-	htlc_outputs: Vec<(HTLCOutputInCommitment, Option<Signature>, Option<HTLCSource>)>,
+	pub(crate) htlc_outputs: Vec<(HTLCOutputInCommitment, Option<Signature>, Option<HTLCSource>)>,
 	to_self_value_sat: u64,
 	feerate_per_kw: u32,
 }
@@ -3697,39 +3697,17 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 	// broadcast transactions claiming holder HTLC commitment outputs and (2) a holder revokable
 	// script so we can detect whether a holder transaction has been seen on-chain.
 	fn get_broadcasted_holder_claims(&self, holder_tx: &HolderSignedTx, conf_height: u32) -> (Vec<PackageTemplate>, Option<(ScriptBuf, PublicKey, RevocationKey)>) {
-		let mut claim_requests = Vec::with_capacity(holder_tx.htlc_outputs.len());
-
 		// refactor this
 		let redeemscript = chan_utils::get_revokeable_redeemscript(&holder_tx.revocation_key, self.on_holder_tx_csv, &holder_tx.delayed_payment_key);
 		let broadcasted_holder_revokable_script = Some((redeemscript.to_p2wsh(), holder_tx.per_commitment_point.clone(), holder_tx.revocation_key.clone()));
 
-		for &(ref htlc, _, _) in holder_tx.htlc_outputs.iter() {
-			if let Some(transaction_output_index) = htlc.transaction_output_index {
-				let (htlc_output, counterparty_spendable_height) = if htlc.offered {
-					let htlc_output = HolderHTLCOutput::build_offered(
-						htlc.amount_msat, htlc.cltv_expiry, self.onchain_tx_handler.channel_type_features().clone()
-					);
-					(htlc_output, conf_height)
-				} else {
-					let payment_preimage = if let Some((preimage, _)) = self.payment_preimages.get(&htlc.payment_hash) {
-						preimage.clone()
-					} else {
-						// We can't build an HTLC-Success transaction without the preimage
-						continue;
-					};
-					let htlc_output = HolderHTLCOutput::build_accepted(
-						payment_preimage, htlc.amount_msat, self.onchain_tx_handler.channel_type_features().clone()
-					);
-					(htlc_output, htlc.cltv_expiry)
-				};
-				let htlc_package = PackageTemplate::build_package(
-					holder_tx.txid, transaction_output_index,
-					PackageSolvingData::HolderHTLCOutput(htlc_output),
-					counterparty_spendable_height,
-				);
-				claim_requests.push(htlc_package);
-			}
-		}
+		let claim_requests = self.onchain_tx_handler.signer.generate_claims_from_holder_tx(
+			holder_tx,
+			conf_height,
+			&self.onchain_tx_handler.channel_transaction_parameters,
+			&self.payment_preimages,
+			&self.onchain_tx_handler.secp_ctx
+		);
 
 		(claim_requests, broadcasted_holder_revokable_script)
 	}

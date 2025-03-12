@@ -67,8 +67,8 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(taproot)]
 use musig2::types::{PartialSignature, PublicNonce};
 use types::payment::PaymentHash;
-use crate::chain::channelmonitor::CommitmentTxCounterpartyOutputInfo;
-use crate::chain::package::{CounterpartyOfferedHTLCOutput, CounterpartyReceivedHTLCOutput, PackageSolvingData, PackageTemplate, RevokedHTLCOutput, RevokedOutput};
+use crate::chain::channelmonitor::{CommitmentTxCounterpartyOutputInfo, HolderSignedTx};
+use crate::chain::package::{CounterpartyOfferedHTLCOutput, CounterpartyReceivedHTLCOutput, HolderHTLCOutput, PackageSolvingData, PackageTemplate, RevokedHTLCOutput, RevokedOutput};
 use crate::ln::channelmanager::{HTLCSource, PaymentClaimDetails};
 use crate::routing::router::PublicHopCandidate;
 
@@ -811,6 +811,16 @@ pub trait ChannelSigner {
 		height: u32,
 		secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo);
+
+	/// Returns claims on a holder's commitment transaction
+	fn generate_claims_from_holder_tx(
+		&self,
+		holder_tx: &HolderSignedTx,
+		conf_height: u32,
+		channel_parameters: &ChannelTransactionParameters,
+		payment_preimages: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>,
+		secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Vec<PackageTemplate>;
 }
 
 /// Specifies the recipient of an invoice.
@@ -1479,6 +1489,46 @@ impl ChannelSigner for InMemorySigner {
 			}
 		}
 		(claimable_outpoints, to_counterparty_output_info)
+	}
+	fn generate_claims_from_holder_tx(
+		&self,
+		holder_tx: &HolderSignedTx,
+		conf_height: u32,
+		channel_parameters: &ChannelTransactionParameters,
+		payment_preimages: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>,
+		secp_ctx: &Secp256k1<All>
+	) -> Vec<PackageTemplate> {
+		let mut claim_requests = Vec::with_capacity(holder_tx.htlc_outputs.len());
+
+		for &(ref htlc, _, _) in holder_tx.htlc_outputs.iter() {
+			if let Some(transaction_output_index) = htlc.transaction_output_index {
+				let (htlc_output, counterparty_spendable_height) = if htlc.offered {
+					let htlc_output = HolderHTLCOutput::build_offered(
+						htlc.amount_msat, htlc.cltv_expiry, channel_parameters.channel_type_features.clone()
+					);
+					(htlc_output, conf_height)
+				} else {
+					let payment_preimage = if let Some((preimage, _)) = payment_preimages.get(&htlc.payment_hash) {
+						preimage.clone()
+					} else {
+						// We can't build an HTLC-Success transaction without the preimage
+						continue;
+					};
+					let htlc_output = HolderHTLCOutput::build_accepted(
+						payment_preimage, htlc.amount_msat, channel_parameters.channel_type_features.clone()
+					);
+					(htlc_output, htlc.cltv_expiry)
+				};
+				let htlc_package = PackageTemplate::build_package(
+					holder_tx.txid, transaction_output_index,
+					PackageSolvingData::HolderHTLCOutput(htlc_output),
+					counterparty_spendable_height,
+				);
+				claim_requests.push(htlc_package);
+			}
+		}
+
+		claim_requests
 	}
 }
 
