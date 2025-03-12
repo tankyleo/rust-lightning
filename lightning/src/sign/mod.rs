@@ -40,11 +40,7 @@ use lightning_invoice::RawBolt11Invoice;
 use crate::chain::transaction::OutPoint;
 use crate::crypto::utils::{hkdf_extract_expand_twice, sign, sign_with_aux_rand};
 use crate::ln::chan_utils;
-use crate::ln::chan_utils::{
-	get_revokeable_redeemscript, make_funding_redeemscript, ChannelPublicKeys,
-	ChannelTransactionParameters, ClosingTransaction, CommitmentTransaction,
-	HTLCOutputInCommitment, HolderCommitmentTransaction,
-};
+use crate::ln::chan_utils::{get_revokeable_redeemscript, make_funding_redeemscript, ChannelPublicKeys, ChannelTransactionParameters, ClosingTransaction, CommitmentTransaction, HTLCOutputInCommitment, HolderCommitmentTransaction, TxCreationKeys};
 use crate::ln::channel::ANCHOR_OUTPUT_VALUE_SATOSHI;
 use crate::ln::channel_keys::{
 	add_public_key_tweak, DelayedPaymentBasepoint, DelayedPaymentKey, HtlcBasepoint, HtlcKey,
@@ -71,6 +67,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(taproot)]
 use musig2::types::{PartialSignature, PublicNonce};
 use types::payment::PaymentHash;
+use crate::chain::channelmonitor::CommitmentTxCounterpartyOutputInfo;
 use crate::chain::package::{CounterpartyOfferedHTLCOutput, CounterpartyReceivedHTLCOutput, PackageSolvingData, PackageTemplate};
 use crate::ln::channelmanager::{HTLCSource, PaymentClaimDetails};
 
@@ -800,7 +797,8 @@ pub trait ChannelSigner {
 											tx: &Transaction,
 											per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
 											payment_preimages: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>,
-	) -> Vec<PackageTemplate>;
+											secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo);
 }
 
 /// Specifies the recipient of an invoice.
@@ -1348,7 +1346,24 @@ impl ChannelSigner for InMemorySigner {
 											tx: &Transaction,
 											per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
 											payment_preimages: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>,
-	)-> Vec<PackageTemplate> {
+											secp_ctx: &Secp256k1<secp256k1::All>,
+	)-> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo) {
+
+		let directed_parameters = channel_parameters.as_counterparty_broadcastable();
+		let tx_keys = TxCreationKeys::from_channel_static_keys(per_commitment_point, directed_parameters.broadcaster_pubkeys(),
+		directed_parameters.countersignatory_pubkeys(), secp_ctx);
+		let revokeable_redeemscript = chan_utils::get_revokeable_redeemscript(&tx_keys.revocation_key, directed_parameters.contest_delay(), &tx_keys.broadcaster_delayed_payment_key);
+		let revokeable_p2wsh = revokeable_redeemscript.to_p2wsh();
+
+		let mut to_counterparty_output_info = None;
+
+		for (idx, outp) in tx.output.iter().enumerate() {
+			if outp.script_pubkey == revokeable_p2wsh {
+				to_counterparty_output_info =
+					Some((idx.try_into().expect("Can't have > 2^32 outputs"), outp.value));
+			}
+		}
+
 		let mut claimable_outpoints = Vec::new();
 		let commitment_txid = tx.compute_txid();
 		let counterparty_delayed_payment_base_key = channel_parameters.counterparty_pubkeys().unwrap().delayed_payment_basepoint;
@@ -1376,7 +1391,7 @@ impl ChannelSigner for InMemorySigner {
 				}
 			}
 		}
-		claimable_outpoints
+		(claimable_outpoints, to_counterparty_output_info)
 	}
 }
 

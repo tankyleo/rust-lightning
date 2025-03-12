@@ -410,7 +410,7 @@ impl OnchainEventEntry {
 /// The (output index, sats value) for the counterparty's output in a commitment transaction.
 ///
 /// This was added as an `Option` in 0.0.110.
-type CommitmentTxCounterpartyOutputInfo = Option<(u32, Amount)>;
+pub(crate) type CommitmentTxCounterpartyOutputInfo = Option<(u32, Amount)>;
 
 /// Upon discovering of some classes of onchain tx by ChannelMonitor, we may have to take actions on it
 /// once they mature to enough confirmations (ANTI_REORG_DELAY)
@@ -3603,29 +3603,19 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 				self.their_cur_per_commitment_points.unwrap().2.unwrap()
 			};
 
-			let revocation_pubkey = RevocationKey::from_basepoint(&self.onchain_tx_handler.secp_ctx,  &self.holder_revocation_basepoint, &per_commitment_point,);
-			let delayed_key = DelayedPaymentKey::from_basepoint(&self.onchain_tx_handler.secp_ctx, &self.counterparty_commitment_params.counterparty_delayed_payment_base_key, &per_commitment_point);
-			let revokeable_redeemscript = chan_utils::get_revokeable_redeemscript(&revocation_pubkey, self.counterparty_commitment_params.on_counterparty_tx_csv, &delayed_key);
-			let revokeable_p2wsh = revokeable_redeemscript.to_p2wsh();
-
 			log_info!(logger, "Got broadcast of non-revoked counterparty commitment transaction {}", commitment_txid);
 
-			for (idx, outp) in tx.output.iter().enumerate() {
-				if outp.script_pubkey == revokeable_p2wsh {
-					to_counterparty_output_info =
-						Some((idx.try_into().expect("Can't have > 2^32 outputs"), outp.value));
-				}
-			}
-
-			let mut packages = self.onchain_tx_handler.signer.generate_claims_from_counterparty_tx(
+			let (mut packages, output_info) = self.onchain_tx_handler.signer.generate_claims_from_counterparty_tx(
 				&per_commitment_point,
 				&self.onchain_tx_handler.channel_transaction_parameters,
 				&tx,
 				&per_commitment_claimable_data,
 				&self.payment_preimages,
+				&self.onchain_tx_handler.secp_ctx,
 			);
 
 			claimable_outpoints.append(&mut packages);
+			to_counterparty_output_info = output_info;
 
 			msg = "counterparty";
 		}

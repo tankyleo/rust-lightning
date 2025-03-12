@@ -46,6 +46,7 @@ use bitcoin::secp256k1::{PublicKey, SecretKey};
 #[cfg(taproot)]
 use musig2::types::{PartialSignature, PublicNonce};
 use types::payment::PaymentHash;
+use crate::chain::channelmonitor::CommitmentTxCounterpartyOutputInfo;
 use crate::chain::package::PackageTemplate;
 use crate::ln::channelmanager::{HTLCSource, PaymentClaimDetails};
 
@@ -224,8 +225,15 @@ impl ChannelSigner for TestChannelSigner {
 		self.inner.channel_keys_id()
 	}
 
-	fn generate_claims_from_counterparty_tx(&self, per_commitment_point: &PublicKey, channel_parameters: &ChannelTransactionParameters, tx: &Transaction, per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>, payment_preimages: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>) -> Vec<PackageTemplate> {
-		self.inner.generate_claims_from_counterparty_tx(per_commitment_point,channel_parameters,tx,per_commitment_claimable_data,payment_preimages)
+	fn generate_claims_from_counterparty_tx(&self,
+											per_commitment_point: &PublicKey,
+											channel_parameters: &ChannelTransactionParameters,
+											tx: &Transaction,
+											per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
+											payment_preimages: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>,
+											secp_ctx: &Secp256k1<secp256k1::All>
+	) -> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo) {
+		self.inner.generate_claims_from_counterparty_tx(per_commitment_point,channel_parameters,tx,per_commitment_claimable_data,payment_preimages, secp_ctx)
 	}
 }
 

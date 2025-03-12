@@ -28,6 +28,7 @@ use musig2::types::{PartialSignature, PublicNonce};
 use secp256k1::ecdsa::RecoverableSignature;
 use secp256k1::{ecdh::SharedSecret, ecdsa::Signature, PublicKey, Scalar, Secp256k1, SecretKey};
 use types::payment::{PaymentHash, PaymentPreimage};
+use crate::chain::channelmonitor::CommitmentTxCounterpartyOutputInfo;
 use crate::chain::package::PackageTemplate;
 use crate::ln::channelmanager::{HTLCSource, PaymentClaimDetails};
 
@@ -191,9 +192,11 @@ delegate!(DynSigner, ChannelSigner,
 		channel_parameters: &ChannelTransactionParameters,
 		tx: &Transaction,
 		per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
-		payment_preimage: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>
-		) -> Vec<PackageTemplate>;
+		payment_preimage: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>,
+		secp_ctx: &Secp256k1<secp256k1::All>
+		) -> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo);
 );
+
 
 impl DynSignerTrait for InMemorySigner {}
 
