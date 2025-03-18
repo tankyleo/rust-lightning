@@ -793,12 +793,12 @@ pub trait ChannelSigner {
 
 	/// Returns claims on a counterparty commitment transaction
 	fn generate_claims_from_counterparty_tx(&self,
-											per_commitment_point: &PublicKey,
-											channel_parameters: &ChannelTransactionParameters,
-											tx: &Transaction,
-											per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
-											payment_preimages: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>,
-											secp_ctx: &Secp256k1<secp256k1::All>,
+		per_commitment_point: &PublicKey,
+		channel_parameters: &ChannelTransactionParameters,
+		tx: &Transaction,
+		per_commitment_claimable_data: &Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
+		payment_preimages: &HashMap<PaymentHash, (PaymentPreimage, Vec<PaymentClaimDetails>)>,
+		secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> (Vec<PackageTemplate>, CommitmentTxCounterpartyOutputInfo);
 
 	/// Returns claims on a counterparty's revoked commitment transaction
