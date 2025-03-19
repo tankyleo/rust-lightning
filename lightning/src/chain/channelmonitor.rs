@@ -2400,17 +2400,15 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		None
 	}
 
-	fn get_counterparty_populated_nondust_htlcs(&self, funding: &FundingScope, txid: &Txid) -> Option<Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>> {
+	fn get_counterparty_populated_htlcs(&self, funding: &FundingScope, txid: &Txid) -> Option<Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>> {
 		if let Some(htlc_id_indices) = funding.counterparty_claimable_indices.get(txid) {
 			let commitment_number = self.counterparty_commitment_txn_on_chain.get(txid).unwrap();
-			let counterparty_tx_htlcs = self.counterparty_claimable_data.get(commitment_number).unwrap();
-			let mut nondust_htlcs = Vec::new();
+			let mut counterparty_tx_htlcs = self.counterparty_claimable_data.get(commitment_number).unwrap().clone();
 			for (offered, htlc_id, htlc_idx) in htlc_id_indices {
-				let (mut nondust_htlc, source) = counterparty_tx_htlcs.iter().find(|(htlc, _source)| htlc_id == &htlc.htlc_id && offered == &htlc.offered).cloned().unwrap();
+				let (nondust_htlc, _) = counterparty_tx_htlcs.iter_mut().find(|(htlc, _source)| htlc_id == &htlc.htlc_id && offered == &htlc.offered).unwrap();
 				nondust_htlc.transaction_output_index = Some(*htlc_idx);
-				nondust_htlcs.push((nondust_htlc, source));
 			}
-			Some(nondust_htlcs)
+			Some(counterparty_tx_htlcs)
 		} else {
 			None
 		}
@@ -2471,7 +2469,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 
 		if let Some(txid) = confirmed_txid {
 			let mut found_commitment_tx = false;
-			if let Some(nondust_htlcs) = us.get_counterparty_populated_nondust_htlcs(&us.funding, &txid) {
+			if let Some(nondust_htlcs) = us.get_counterparty_populated_htlcs(&us.funding, &txid) {
 				// First look for the to_remote output back to us.
 				if let Some(conf_thresh) = pending_commitment_tx_conf_thresh {
 					if let Some(value) = us.onchain_events_awaiting_threshold_conf.iter().find_map(|event| {
