@@ -2469,7 +2469,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 
 		if let Some(txid) = confirmed_txid {
 			let mut found_commitment_tx = false;
-			if let Some(nondust_htlcs) = us.get_counterparty_populated_htlcs(&us.funding, &txid) {
+			if let Some(populated_htlcs) = us.get_counterparty_populated_htlcs(&us.funding, &txid) {
 				// First look for the to_remote output back to us.
 				if let Some(conf_thresh) = pending_commitment_tx_conf_thresh {
 					if let Some(value) = us.onchain_events_awaiting_threshold_conf.iter().find_map(|event| {
@@ -2491,9 +2491,9 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 					}
 				}
 				if Some(txid) == us.funding.current_counterparty_commitment_txid || Some(txid) == us.funding.prev_counterparty_commitment_txid {
-					walk_htlcs!(false, false, nondust_htlcs.iter());
+					walk_htlcs!(false, false, populated_htlcs.iter());
 				} else {
-					walk_htlcs!(false, true, nondust_htlcs.iter());
+					walk_htlcs!(false, true, populated_htlcs.iter());
 					// The counterparty broadcasted a revoked state!
 					// Look for any StaticOutputs first, generating claimable balances for those.
 					// If any match the confirmed counterparty revoked to_self output, skip
