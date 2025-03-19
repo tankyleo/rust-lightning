@@ -4743,12 +4743,12 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 								// resolve the source HTLC with the original sender.
 								payment_data = Some(((*source).clone(), htlc_output.payment_hash, htlc_output.amount_msat));
 							} else if !$holder_tx {
-								if let Some(current_counterparty_commitment_txid) = &self.funding.current_counterparty_commitment_txid {
-									check_htlc_valid_counterparty!(htlc_output, self.funding.counterparty_claimable_outpoints.get(current_counterparty_commitment_txid).unwrap());
+								if let Some(_current_counterparty_commitment_txid) = &self.funding.current_counterparty_commitment_txid {
+									check_htlc_valid_counterparty!(htlc_output, self.counterparty_claimable_data.get(&self.current_counterparty_commitment_number).unwrap());
 								}
 								if payment_data.is_none() {
-									if let Some(prev_counterparty_commitment_txid) = &self.funding.prev_counterparty_commitment_txid {
-										check_htlc_valid_counterparty!(htlc_output, self.funding.counterparty_claimable_outpoints.get(prev_counterparty_commitment_txid).unwrap());
+									if let Some(_prev_counterparty_commitment_txid) = &self.funding.prev_counterparty_commitment_txid {
+										check_htlc_valid_counterparty!(htlc_output, self.counterparty_claimable_data.get(&(self.current_counterparty_commitment_number + 1)).unwrap());
 									}
 								}
 							}
@@ -4786,8 +4786,9 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 						"our previous holder commitment tx", true);
 				}
 			}
-			if let Some(ref htlc_outputs) = self.funding.counterparty_claimable_outpoints.get(&input.previous_output.txid) {
-				scan_commitment!(htlc_outputs.iter().map(|&(ref a, ref b)| (a, b.as_ref().map(|boxed| &**boxed))),
+			// We assume here that for both non-revoked and revoked counterparty htlc transactions, we have already seen its parent (the commit tx)
+			if let Some(ref htlc_outputs) = self.get_counterparty_populated_htlcs(&self.funding, &input.previous_output.txid, None) {
+				scan_commitment!(htlc_outputs.iter().map(|&(ref a, ref b)| (a, b.as_deref())),
 					"counterparty commitment tx", false);
 			}
 
