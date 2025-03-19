@@ -891,7 +891,7 @@ struct FundingScope {
 	counterparty_claimable_outpoints: HashMap<Txid, Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>>,
 
 	// the indices
-	counterparty_claimable_indices: HashMap<Txid, Vec<(u64, u32)>>,
+	counterparty_claimable_indices: HashMap<Txid, Vec<(bool, u64, u32)>>,
 
 	// We store two holder commitment transactions to avoid any race conditions where we may update
 	// some monitors (potentially on watchtowers) but then fail to update others, resulting in the
@@ -1201,7 +1201,8 @@ impl<Signer: EcdsaChannelSigner> Writeable for ChannelMonitorImpl<Signer> {
 		for (ref txid, ref htlc_indices) in self.funding.counterparty_claimable_indices.iter() {
 			writer.write_all(&txid[..])?;
 			writer.write_all(&(htlc_indices.len() as u64).to_be_bytes())?;
-			for &(ref htlc_id, ref htlc_idx) in htlc_indices.iter() {
+			for &(offered, ref htlc_id, ref htlc_idx) in htlc_indices.iter() {
+				writer.write_all(&[offered as u8; 1])?;
 				writer.write_all(&htlc_id.to_be_bytes())?;
 				writer.write_all(&htlc_idx.to_be_bytes())?;
 			}
@@ -2403,15 +2404,12 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		if let Some(htlc_id_indices) = funding.counterparty_claimable_indices.get(txid) {
 			let commitment_number = self.counterparty_commitment_txn_on_chain.get(txid).unwrap();
 			let counterparty_tx_htlcs = self.counterparty_claimable_data.get(commitment_number).unwrap();
-			//println!("{:#?}", counterparty_tx_htlcs);
 			let mut nondust_htlcs = Vec::new();
-			//println!("{:#?}", htlc_id_indices);
-			for (htlc_id, htlc_idx) in htlc_id_indices {
-				let (mut nondust_htlc, source) = counterparty_tx_htlcs.iter().find(|(htlc, _source)| htlc_id == &htlc.htlc_id).cloned().unwrap();
+			for (offered, htlc_id, htlc_idx) in htlc_id_indices {
+				let (mut nondust_htlc, source) = counterparty_tx_htlcs.iter().find(|(htlc, _source)| htlc_id == &htlc.htlc_id && offered == &htlc.offered).cloned().unwrap();
 				nondust_htlc.transaction_output_index = Some(*htlc_idx);
 				nondust_htlcs.push((nondust_htlc, source));
 			}
-			//println!("{:#?}", nondust_htlcs);
 			Some(nondust_htlcs)
 		} else {
 			None
@@ -3008,7 +3006,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 
 		let mut htlc_indices = Vec::new();
 		htlc_outputs.iter().for_each(|(htlc, _)|
-			if let Some(htlc_idx) = htlc.transaction_output_index { htlc_indices.push((htlc.htlc_id, htlc_idx)) });
+			if let Some(htlc_idx) = htlc.transaction_output_index { htlc_indices.push((htlc.offered, htlc.htlc_id, htlc_idx)) });
 
 		log_trace!(logger, "Tracking new counterparty commitment transaction with txid {} at commitment number {} with {} HTLC outputs", txid, commitment_number, htlc_outputs.len());
 		self.funding.prev_counterparty_commitment_txid = self.funding.current_counterparty_commitment_txid.take();
@@ -5124,9 +5122,10 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 			let htlcs_count: u64 = Readable::read(reader)?;
 			let mut htlcs = Vec::with_capacity(cmp::min(htlcs_count as usize, MAX_ALLOC_SIZE / 32));
 			for _ in 0..htlcs_count {
+				let offered: bool = Readable::read(reader)?;
 				let htlc_id: u64 = Readable::read(reader)?;
 				let htlc_idx: u32 = Readable::read(reader)?;
-				htlcs.push((htlc_id, htlc_idx));
+				htlcs.push((offered, htlc_id, htlc_idx));
 			}
 			if counterparty_claimable_indices.insert(txid, htlcs).is_some() {
 				return Err(DecodeError::InvalidValue);
