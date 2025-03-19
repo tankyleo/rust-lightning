@@ -2403,12 +2403,15 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		if let Some(htlc_id_indices) = funding.counterparty_claimable_indices.get(txid) {
 			let commitment_number = self.counterparty_commitment_txn_on_chain.get(txid).unwrap();
 			let counterparty_tx_htlcs = self.counterparty_claimable_data.get(commitment_number).unwrap();
+			//println!("{:#?}", counterparty_tx_htlcs);
 			let mut nondust_htlcs = Vec::new();
+			//println!("{:#?}", htlc_id_indices);
 			for (htlc_id, htlc_idx) in htlc_id_indices {
 				let (mut nondust_htlc, source) = counterparty_tx_htlcs.iter().find(|(htlc, _source)| htlc_id == &htlc.htlc_id).cloned().unwrap();
 				nondust_htlc.transaction_output_index = Some(*htlc_idx);
 				nondust_htlcs.push((nondust_htlc, source));
 			}
+			//println!("{:#?}", nondust_htlcs);
 			Some(nondust_htlcs)
 		} else {
 			None
@@ -2459,7 +2462,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 					if htlc.transaction_output_index.is_some() {
 
 						if let Some(bal) = us.get_htlc_balance(
-							htlc, source, $holder_commitment, $counterparty_revoked_commitment, confirmed_txid
+							htlc, source.as_deref(), $holder_commitment, $counterparty_revoked_commitment, confirmed_txid
 						) {
 							res.push(bal);
 						}
@@ -2470,7 +2473,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 
 		if let Some(txid) = confirmed_txid {
 			let mut found_commitment_tx = false;
-			if let Some(counterparty_tx_htlcs) = us.funding.counterparty_claimable_outpoints.get(&txid) {
+			if let Some(nondust_htlcs) = us.get_counterparty_populated_nondust_htlcs(&us.funding, &txid) {
 				// First look for the to_remote output back to us.
 				if let Some(conf_thresh) = pending_commitment_tx_conf_thresh {
 					if let Some(value) = us.onchain_events_awaiting_threshold_conf.iter().find_map(|event| {
@@ -2492,9 +2495,9 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 					}
 				}
 				if Some(txid) == us.funding.current_counterparty_commitment_txid || Some(txid) == us.funding.prev_counterparty_commitment_txid {
-					walk_htlcs!(false, false, counterparty_tx_htlcs.iter().map(|(a, b)| (a, b.as_ref().map(|b| &**b))));
+					walk_htlcs!(false, false, nondust_htlcs.iter());
 				} else {
-					walk_htlcs!(false, true, counterparty_tx_htlcs.iter().map(|(a, b)| (a, b.as_ref().map(|b| &**b))));
+					walk_htlcs!(false, true, nondust_htlcs.iter());
 					// The counterparty broadcasted a revoked state!
 					// Look for any StaticOutputs first, generating claimable balances for those.
 					// If any match the confirmed counterparty revoked to_self output, skip
