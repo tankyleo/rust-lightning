@@ -2886,15 +2886,12 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		if self.funding.prev_holder_signed_commitment_tx.as_ref().map(|t| !t.htlc_outputs.is_empty()).unwrap_or(false) {
 			return ConfirmationTarget::UrgentOnChainSweep;
 		}
-		if let Some(txid) = self.funding.current_counterparty_commitment_txid {
-			if !self.funding.counterparty_claimable_outpoints.get(&txid).unwrap().is_empty() {
-				return ConfirmationTarget::UrgentOnChainSweep;
-			}
+		let number = self.current_counterparty_commitment_number;
+		if self.counterparty_claimable_data.get(&number).map(|data| !data.is_empty()).unwrap_or(false) {
+			return ConfirmationTarget::UrgentOnChainSweep;
 		}
-		if let Some(txid) = self.funding.prev_counterparty_commitment_txid {
-			if !self.funding.counterparty_claimable_outpoints.get(&txid).unwrap().is_empty() {
-				return ConfirmationTarget::UrgentOnChainSweep;
-			}
+		if self.counterparty_claimable_data.get(&(number + 1)).map(|data| !data.is_empty()).unwrap_or(false) {
+			return ConfirmationTarget::UrgentOnChainSweep;
 		}
 		ConfirmationTarget::OutputSpendingFee
 	}
