@@ -2967,6 +2967,10 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			self.counterparty_hash_commitment_number.insert(htlc.payment_hash, commitment_number);
 		}
 
+		let mut htlc_data = htlc_outputs.clone();
+		htlc_data.iter_mut().for_each(|(htlc, _)| htlc.transaction_output_index = None);
+		self.counterparty_claimable_data.insert(commitment_number, htlc_data);
+
 		log_trace!(logger, "Tracking new counterparty commitment transaction with txid {} at commitment number {} with {} HTLC outputs", txid, commitment_number, htlc_outputs.len());
 		self.funding.prev_counterparty_commitment_txid = self.funding.current_counterparty_commitment_txid.take();
 		self.funding.current_counterparty_commitment_txid = Some(txid);
