@@ -3164,7 +3164,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		if let Some(txid) = self.funding.current_counterparty_commitment_txid {
 			if txid == confirmed_spend_txid {
 				if let Some(commitment_number) = self.counterparty_commitment_txn_on_chain.get(&txid) {
-					claim_htlcs!(*commitment_number, txid, self.funding.counterparty_claimable_outpoints.get(&txid));
+					claim_htlcs!(*commitment_number, txid, self.get_counterparty_populated_htlcs(&self.funding, &txid).as_ref());
 				} else {
 					debug_assert!(false);
 					log_error!(logger, "Detected counterparty commitment tx on-chain without tracking commitment number");
@@ -3175,7 +3175,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		if let Some(txid) = self.funding.prev_counterparty_commitment_txid {
 			if txid == confirmed_spend_txid {
 				if let Some(commitment_number) = self.counterparty_commitment_txn_on_chain.get(&txid) {
-					claim_htlcs!(*commitment_number, txid, self.funding.counterparty_claimable_outpoints.get(&txid));
+					claim_htlcs!(*commitment_number, txid, self.get_counterparty_populated_htlcs(&self.funding, &txid).as_ref());
 				} else {
 					debug_assert!(false);
 					log_error!(logger, "Detected counterparty commitment tx on-chain without tracking commitment number");
