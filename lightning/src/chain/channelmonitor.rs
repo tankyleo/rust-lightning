@@ -2402,7 +2402,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 
 	fn get_counterparty_populated_htlcs(&self, funding: &FundingScope, txid: &Txid, commitment_number: Option<u64>) -> Option<Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>> {
 		if let Some(htlc_id_indices) = funding.counterparty_claimable_indices.get(txid) {
-			let commitment_number = self.counterparty_commitment_txn_on_chain.get(txid).or(commitment_number.as_ref()).unwrap();
+			let commitment_number = commitment_number.as_ref().or_else(|| self.counterparty_commitment_txn_on_chain.get(txid)).unwrap();
 			let mut counterparty_tx_htlcs = self.counterparty_claimable_data.get(commitment_number).unwrap().clone();
 			for (offered, htlc_id, htlc_idx) in htlc_id_indices {
 				let (nondust_htlc, _) = counterparty_tx_htlcs.iter_mut().find(|(htlc, _source)| htlc_id == &htlc.htlc_id && offered == &htlc.offered).unwrap();
@@ -4033,14 +4033,14 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 	pub fn cancel_prev_commitment_claims<L: Deref>(
 		&mut self, logger: &L, confirmed_commitment_txid: &Txid
 	) where L::Target: Logger {
-		for (counterparty_commitment_txid, _) in &self.counterparty_commitment_txn_on_chain {
+		for (counterparty_commitment_txid, commitment_number) in &self.counterparty_commitment_txn_on_chain {
 			// Cancel any pending claims for counterparty commitments we've seen confirm.
 			if counterparty_commitment_txid == confirmed_commitment_txid {
 				continue;
 			}
 			// If we have generated claims for counterparty_commitment_txid earlier, we can rely on always
 			// having claim related htlcs for counterparty_commitment_txid in counterparty_claimable_outpoints.
-			for (htlc, _) in self.funding.counterparty_claimable_outpoints.get(counterparty_commitment_txid).unwrap_or(&vec![]) {
+			for (htlc, _) in self.get_counterparty_populated_htlcs(&self.funding, counterparty_commitment_txid, Some(*commitment_number)).unwrap_or(vec![]) {
 				log_trace!(logger, "Canceling claims for previously confirmed counterparty commitment {}",
 					counterparty_commitment_txid);
 				let mut outpoint = BitcoinOutPoint { txid: *counterparty_commitment_txid, vout: 0 };
