@@ -2398,6 +2398,22 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		}
 		None
 	}
+
+	fn get_counterparty_populated_nondust_htlcs(&self, funding: &FundingScope, txid: &Txid) -> Option<Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>> {
+		if let Some(htlc_id_indices) = funding.counterparty_claimable_indices.get(txid) {
+			let commitment_number = self.counterparty_commitment_txn_on_chain.get(txid).unwrap();
+			let counterparty_tx_htlcs = self.counterparty_claimable_data.get(commitment_number).unwrap();
+			let mut nondust_htlcs = Vec::new();
+			for (htlc_id, htlc_idx) in htlc_id_indices {
+				let (mut nondust_htlc, source) = counterparty_tx_htlcs.iter().find(|(htlc, _source)| htlc_id == &htlc.htlc_id).cloned().unwrap();
+				nondust_htlc.transaction_output_index = Some(*htlc_idx);
+				nondust_htlcs.push((nondust_htlc, source));
+			}
+			Some(nondust_htlcs)
+		} else {
+			None
+		}
+	}
 }
 
 impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
