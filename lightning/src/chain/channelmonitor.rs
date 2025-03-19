@@ -890,6 +890,9 @@ struct FundingScope {
 	// not be consistent across all commitments.
 	counterparty_claimable_outpoints: HashMap<Txid, Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>>,
 
+	// the indices
+	counterparty_claimable_indices: HashMap<Txid, Vec<(u64, u32)>>,
+
 	// We store two holder commitment transactions to avoid any race conditions where we may update
 	// some monitors (potentially on watchtowers) but then fail to update others, resulting in the
 	// various monitors for one channel being out of sync, and us broadcasting a holder
@@ -1194,6 +1197,16 @@ impl<Signer: EcdsaChannelSigner> Writeable for ChannelMonitorImpl<Signer> {
 			}
 		}
 
+		writer.write_all(&(self.funding.counterparty_claimable_indices.len() as u64).to_be_bytes())?;
+		for (ref txid, ref htlc_indices) in self.funding.counterparty_claimable_indices.iter() {
+			writer.write_all(&txid[..])?;
+			writer.write_all(&(htlc_indices.len() as u64).to_be_bytes())?;
+			for &(ref htlc_id, ref htlc_idx) in htlc_indices.iter() {
+				writer.write_all(&htlc_id.to_be_bytes())?;
+				writer.write_all(&htlc_idx.to_be_bytes())?;
+			}
+		}
+
 		writer.write_all(&(self.counterparty_commitment_txn_on_chain.len() as u64).to_be_bytes())?;
 		for (ref txid, commitment_number) in self.counterparty_commitment_txn_on_chain.iter() {
 			writer.write_all(&txid[..])?;
@@ -1468,6 +1481,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 				current_counterparty_commitment_txid: None,
 				prev_counterparty_commitment_txid: None,
 				counterparty_claimable_outpoints: new_hash_map(),
+				counterparty_claimable_indices: new_hash_map(),
 
 				current_holder_commitment_tx: holder_commitment_tx,
 				prev_holder_signed_commitment_tx: None,
@@ -5079,6 +5093,22 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 			}
 		}
 
+		let counterparty_claimable_indices_len: u64 = Readable::read(reader)?;
+		let mut counterparty_claimable_indices = hash_map_with_capacity(cmp::min(counterparty_claimable_indices_len as usize, MAX_ALLOC_SIZE / 64));
+		for _ in 0..counterparty_claimable_indices_len {
+			let txid: Txid = Readable::read(reader)?;
+			let htlcs_count: u64 = Readable::read(reader)?;
+			let mut htlcs = Vec::with_capacity(cmp::min(htlcs_count as usize, MAX_ALLOC_SIZE / 32));
+			for _ in 0..htlcs_count {
+				let htlc_id: u64 = Readable::read(reader)?;
+				let htlc_idx: u32 = Readable::read(reader)?;
+				htlcs.push((htlc_id, htlc_idx));
+			}
+			if counterparty_claimable_indices.insert(txid, htlcs).is_some() {
+				return Err(DecodeError::InvalidValue);
+			}
+		}
+
 		let counterparty_commitment_txn_on_chain_len: u64 = Readable::read(reader)?;
 		let mut counterparty_commitment_txn_on_chain = hash_map_with_capacity(cmp::min(counterparty_commitment_txn_on_chain_len as usize, MAX_ALLOC_SIZE / 32));
 		for _ in 0..counterparty_commitment_txn_on_chain_len {
@@ -5274,6 +5304,7 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 				current_counterparty_commitment_txid,
 				prev_counterparty_commitment_txid,
 				counterparty_claimable_outpoints,
+				counterparty_claimable_indices,
 
 				current_holder_commitment_tx,
 				prev_holder_signed_commitment_tx,
