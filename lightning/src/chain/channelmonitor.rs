@@ -2906,20 +2906,24 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 
 		// Prune HTLCs from the previous counterparty commitment tx so we don't generate failure/fulfill
 		// events for now-revoked/fulfilled HTLCs.
+		let number = self.current_counterparty_commitment_number;
 		if let Some(txid) = self.funding.prev_counterparty_commitment_txid.take() {
 			if self.funding.current_counterparty_commitment_txid.unwrap() != txid {
-				let cur_claimables = self.funding.counterparty_claimable_outpoints.get(
-					&self.funding.current_counterparty_commitment_txid.unwrap()).unwrap();
-				for (_, ref source_opt) in self.funding.counterparty_claimable_outpoints.get(&txid).unwrap() {
+				let cur_claimables = self.counterparty_claimable_data.get(&number).unwrap();
+				for (_, ref source_opt) in self.counterparty_claimable_data.get(&(number + 1)).unwrap() {
 					if let Some(source) = source_opt {
 						if !cur_claimables.iter()
 							.any(|(_, cur_source_opt)| cur_source_opt == source_opt)
 						{
+							// Missing test coverage here
 							self.counterparty_fulfilled_htlcs.remove(&SentHTLCId::from_source(source));
 						}
 					}
 				}
 				for &mut (_, ref mut source_opt) in self.funding.counterparty_claimable_outpoints.get_mut(&txid).unwrap() {
+					*source_opt = None;
+				}
+				for &mut (_, ref mut source_opt) in self.counterparty_claimable_data.get_mut(&(number + 1)).unwrap() {
 					*source_opt = None;
 				}
 			} else {
