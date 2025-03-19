@@ -3104,8 +3104,8 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		self.funding.prev_holder_signed_commitment_tx = Some(new_holder_commitment_tx);
 		for (claimed_htlc_id, claimed_preimage) in claimed_htlcs {
 			#[cfg(debug_assertions)] {
-				let cur_counterparty_htlcs = self.funding.counterparty_claimable_outpoints.get(
-						&self.funding.current_counterparty_commitment_txid.unwrap()).unwrap();
+				let cur_counterparty_htlcs = self.counterparty_claimable_data
+					.get(&self.current_counterparty_commitment_number).unwrap();
 				assert!(cur_counterparty_htlcs.iter().any(|(_, source_opt)| {
 					if let Some(source) = source_opt {
 						SentHTLCId::from_source(source) == *claimed_htlc_id
