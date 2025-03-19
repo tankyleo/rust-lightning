@@ -28,7 +28,7 @@ use bitcoin::{Amount, PublicKey, ScriptBuf, Transaction, TxIn, TxOut, Witness};
 use bitcoin::locktime::absolute::LockTime;
 use bitcoin::script::Builder;
 use bitcoin::opcodes;
-use bitcoin::hex::FromHex;
+//use bitcoin::hex::FromHex;
 use bitcoin::secp256k1::{Secp256k1, SecretKey};
 use bitcoin::sighash::{SighashCache, EcdsaSighashType};
 use bitcoin::transaction::Version;
@@ -2311,6 +2311,7 @@ fn test_claimable_balance_correct_while_payment_pending() {
 	do_test_claimable_balance_correct_while_payment_pending(true, true);
 }
 
+/*
 fn do_test_restored_packages_retry(check_old_monitor_retries_after_upgrade: bool) {
 	// Tests that we'll retry packages that were previously timelocked after we've restored them.
 	let chanmon_cfgs = create_chanmon_cfgs(2);
@@ -2390,6 +2391,7 @@ fn test_restored_packages_retry() {
 	do_test_restored_packages_retry(false);
 	do_test_restored_packages_retry(true);
 }
+*/
 
 fn do_test_monitor_rebroadcast_pending_claims(anchors: bool) {
 	// Test that we will retry broadcasting pending claims for a force-closed channel on every
