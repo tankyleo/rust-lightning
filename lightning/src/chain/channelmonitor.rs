@@ -4651,13 +4651,13 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 
 		scan_commitment!(self.funding.current_holder_commitment_tx.htlc_outputs.iter().map(|&(ref a, _, _)| a), true);
 
-		if let Some(ref txid) = self.funding.current_counterparty_commitment_txid {
-			if let Some(ref htlc_outputs) = self.funding.counterparty_claimable_outpoints.get(txid) {
-				scan_commitment!(htlc_outputs.iter().map(|&(ref a, _)| a), false);
-			}
+		let number = self.current_counterparty_commitment_number;
+		if let Some(ref htlc_outputs) = self.counterparty_claimable_data.get(&number) {
+			scan_commitment!(htlc_outputs.iter().map(|&(ref a, _)| a), false);
 		}
-		if let Some(ref txid) = self.funding.prev_counterparty_commitment_txid {
-			if let Some(ref htlc_outputs) = self.funding.counterparty_claimable_outpoints.get(txid) {
+		// TODO: we don't need the txid, we just need to know when this is some
+		if let Some(ref _txid) = self.funding.prev_counterparty_commitment_txid {
+			if let Some(ref htlc_outputs) = self.counterparty_claimable_data.get(&(number + 1)) {
 				scan_commitment!(htlc_outputs.iter().map(|&(ref a, _)| a), false);
 			}
 		}
