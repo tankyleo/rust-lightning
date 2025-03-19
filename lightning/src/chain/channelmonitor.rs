@@ -2737,7 +2737,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 
 		let txid = confirmed_txid.unwrap();
 		if Some(txid) == us.funding.current_counterparty_commitment_txid || Some(txid) == us.funding.prev_counterparty_commitment_txid {
-			walk_htlcs!(false, us.funding.counterparty_claimable_outpoints.get(&txid).unwrap().iter().filter_map(|(a, b)| {
+			walk_htlcs!(false, us.get_counterparty_populated_htlcs(&us.funding, &txid).unwrap().iter().filter_map(|(a, b)| {
 				if let &Some(ref source) = b {
 					Some((a, &**source))
 				} else { None }
