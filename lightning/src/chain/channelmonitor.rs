@@ -905,6 +905,8 @@ pub(crate) struct ChannelMonitorImpl<Signer: EcdsaChannelSigner> {
 	latest_update_id: u64,
 	commitment_transaction_number_obscure_factor: u64,
 
+	counterparty_claimable_data: HashMap<u64, Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>>,
+
 	destination_script: ScriptBuf,
 	broadcasted_holder_revokable_script: Option<(ScriptBuf, PublicKey, RevocationKey)>,
 	counterparty_payment_script: ScriptBuf,
@@ -1167,6 +1169,25 @@ impl<Signer: EcdsaChannelSigner> Writeable for ChannelMonitorImpl<Signer> {
 						|| Some(**txid) == self.funding.prev_counterparty_commitment_txid,
 					"HTLC Sources for all revoked commitment transactions should be none!");
 				serialize_htlc_in_commitment!(htlc_output);
+				htlc_source.as_ref().map(|b| b.as_ref()).write(writer)?;
+			}
+		}
+
+		macro_rules! serialize_htlc_in_commitment_v2 {
+			($htlc_output: expr) => {
+				writer.write_all(&[$htlc_output.offered as u8; 1])?;
+				writer.write_all(&$htlc_output.amount_msat.to_be_bytes())?;
+				writer.write_all(&$htlc_output.cltv_expiry.to_be_bytes())?;
+				writer.write_all(&$htlc_output.payment_hash.0[..])?;
+			}
+		}
+
+		writer.write_all(&(self.counterparty_claimable_data.len() as u64).to_be_bytes())?;
+		for (ref commitment_number, ref htlc_infos) in self.counterparty_claimable_data.iter() {
+			writer.write_all(&commitment_number.to_be_bytes())?;
+			writer.write_all(&(htlc_infos.len() as u64).to_be_bytes())?;
+			for &(ref htlc_output, ref htlc_source) in htlc_infos.iter() {
+				serialize_htlc_in_commitment_v2!(htlc_output);
 				htlc_source.as_ref().map(|b| b.as_ref()).write(writer)?;
 			}
 		}
@@ -1452,6 +1473,8 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 
 			latest_update_id: 0,
 			commitment_transaction_number_obscure_factor,
+
+			counterparty_claimable_data: new_hash_map(),
 
 			destination_script: destination_script.into(),
 			broadcasted_holder_revokable_script: None,
@@ -5005,6 +5028,21 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 			}
 		}
 
+		macro_rules! read_htlc_in_commitment_v2 {
+			() => {
+				{
+					let offered: bool = Readable::read(reader)?;
+					let amount_msat: u64 = Readable::read(reader)?;
+					let cltv_expiry: u32 = Readable::read(reader)?;
+					let payment_hash: PaymentHash = Readable::read(reader)?;
+
+					HTLCOutputInCommitment {
+						offered, amount_msat, cltv_expiry, payment_hash, transaction_output_index: None,
+					}
+				}
+			}
+		}
+
 		let counterparty_claimable_outpoints_len: u64 = Readable::read(reader)?;
 		let mut counterparty_claimable_outpoints = hash_map_with_capacity(cmp::min(counterparty_claimable_outpoints_len as usize, MAX_ALLOC_SIZE / 64));
 		for _ in 0..counterparty_claimable_outpoints_len {
@@ -5015,6 +5053,20 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 				htlcs.push((read_htlc_in_commitment!(), <Option<HTLCSource> as Readable>::read(reader)?.map(|o: HTLCSource| Box::new(o))));
 			}
 			if counterparty_claimable_outpoints.insert(txid, htlcs).is_some() {
+				return Err(DecodeError::InvalidValue);
+			}
+		}
+
+		let counterparty_claimable_data_len: u64 = Readable::read(reader)?;
+		let mut counterparty_claimable_data = hash_map_with_capacity(cmp::min(counterparty_claimable_data_len as usize, MAX_ALLOC_SIZE / 64));
+		for _ in 0..counterparty_claimable_data_len {
+			let commitment_number: u64 = Readable::read(reader)?;
+			let htlcs_count: u64 = Readable::read(reader)?;
+			let mut htlcs = Vec::with_capacity(cmp::min(htlcs_count as usize, MAX_ALLOC_SIZE / 32));
+			for _ in 0..htlcs_count {
+				htlcs.push((read_htlc_in_commitment_v2!(), <Option<HTLCSource> as Readable>::read(reader)?.map(|o: HTLCSource| Box::new(o))));
+			}
+			if counterparty_claimable_data.insert(commitment_number, htlcs).is_some() {
 				return Err(DecodeError::InvalidValue);
 			}
 		}
@@ -5221,6 +5273,8 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 
 			latest_update_id,
 			commitment_transaction_number_obscure_factor,
+
+			counterparty_claimable_data,
 
 			destination_script,
 			broadcasted_holder_revokable_script,
