@@ -2400,9 +2400,9 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		None
 	}
 
-	fn get_counterparty_populated_htlcs(&self, funding: &FundingScope, txid: &Txid) -> Option<Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>> {
+	fn get_counterparty_populated_htlcs(&self, funding: &FundingScope, txid: &Txid, commitment_number: Option<u64>) -> Option<Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>> {
 		if let Some(htlc_id_indices) = funding.counterparty_claimable_indices.get(txid) {
-			let commitment_number = self.counterparty_commitment_txn_on_chain.get(txid).unwrap();
+			let commitment_number = self.counterparty_commitment_txn_on_chain.get(txid).or(commitment_number.as_ref()).unwrap();
 			let mut counterparty_tx_htlcs = self.counterparty_claimable_data.get(commitment_number).unwrap().clone();
 			for (offered, htlc_id, htlc_idx) in htlc_id_indices {
 				let (nondust_htlc, _) = counterparty_tx_htlcs.iter_mut().find(|(htlc, _source)| htlc_id == &htlc.htlc_id && offered == &htlc.offered).unwrap();
@@ -2469,7 +2469,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 
 		if let Some(txid) = confirmed_txid {
 			let mut found_commitment_tx = false;
-			if let Some(populated_htlcs) = us.get_counterparty_populated_htlcs(&us.funding, &txid) {
+			if let Some(populated_htlcs) = us.get_counterparty_populated_htlcs(&us.funding, &txid, None) {
 				// First look for the to_remote output back to us.
 				if let Some(conf_thresh) = pending_commitment_tx_conf_thresh {
 					if let Some(value) = us.onchain_events_awaiting_threshold_conf.iter().find_map(|event| {
@@ -2737,7 +2737,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 
 		let txid = confirmed_txid.unwrap();
 		if Some(txid) == us.funding.current_counterparty_commitment_txid || Some(txid) == us.funding.prev_counterparty_commitment_txid {
-			walk_htlcs!(false, us.get_counterparty_populated_htlcs(&us.funding, &txid).unwrap().iter().filter_map(|(a, b)| {
+			walk_htlcs!(false, us.get_counterparty_populated_htlcs(&us.funding, &txid, None).unwrap().iter().filter_map(|(a, b)| {
 				if let &Some(ref source) = b {
 					Some((a, &**source))
 				} else { None }
@@ -3164,7 +3164,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		if let Some(txid) = self.funding.current_counterparty_commitment_txid {
 			if txid == confirmed_spend_txid {
 				if let Some(commitment_number) = self.counterparty_commitment_txn_on_chain.get(&txid) {
-					claim_htlcs!(*commitment_number, txid, self.get_counterparty_populated_htlcs(&self.funding, &txid).as_ref());
+					claim_htlcs!(*commitment_number, txid, self.get_counterparty_populated_htlcs(&self.funding, &txid, None).as_ref());
 				} else {
 					debug_assert!(false);
 					log_error!(logger, "Detected counterparty commitment tx on-chain without tracking commitment number");
@@ -3175,7 +3175,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		if let Some(txid) = self.funding.prev_counterparty_commitment_txid {
 			if txid == confirmed_spend_txid {
 				if let Some(commitment_number) = self.counterparty_commitment_txn_on_chain.get(&txid) {
-					claim_htlcs!(*commitment_number, txid, self.get_counterparty_populated_htlcs(&self.funding, &txid).as_ref());
+					claim_htlcs!(*commitment_number, txid, self.get_counterparty_populated_htlcs(&self.funding, &txid, None).as_ref());
 				} else {
 					debug_assert!(false);
 					log_error!(logger, "Detected counterparty commitment tx on-chain without tracking commitment number");
@@ -3676,8 +3676,12 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		let mut claimable_outpoints = Vec::new();
 		let mut to_counterparty_output_info = None;
 
+		let commitment_number = 0xffffffffffff - ((((tx.input[0].sequence.0 as u64 & 0xffffff) << 3*8) | (tx.lock_time.to_consensus_u32() as u64 & 0xffffff)) ^ self.commitment_transaction_number_obscure_factor);
+
 		let commitment_txid = tx.compute_txid(); //TODO: This is gonna be a performance bottleneck for watchtowers!
-		let per_commitment_option = self.funding.counterparty_claimable_outpoints.get(&commitment_txid);
+
+		let per_commitment_option = self.get_counterparty_populated_htlcs(&self.funding, &commitment_txid, Some(commitment_number));
+		let per_commitment_option = per_commitment_option.as_ref();
 
 		macro_rules! ignore_error {
 			( $thing : expr ) => {
@@ -3688,7 +3692,6 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			};
 		}
 
-		let commitment_number = 0xffffffffffff - ((((tx.input[0].sequence.0 as u64 & 0xffffff) << 3*8) | (tx.lock_time.to_consensus_u32() as u64 & 0xffffff)) ^ self.commitment_transaction_number_obscure_factor);
 		if commitment_number >= self.get_min_seen_secret() {
 			let secret = self.get_secret(commitment_number).unwrap();
 			let per_commitment_key = ignore_error!(SecretKey::from_slice(&secret));
