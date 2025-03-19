@@ -4422,17 +4422,9 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			let current_holder_htlcs = self.funding.current_holder_commitment_tx.htlc_outputs.iter()
 				.map(|&(ref a, _, ref b)| (a, b.as_ref()));
 
-			let current_counterparty_htlcs = if let Some(txid) = self.funding.current_counterparty_commitment_txid {
-				if let Some(htlc_outputs) = self.funding.counterparty_claimable_outpoints.get(&txid) {
-					Some(htlc_outputs.iter().map(|&(ref a, ref b)| (a, b.as_ref().map(|boxed| &**boxed))))
-				} else { None }
-			} else { None }.into_iter().flatten();
-
-			let prev_counterparty_htlcs = if let Some(txid) = self.funding.prev_counterparty_commitment_txid {
-				if let Some(htlc_outputs) = self.funding.counterparty_claimable_outpoints.get(&txid) {
-					Some(htlc_outputs.iter().map(|&(ref a, ref b)| (a, b.as_ref().map(|boxed| &**boxed))))
-				} else { None }
-			} else { None }.into_iter().flatten();
+			let number = self.current_counterparty_commitment_number;
+			let current_counterparty_htlcs = self.counterparty_claimable_data.get(&number).into_iter().flatten().map(|(htlc, source)| (htlc, source.as_deref()));
+			let prev_counterparty_htlcs = self.counterparty_claimable_data.get(&(number + 1)).into_iter().flatten().map(|(htlc, source)| (htlc, source.as_deref()));
 
 			let htlcs = current_holder_htlcs
 				.chain(current_counterparty_htlcs)
