@@ -2653,8 +2653,8 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 		// `fail_unbroadcast_htlcs`, below, for justification.
 		let us = self.inner.lock().unwrap();
 		macro_rules! walk_counterparty_commitment {
-			($txid: expr) => {
-				if let Some(ref latest_outpoints) = us.funding.counterparty_claimable_outpoints.get($txid) {
+			($number: expr) => {
+				if let Some(ref latest_outpoints) = us.counterparty_claimable_data.get(&$number) {
 					for &(ref htlc, ref source_option) in latest_outpoints.iter() {
 						if let &Some(ref source) = source_option {
 							res.insert((**source).clone(), (htlc.clone(),
@@ -2664,12 +2664,9 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 				}
 			}
 		}
-		if let Some(ref txid) = us.funding.current_counterparty_commitment_txid {
-			walk_counterparty_commitment!(txid);
-		}
-		if let Some(ref txid) = us.funding.prev_counterparty_commitment_txid {
-			walk_counterparty_commitment!(txid);
-		}
+		let number = us.current_counterparty_commitment_number;
+		walk_counterparty_commitment!(number);
+		walk_counterparty_commitment!(number + 1);
 		res
 	}
 

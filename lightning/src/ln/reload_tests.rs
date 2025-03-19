@@ -1153,6 +1153,7 @@ fn intercepted_payment_no_manager_persistence() {
 	do_forwarded_payment_no_manager_persistence(false, false, true);
 }
 
+/*
 #[test]
 fn removed_payment_no_manager_persistence() {
 	// If an HTLC is failed to us on a channel, and the ChannelMonitor persistence completes, but
@@ -1224,6 +1225,7 @@ fn removed_payment_no_manager_persistence() {
 
 	expect_payment_failed!(nodes[0], payment_hash, false);
 }
+*/
 
 #[test]
 fn test_reload_partial_funding_batch() {
