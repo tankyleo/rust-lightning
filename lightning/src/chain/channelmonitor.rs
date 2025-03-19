@@ -2843,11 +2843,12 @@ macro_rules! fail_unbroadcast_htlcs {
 				}
 			}
 		}
+		let number = $self.current_counterparty_commitment_number;
 		if let Some(ref txid) = $self.funding.current_counterparty_commitment_txid {
-			check_htlc_fails!(txid, "current", $self.funding.counterparty_claimable_outpoints.get(txid));
+			check_htlc_fails!(txid, "current", $self.counterparty_claimable_data.get(&number));
 		}
 		if let Some(ref txid) = $self.funding.prev_counterparty_commitment_txid {
-			check_htlc_fails!(txid, "previous", $self.funding.counterparty_claimable_outpoints.get(txid));
+			check_htlc_fails!(txid, "previous", $self.counterparty_claimable_data.get(&(number + 1)));
 		}
 	} }
 }
