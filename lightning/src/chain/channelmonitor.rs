@@ -2783,7 +2783,7 @@ macro_rules! fail_unbroadcast_htlcs {
 		debug_assert_eq!($commitment_tx_confirmed.compute_txid(), $commitment_txid_confirmed);
 
 		macro_rules! check_htlc_fails {
-			($txid: expr, $commitment_tx: expr, $per_commitment_outpoints: expr) => {
+			($commitment_tx: expr, $per_commitment_outpoints: expr) => {
 				if let Some(ref latest_outpoints) = $per_commitment_outpoints {
 					for &(ref htlc, ref source_option) in latest_outpoints.iter() {
 						if let &Some(ref source) = source_option {
@@ -2844,11 +2844,11 @@ macro_rules! fail_unbroadcast_htlcs {
 			}
 		}
 		let number = $self.current_counterparty_commitment_number;
-		if let Some(ref txid) = $self.funding.current_counterparty_commitment_txid {
-			check_htlc_fails!(txid, "current", $self.counterparty_claimable_data.get(&number));
+		if let Some(_txid) = $self.funding.current_counterparty_commitment_txid {
+			check_htlc_fails!("current", $self.counterparty_claimable_data.get(&number));
 		}
-		if let Some(ref txid) = $self.funding.prev_counterparty_commitment_txid {
-			check_htlc_fails!(txid, "previous", $self.counterparty_claimable_data.get(&(number + 1)));
+		if let Some(_txid) = $self.funding.prev_counterparty_commitment_txid {
+			check_htlc_fails!("previous", $self.counterparty_claimable_data.get(&(number + 1)));
 		}
 	} }
 }
