@@ -1501,6 +1501,7 @@ pub fn test_fee_spike_violation_fails_htlc() {
 		cltv_expiry: htlc_cltv,
 		payment_hash,
 		transaction_output_index: Some(1),
+		htlc_id: 0,
 	};
 
 	let commitment_number = INITIAL_COMMITMENT_NUMBER - 1;

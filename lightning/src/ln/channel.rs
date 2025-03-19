@@ -3650,7 +3650,8 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 					amount_msat: $htlc.amount_msat,
 					cltv_expiry: $htlc.cltv_expiry,
 					payment_hash: $htlc.payment_hash,
-					transaction_output_index: None
+					transaction_output_index: None,
+					htlc_id: $htlc.htlc_id,
 				}
 			}
 		}

@@ -605,6 +605,8 @@ pub struct HTLCOutputInCommitment {
 	/// below the dust limit (in which case no output appears in the commitment transaction and the
 	/// value is spent to additional transaction fees).
 	pub transaction_output_index: Option<u32>,
+	/// HTLC ID
+	pub htlc_id: u64,
 }
 
 impl HTLCOutputInCommitment {
@@ -622,6 +624,7 @@ impl_writeable_tlv_based!(HTLCOutputInCommitment, {
 	(4, cltv_expiry, required),
 	(6, payment_hash, required),
 	(8, transaction_output_index, option),
+	(10, htlc_id, required),
 });
 
 #[inline]
@@ -2073,6 +2076,7 @@ mod tests {
 			cltv_expiry: 100,
 			payment_hash: PaymentHash([42; 32]),
 			transaction_output_index: None,
+			htlc_id: 0,
 		};
 
 		let offered_htlc = HTLCOutputInCommitment {
@@ -2081,6 +2085,7 @@ mod tests {
 			cltv_expiry: 100,
 			payment_hash: PaymentHash([43; 32]),
 			transaction_output_index: None,
+			htlc_id: 1,
 		};
 
 		// Generate broadcaster output and received and offered HTLC outputs,  w/o anchors

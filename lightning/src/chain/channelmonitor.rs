@@ -1157,6 +1157,7 @@ impl<Signer: EcdsaChannelSigner> Writeable for ChannelMonitorImpl<Signer> {
 				writer.write_all(&$htlc_output.cltv_expiry.to_be_bytes())?;
 				writer.write_all(&$htlc_output.payment_hash.0[..])?;
 				$htlc_output.transaction_output_index.write(writer)?;
+				writer.write_all(&$htlc_output.htlc_id.to_be_bytes())?;
 			}
 		}
 
@@ -1179,6 +1180,7 @@ impl<Signer: EcdsaChannelSigner> Writeable for ChannelMonitorImpl<Signer> {
 				writer.write_all(&$htlc_output.amount_msat.to_be_bytes())?;
 				writer.write_all(&$htlc_output.cltv_expiry.to_be_bytes())?;
 				writer.write_all(&$htlc_output.payment_hash.0[..])?;
+				writer.write_all(&$htlc_output.htlc_id.to_be_bytes())?;
 			}
 		}
 
@@ -5024,9 +5026,10 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 					let cltv_expiry: u32 = Readable::read(reader)?;
 					let payment_hash: PaymentHash = Readable::read(reader)?;
 					let transaction_output_index: Option<u32> = Readable::read(reader)?;
+					let htlc_id: u64 = Readable::read(reader)?;
 
 					HTLCOutputInCommitment {
-						offered, amount_msat, cltv_expiry, payment_hash, transaction_output_index
+						offered, amount_msat, cltv_expiry, payment_hash, transaction_output_index, htlc_id,
 					}
 				}
 			}
@@ -5039,9 +5042,10 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 					let amount_msat: u64 = Readable::read(reader)?;
 					let cltv_expiry: u32 = Readable::read(reader)?;
 					let payment_hash: PaymentHash = Readable::read(reader)?;
+					let htlc_id: u64 = Readable::read(reader)?;
 
 					HTLCOutputInCommitment {
-						offered, amount_msat, cltv_expiry, payment_hash, transaction_output_index: None,
+						offered, amount_msat, cltv_expiry, payment_hash, transaction_output_index: None, htlc_id,
 					}
 				}
 			}
@@ -5498,6 +5502,7 @@ mod tests {
 							cltv_expiry: 0,
 							payment_hash: preimage.1.clone(),
 							transaction_output_index: Some(idx as u32),
+							htlc_id: idx as u64,
 						}, ()));
 					}
 					res
@@ -5644,6 +5649,7 @@ mod tests {
 					cltv_expiry: 2 << 16,
 					payment_hash: PaymentHash([1; 32]),
 					transaction_output_index: Some($idx as u32),
+					htlc_id: $idx as u64,
 				};
 				let redeem_script = if *$weight == WEIGHT_REVOKED_OUTPUT { chan_utils::get_revokeable_redeemscript(&RevocationKey::from_basepoint(&secp_ctx, &RevocationBasepoint::from(pubkey), &pubkey), 256, &DelayedPaymentKey::from_basepoint(&secp_ctx, &DelayedPaymentBasepoint::from(pubkey), &pubkey)) } else { chan_utils::get_htlc_redeemscript_with_explicit_keys(&htlc, $opt_anchors, &HtlcKey::from_basepoint(&secp_ctx, &HtlcBasepoint::from(pubkey), &pubkey), &HtlcKey::from_basepoint(&secp_ctx, &HtlcBasepoint::from(pubkey), &pubkey), &RevocationKey::from_basepoint(&secp_ctx, &RevocationBasepoint::from(pubkey), &pubkey)) };
 				let sighash = hash_to_message!(&$sighash_parts.p2wsh_signature_hash($idx, &redeem_script, $amount, EcdsaSighashType::All).unwrap()[..]);
