@@ -879,17 +879,6 @@ struct FundingScope {
 	current_counterparty_commitment_txid: Option<Txid>,
 	prev_counterparty_commitment_txid: Option<Txid>,
 
-	/// The set of outpoints in each counterparty commitment transaction. We always need at least
-	/// the payment hash from `HTLCOutputInCommitment` to claim even a revoked commitment
-	/// transaction broadcast as we need to be able to construct the witness script in all cases.
-	//
-	// TODO(splicing): We shouldn't have to track these duplicatively per `FundingScope`. Ideally,
-	// we have a global map to track the HTLCs, along with their source, as they should be
-	// consistent across all commitments. Unfortunately, doing so requires that our HTLCs are not
-	// tied to their respective commitment transaction via `transaction_output_index`, as those may
-	// not be consistent across all commitments.
-	counterparty_claimable_outpoints: HashMap<Txid, Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>>,
-
 	// the indices
 	counterparty_claimable_indices: HashMap<Txid, Vec<(bool, u64, u32)>>,
 
@@ -907,6 +896,11 @@ pub(crate) struct ChannelMonitorImpl<Signer: EcdsaChannelSigner> {
 
 	latest_update_id: u64,
 	commitment_transaction_number_obscure_factor: u64,
+
+	/// The set of outpoints in each counterparty commitment transaction. We always need at least
+	/// the payment hash from `HTLCOutputInCommitment` to claim even a revoked commitment
+	/// transaction broadcast as we need to be able to construct the witness script in all cases.
+	counterparty_claimable_outpoints: HashMap<Txid, Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>>,
 
 	counterparty_claimable_data: HashMap<u64, Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>>,
 
@@ -1164,8 +1158,8 @@ impl<Signer: EcdsaChannelSigner> Writeable for ChannelMonitorImpl<Signer> {
 			}
 		}
 
-		writer.write_all(&(self.funding.counterparty_claimable_outpoints.len() as u64).to_be_bytes())?;
-		for (ref txid, ref htlc_infos) in self.funding.counterparty_claimable_outpoints.iter() {
+		writer.write_all(&(self.counterparty_claimable_outpoints.len() as u64).to_be_bytes())?;
+		for (ref txid, ref htlc_infos) in self.counterparty_claimable_outpoints.iter() {
 			writer.write_all(&txid[..])?;
 			writer.write_all(&(htlc_infos.len() as u64).to_be_bytes())?;
 			for &(ref htlc_output, ref htlc_source) in htlc_infos.iter() {
@@ -1481,7 +1475,6 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 
 				current_counterparty_commitment_txid: None,
 				prev_counterparty_commitment_txid: None,
-				counterparty_claimable_outpoints: new_hash_map(),
 				counterparty_claimable_indices: new_hash_map(),
 
 				current_holder_commitment_tx: holder_commitment_tx,
@@ -1491,6 +1484,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 			latest_update_id: 0,
 			commitment_transaction_number_obscure_factor,
 
+			counterparty_claimable_outpoints: new_hash_map(),
 			counterparty_claimable_data: new_hash_map(),
 
 			destination_script: destination_script.into(),
@@ -2920,7 +2914,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 						}
 					}
 				}
-				for &mut (_, ref mut source_opt) in self.funding.counterparty_claimable_outpoints.get_mut(&txid).unwrap() {
+				for &mut (_, ref mut source_opt) in self.counterparty_claimable_outpoints.get_mut(&txid).unwrap() {
 					*source_opt = None;
 				}
 				for &mut (_, ref mut source_opt) in self.counterparty_claimable_data.get_mut(&(number + 1)).unwrap() {
@@ -3008,7 +3002,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		log_trace!(logger, "Tracking new counterparty commitment transaction with txid {} at commitment number {} with {} HTLC outputs", txid, commitment_number, htlc_outputs.len());
 		self.funding.prev_counterparty_commitment_txid = self.funding.current_counterparty_commitment_txid.take();
 		self.funding.current_counterparty_commitment_txid = Some(txid);
-		self.funding.counterparty_claimable_outpoints.insert(txid, htlc_outputs.clone());
+		self.counterparty_claimable_outpoints.insert(txid, htlc_outputs.clone());
 		self.funding.counterparty_claimable_indices.insert(txid, htlc_indices);
 		self.current_counterparty_commitment_number = commitment_number;
 		//TODO: Merge this into the other per-counterparty-transaction output storage stuff
@@ -5319,7 +5313,6 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 
 				current_counterparty_commitment_txid,
 				prev_counterparty_commitment_txid,
-				counterparty_claimable_outpoints,
 				counterparty_claimable_indices,
 
 				current_holder_commitment_tx,
@@ -5329,6 +5322,7 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 			latest_update_id,
 			commitment_transaction_number_obscure_factor,
 
+			counterparty_claimable_outpoints,
 			counterparty_claimable_data,
 
 			destination_script,
