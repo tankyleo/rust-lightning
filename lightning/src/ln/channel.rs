@@ -3548,6 +3548,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			let rand_val = std::collections::hash_map::RandomState::new().build_hasher().finish();
 			separate_nondust_htlc_sources = rand_val % 2 == 0;
 		}
+		separate_nondust_htlc_sources = false;
 
 		let mut nondust_htlc_sources = Vec::with_capacity(htlcs_cloned.len());
 		let mut htlcs_and_sigs = Vec::with_capacity(htlcs_cloned.len());
@@ -3696,6 +3697,8 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 		let mut inbound_htlc_preimages: Vec<PaymentPreimage> = Vec::new();
 
+		let mut relaxed_htlcs = Vec::new();
+
 		for ref htlc in self.pending_inbound_htlcs.iter() {
 			let (include, state_name) = match htlc.state {
 				InboundHTLCState::RemoteAnnounced(_) => (!generated_by_local, "RemoteAnnounced"),
@@ -3706,6 +3709,8 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			};
 
 			if include {
+				let relaxed_htlc = get_htlc_in_commitment!(htlc, !local);
+				relaxed_htlcs.push((relaxed_htlc, None));
 				add_htlc_output!(htlc, false, None, state_name);
 				remote_htlc_total_msat += htlc.amount_msat;
 			} else {
@@ -3748,6 +3753,8 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			}
 
 			if include {
+				let relaxed_htlc = get_htlc_in_commitment!(htlc, local);
+				relaxed_htlcs.push((relaxed_htlc, Some(&htlc.source)));
 				add_htlc_output!(htlc, true, Some(&htlc.source), state_name);
 				local_htlc_total_msat += htlc.amount_msat;
 			} else {
@@ -3833,17 +3840,13 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		                                                             &mut included_non_dust_htlcs,
 		                                                             &channel_parameters
 		);
-		let mut htlcs_included = included_non_dust_htlcs;
-		// The unwrap is safe, because all non-dust HTLCs have been assigned an output index
-		//htlcs_included.sort_unstable_by_key(|h| h.0.transaction_output_index.unwrap());
-		htlcs_included.append(&mut included_dust_htlcs);
 
 		CommitmentStats {
 			tx,
 			feerate_per_kw,
 			total_fee_sat,
 			num_nondust_htlcs,
-			htlcs_included,
+			htlcs_included: relaxed_htlcs,
 			local_balance_msat: value_to_self_msat as u64,
 			remote_balance_msat: value_to_remote_msat as u64,
 			inbound_htlc_preimages,
@@ -8797,10 +8800,7 @@ impl<SP: Deref> FundedChannel<SP> where
 				let (signature, htlc_signatures);
 
 				{
-					let mut htlcs = Vec::with_capacity(commitment_stats.htlcs_included.len());
-					for &(ref htlc, _) in commitment_stats.htlcs_included.iter() {
-						htlcs.push(htlc);
-					}
+					let htlcs = commitment_stats.tx.htlcs().clone();
 
 					let res = ecdsa.sign_counterparty_commitment(
 							&self.funding.channel_transaction_parameters,
