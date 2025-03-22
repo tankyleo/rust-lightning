@@ -2997,11 +2997,10 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			debug_assert_eq!(rebuilt_commitment_tx.trust().txid(), commitment_tx.trust().txid());
 		}
 
-		// We have to populate both data structures for now
+		// We choose to populate only the legacy data structure for now
 		self.legacy_provide_latest_counterparty_commitment_tx(commitment_tx.trust().txid(), Vec::new(), commitment_tx.commitment_number(),
 				commitment_tx.per_commitment_point(), logger);
 
-		self.provide_latest_counterparty_commitment_tx(Vec::new(), &commitment_tx, logger);
 		// Soon, we will only populate this field
 		self.initial_counterparty_commitment_tx = Some(commitment_tx);
 	}
