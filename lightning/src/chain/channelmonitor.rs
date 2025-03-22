@@ -2915,11 +2915,20 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		// Prune HTLCs from the previous counterparty commitment tx so we don't generate failure/fulfill
 		// events for now-revoked/fulfilled HTLCs.
 		let number = self.current_counterparty_commitment_number;
-		if let Some(txid) = self.funding.prev_counterparty_commitment_txid.take() {
-			if self.funding.current_counterparty_commitment_txid.unwrap() != txid {
+		if let Some(prev_txid) = self.funding.prev_counterparty_commitment_txid.take() {
+			if self.funding.current_counterparty_commitment_txid.unwrap() != prev_txid {
+				// We do not use `get_countparty_claimable_data` here because we don't want to
+				// upset the borrow checker - this below makes it extra clear we are not trying
+				// to write to something while holding a shared reference to that thing.
 				let cur_claimables = self.counterparty_claimable_outpoints.get(
-					&self.funding.current_counterparty_commitment_txid.unwrap()).unwrap();
-				for (_, ref source_opt) in self.counterparty_claimable_outpoints.get(&txid).unwrap() {
+					&self.funding.current_counterparty_commitment_txid.unwrap()
+				).unwrap_or_else(||
+					&self.counterparty_claimable_data.get(&number).unwrap()
+				);
+				let prev_claimables = self.counterparty_claimable_outpoints.get(&prev_txid).unwrap_or_else(||
+					&self.counterparty_claimable_data.get(&(number + 1)).unwrap()
+				);
+				for (_, ref source_opt) in prev_claimables {
 					if let Some(source) = source_opt {
 						if !cur_claimables.iter()
 							.any(|(_, cur_source_opt)| cur_source_opt == source_opt)
@@ -2929,7 +2938,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 						}
 					}
 				}
-				for &mut (_, ref mut source_opt) in self.counterparty_claimable_outpoints.get_mut(&txid).unwrap_or(&mut Vec::new()) {
+				for &mut (_, ref mut source_opt) in self.counterparty_claimable_outpoints.get_mut(&prev_txid).unwrap_or(&mut Vec::new()) {
 					*source_opt = None;
 				}
 
