@@ -2928,12 +2928,11 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 						}
 					}
 				}
-				/*
-				for &mut (_, ref mut source_opt) in self.counterparty_claimable_outpoints.get_mut(&txid).unwrap() {
+				for &mut (_, ref mut source_opt) in self.counterparty_claimable_outpoints.get_mut(&txid).unwrap_or(&mut Vec::new()) {
 					*source_opt = None;
 				}
-				*/
-				for &mut (_, ref mut source_opt) in self.counterparty_claimable_data.get_mut(&(number + 1)).unwrap() {
+
+				for &mut (_, ref mut source_opt) in self.counterparty_claimable_data.get_mut(&(number + 1)).unwrap_or(&mut Vec::new()) {
 					*source_opt = None;
 				}
 			} else {
@@ -3054,19 +3053,10 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			self.counterparty_hash_commitment_number.insert(htlc.payment_hash, commitment_number);
 		}
 
-		let mut htlc_data = htlc_outputs.clone();
-		htlc_data.iter_mut().for_each(|(htlc, _)| htlc.transaction_output_index = None);
-		self.counterparty_claimable_data.insert(commitment_number, htlc_data);
-
-		let mut htlc_indices = Vec::new();
-		htlc_outputs.iter().for_each(|(htlc, _)|
-			if let Some(htlc_idx) = htlc.transaction_output_index { htlc_indices.push((htlc.offered, htlc.htlc_id, htlc_idx)) });
-
 		log_trace!(logger, "Tracking new counterparty commitment transaction with txid {} at commitment number {} with {} HTLC outputs", txid, commitment_number, htlc_outputs.len());
 		self.funding.prev_counterparty_commitment_txid = self.funding.current_counterparty_commitment_txid.take();
 		self.funding.current_counterparty_commitment_txid = Some(txid);
 		self.counterparty_claimable_outpoints.insert(txid, htlc_outputs.clone());
-		self.funding.counterparty_claimable_indices.insert(txid, htlc_indices);
 		self.current_counterparty_commitment_number = commitment_number;
 		//TODO: Merge this into the other per-counterparty-transaction output storage stuff
 		match self.their_cur_per_commitment_points {
