@@ -2997,9 +2997,8 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			debug_assert_eq!(rebuilt_commitment_tx.trust().txid(), commitment_tx.trust().txid());
 		}
 
-		// We choose to populate only the legacy data structure for now
-		self.legacy_provide_latest_counterparty_commitment_tx(commitment_tx.trust().txid(), Vec::new(), commitment_tx.commitment_number(),
-				commitment_tx.per_commitment_point(), logger);
+		// We choose to populate only one data structure at a time for now
+		self.provide_latest_counterparty_commitment_tx(Vec::new(), &commitment_tx, logger);
 
 		// Soon, we will only populate this field
 		self.initial_counterparty_commitment_tx = Some(commitment_tx);
@@ -5546,7 +5545,7 @@ mod tests {
 		let monitor_updates = nodes[1].chain_monitor.monitor_updates.lock().unwrap();
 		let mut replay_update = monitor_updates.get(&channel.2).unwrap().iter().rev().next().unwrap().clone();
 		assert_eq!(replay_update.updates.len(), 1);
-		if let ChannelMonitorUpdateStep::LatestCounterpartyCommitmentTXInfo { .. } = replay_update.updates[0] {
+		if let ChannelMonitorUpdateStep::LatestCounterpartyCommitmentTX { .. } = replay_update.updates[0] {
 		} else { panic!(); }
 		replay_update.updates.push(ChannelMonitorUpdateStep::PaymentPreimage {
 			payment_preimage: payment_preimage_1, payment_info: None,
