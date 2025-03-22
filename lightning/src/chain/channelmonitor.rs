@@ -2408,6 +2408,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		None
 	}
 
+	// TODO: rename this function
 	fn get_counterparty_populated_htlcs(&self, funding: &FundingScope, txid: &Txid, commitment_number: Option<u64>) -> Option<Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>> {
 		if let Some(htlc_id_indices) = funding.counterparty_claimable_indices.get(txid) {
 			let commitment_number = commitment_number.as_ref().or_else(|| self.counterparty_commitment_txn_on_chain.get(txid)).unwrap();
@@ -2418,8 +2419,14 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			}
 			Some(counterparty_tx_htlcs)
 		} else {
-			None
+			self.counterparty_claimable_outpoints.get(txid).cloned()
 		}
+	}
+
+	fn get_counterparty_htlc_data(&self, current: bool) -> Option<&Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>> {
+		let number = if current { self.current_counterparty_commitment_number } else { self.current_counterparty_commitment_number + 1 };
+		let txid = if current { self.funding.current_counterparty_commitment_txid? } else { self.funding.prev_counterparty_commitment_txid? };
+		self.counterparty_claimable_data.get(&number).or_else(|| self.counterparty_claimable_outpoints.get(&txid))
 	}
 }
 
@@ -2661,8 +2668,8 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 		// `fail_unbroadcast_htlcs`, below, for justification.
 		let us = self.inner.lock().unwrap();
 		macro_rules! walk_counterparty_commitment {
-			($number: expr) => {
-				if let Some(ref latest_outpoints) = us.counterparty_claimable_data.get(&$number) {
+			($current: expr) => {
+				if let Some(ref latest_outpoints) = us.get_counterparty_htlc_data($current) {
 					for &(ref htlc, ref source_option) in latest_outpoints.iter() {
 						if let &Some(ref source) = source_option {
 							res.insert((**source).clone(), (htlc.clone(),
@@ -2672,9 +2679,8 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 				}
 			}
 		}
-		let number = us.current_counterparty_commitment_number;
-		walk_counterparty_commitment!(number);
-		walk_counterparty_commitment!(number + 1);
+		walk_counterparty_commitment!(true);
+		walk_counterparty_commitment!(false);
 		res
 	}
 
@@ -2851,13 +2857,8 @@ macro_rules! fail_unbroadcast_htlcs {
 				}
 			}
 		}
-		let number = $self.current_counterparty_commitment_number;
-		if let Some(_txid) = $self.funding.current_counterparty_commitment_txid {
-			check_htlc_fails!("current", $self.counterparty_claimable_data.get(&number));
-		}
-		if let Some(_txid) = $self.funding.prev_counterparty_commitment_txid {
-			check_htlc_fails!("previous", $self.counterparty_claimable_data.get(&(number + 1)));
-		}
+		check_htlc_fails!("current", $self.get_counterparty_htlc_data(true).cloned());
+		check_htlc_fails!("previous", $self.get_counterparty_htlc_data(false).cloned());
 	} }
 }
 
@@ -2894,11 +2895,10 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		if self.funding.prev_holder_signed_commitment_tx.as_ref().map(|t| !t.htlc_outputs.is_empty()).unwrap_or(false) {
 			return ConfirmationTarget::UrgentOnChainSweep;
 		}
-		let number = self.current_counterparty_commitment_number;
-		if self.counterparty_claimable_data.get(&number).map(|data| !data.is_empty()).unwrap_or(false) {
+		if self.get_counterparty_htlc_data(true).map(|data| !data.is_empty()).unwrap_or(false) {
 			return ConfirmationTarget::UrgentOnChainSweep;
 		}
-		if self.counterparty_claimable_data.get(&(number + 1)).map(|data| !data.is_empty()).unwrap_or(false) {
+		if self.get_counterparty_htlc_data(false).map(|data| !data.is_empty()).unwrap_or(false) {
 			return ConfirmationTarget::UrgentOnChainSweep;
 		}
 		ConfirmationTarget::OutputSpendingFee
@@ -3161,8 +3161,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		self.funding.prev_holder_signed_commitment_tx = Some(new_holder_commitment_tx);
 		for (claimed_htlc_id, claimed_preimage) in claimed_htlcs {
 			#[cfg(debug_assertions)] {
-				let cur_counterparty_htlcs = self.counterparty_claimable_data
-					.get(&self.current_counterparty_commitment_number).unwrap();
+				let cur_counterparty_htlcs = self.get_counterparty_htlc_data(true).unwrap();
 				assert!(cur_counterparty_htlcs.iter().any(|(_, source_opt)| {
 					if let Some(source) = source_opt {
 						SentHTLCId::from_source(source) == *claimed_htlc_id
@@ -4479,9 +4478,11 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			let current_holder_htlcs = self.funding.current_holder_commitment_tx.htlc_outputs.iter()
 				.map(|&(ref a, _, ref b)| (a, b.as_ref()));
 
-			let number = self.current_counterparty_commitment_number;
-			let current_counterparty_htlcs = self.counterparty_claimable_data.get(&number).into_iter().flatten().map(|(htlc, source)| (htlc, source.as_deref()));
-			let prev_counterparty_htlcs = self.counterparty_claimable_data.get(&(number + 1)).into_iter().flatten().map(|(htlc, source)| (htlc, source.as_deref()));
+			// TODO: This is because when you call the function, you take a reference over the entire self, instead of just a member
+			let current_htlc_data = self.get_counterparty_htlc_data(true).cloned();
+			let prev_htlc_data = self.get_counterparty_htlc_data(false).cloned();
+			let current_counterparty_htlcs = current_htlc_data.iter().flatten().map(|(htlc, source)| (htlc, source.as_deref()));
+			let prev_counterparty_htlcs = prev_htlc_data.iter().flatten().map(|(htlc, source)| (htlc, source.as_deref()));
 
 			let htlcs = current_holder_htlcs
 				.chain(current_counterparty_htlcs)
@@ -4708,15 +4709,11 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 
 		scan_commitment!(self.funding.current_holder_commitment_tx.htlc_outputs.iter().map(|&(ref a, _, _)| a), true);
 
-		let number = self.current_counterparty_commitment_number;
-		if let Some(ref htlc_outputs) = self.counterparty_claimable_data.get(&number) {
+		if let Some(ref htlc_outputs) = self.get_counterparty_htlc_data(true) {
 			scan_commitment!(htlc_outputs.iter().map(|&(ref a, _)| a), false);
 		}
-		// TODO: we don't need the txid, we just need to know when this is some
-		if let Some(ref _txid) = self.funding.prev_counterparty_commitment_txid {
-			if let Some(ref htlc_outputs) = self.counterparty_claimable_data.get(&(number + 1)) {
-				scan_commitment!(htlc_outputs.iter().map(|&(ref a, _)| a), false);
-			}
+		if let Some(ref htlc_outputs) = self.get_counterparty_htlc_data(false) {
+			scan_commitment!(htlc_outputs.iter().map(|&(ref a, _)| a), false);
 		}
 
 		false
@@ -4800,12 +4797,12 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 								// resolve the source HTLC with the original sender.
 								payment_data = Some(((*source).clone(), htlc_output.payment_hash, htlc_output.amount_msat));
 							} else if !$holder_tx {
-								if let Some(_current_counterparty_commitment_txid) = &self.funding.current_counterparty_commitment_txid {
-									check_htlc_valid_counterparty!(htlc_output, self.counterparty_claimable_data.get(&self.current_counterparty_commitment_number).unwrap());
+								if let Some(htlc_data) = self.get_counterparty_htlc_data(true) {
+									check_htlc_valid_counterparty!(htlc_output, htlc_data);
 								}
 								if payment_data.is_none() {
-									if let Some(_prev_counterparty_commitment_txid) = &self.funding.prev_counterparty_commitment_txid {
-										check_htlc_valid_counterparty!(htlc_output, self.counterparty_claimable_data.get(&(self.current_counterparty_commitment_number + 1)).unwrap());
+									if let Some(htlc_data) = self.get_counterparty_htlc_data(false) {
+										check_htlc_valid_counterparty!(htlc_output, htlc_data);
 									}
 								}
 							}
