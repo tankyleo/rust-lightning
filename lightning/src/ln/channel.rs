@@ -8726,6 +8726,7 @@ impl<SP: Deref> FundedChannel<SP> where
 
 		let (mut htlcs_ref, counterparty_commitment_tx) =
 			self.build_commitment_no_state_update(logger);
+		let counterparty_commitment_txid = counterparty_commitment_tx.trust().txid();
 		let htlcs: Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)> =
 			htlcs_ref.drain(..).map(|(htlc, htlc_source)| (htlc, htlc_source.map(|source_ref| Box::new(source_ref.clone())))).collect();
 
@@ -8738,9 +8739,14 @@ impl<SP: Deref> FundedChannel<SP> where
 			update_id: self.context.latest_monitor_update_id,
 			// Soon, we will switch this to `LatestCounterpartyCommitmentTX`,
 			// and provide the full commit tx instead of the information needed to rebuild it.
-			updates: vec![ChannelMonitorUpdateStep::LatestCounterpartyCommitmentTX {
+			updates: vec![ChannelMonitorUpdateStep::LatestCounterpartyCommitmentTXInfo {
+				commitment_txid: counterparty_commitment_txid,
 				htlc_outputs: htlcs.clone(),
-				commitment_tx: counterparty_commitment_tx,
+				commitment_number: self.context.cur_counterparty_commitment_transaction_number,
+				their_per_commitment_point: self.context.counterparty_cur_commitment_point.unwrap(),
+				feerate_per_kw: Some(counterparty_commitment_tx.feerate_per_kw()),
+				to_broadcaster_value_sat: Some(counterparty_commitment_tx.to_broadcaster_value_sat()),
+				to_countersignatory_value_sat: Some(counterparty_commitment_tx.to_countersignatory_value_sat()),
 			}],
 			channel_id: Some(self.context.channel_id()),
 		};

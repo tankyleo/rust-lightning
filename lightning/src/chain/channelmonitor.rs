@@ -2917,8 +2917,9 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		let number = self.current_counterparty_commitment_number;
 		if let Some(txid) = self.funding.prev_counterparty_commitment_txid.take() {
 			if self.funding.current_counterparty_commitment_txid.unwrap() != txid {
-				let cur_claimables = self.counterparty_claimable_data.get(&number).unwrap();
-				for (_, ref source_opt) in self.counterparty_claimable_data.get(&(number + 1)).unwrap() {
+				let cur_claimables = self.counterparty_claimable_outpoints.get(
+					&self.funding.current_counterparty_commitment_txid.unwrap()).unwrap();
+				for (_, ref source_opt) in self.counterparty_claimable_outpoints.get(&txid).unwrap() {
 					if let Some(source) = source_opt {
 						if !cur_claimables.iter()
 							.any(|(_, cur_source_opt)| cur_source_opt == source_opt)
@@ -2986,6 +2987,10 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			let rebuilt_commitment_tx = self.initial_counterparty_commitment_tx().unwrap();
 			debug_assert_eq!(rebuilt_commitment_tx.trust().txid(), commitment_tx.trust().txid());
 		}
+
+		// We have to populate both data structures for now
+		self.legacy_provide_latest_counterparty_commitment_tx(commitment_tx.trust().txid(), Vec::new(), commitment_tx.commitment_number(),
+				commitment_tx.per_commitment_point(), logger);
 
 		self.provide_latest_counterparty_commitment_tx(Vec::new(), &commitment_tx, logger);
 		// Soon, we will only populate this field
@@ -5533,7 +5538,7 @@ mod tests {
 		let monitor_updates = nodes[1].chain_monitor.monitor_updates.lock().unwrap();
 		let mut replay_update = monitor_updates.get(&channel.2).unwrap().iter().rev().next().unwrap().clone();
 		assert_eq!(replay_update.updates.len(), 1);
-		if let ChannelMonitorUpdateStep::LatestCounterpartyCommitmentTX { .. } = replay_update.updates[0] {
+		if let ChannelMonitorUpdateStep::LatestCounterpartyCommitmentTXInfo { .. } = replay_update.updates[0] {
 		} else { panic!(); }
 		replay_update.updates.push(ChannelMonitorUpdateStep::PaymentPreimage {
 			payment_preimage: payment_preimage_1, payment_info: None,
@@ -5651,10 +5656,6 @@ mod tests {
 			channel_type_features: ChannelTypeFeatures::only_static_remote_key(),
 			channel_value_satoshis: 0,
 		};
-		let directed_params = channel_parameters.as_holder_broadcastable();
-		let dummy_tx_keys = chan_utils::TxCreationKeys::from_channel_static_keys(
-			&dummy_key, directed_params.broadcaster_pubkeys(), directed_params.countersignatory_pubkeys(), &secp_ctx
-		);
 		// Prune with one old state and a holder commitment tx holding a few overlaps with the
 		// old state.
 		let shutdown_pubkey = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
@@ -5671,18 +5672,10 @@ mod tests {
 
 		monitor.provide_latest_holder_commitment_tx(dummy_commitment_tx.clone(),
 			htlcs.into_iter().map(|(htlc, _)| (htlc, Some(dummy_sig), None)).collect());
-		let dummy_tx = chan_utils::CommitmentTransaction::new_with_auxiliary_htlc_data::<()>(
-			281474976710655, 0, 0, dummy_key, dummy_key, dummy_tx_keys.clone(), 0, &mut Vec::new(), &directed_params,
-		);
-		monitor.provide_latest_counterparty_commitment_tx(
-			preimages_slice_to_htlc_outputs!(preimages[5..15]), &dummy_tx, &logger
-		);
-		let dummy_tx = chan_utils::CommitmentTransaction::new_with_auxiliary_htlc_data::<()>(
-			281474976710654, 0, 0, dummy_key, dummy_key, dummy_tx_keys.clone(), 0, &mut Vec::new(), &directed_params,
-		);
-		monitor.provide_latest_counterparty_commitment_tx(
-			preimages_slice_to_htlc_outputs!(preimages[15..20]), &dummy_tx, &logger
-		);
+		monitor.legacy_provide_latest_counterparty_commitment_tx(Txid::from_byte_array(Sha256::hash(b"1").to_byte_array()),
+			preimages_slice_to_htlc_outputs!(preimages[5..15]), 281474976710655, dummy_key, &logger);
+		monitor.legacy_provide_latest_counterparty_commitment_tx(Txid::from_byte_array(Sha256::hash(b"2").to_byte_array()),
+			preimages_slice_to_htlc_outputs!(preimages[15..20]), 281474976710654, dummy_key, &logger);
 		for &(ref preimage, ref hash) in preimages.iter() {
 			let bounded_fee_estimator = LowerBoundedFeeEstimator::new(&fee_estimator);
 			monitor.provide_payment_preimage_unsafe_legacy(
@@ -5698,12 +5691,8 @@ mod tests {
 		test_preimages_exist!(&preimages[0..10], monitor);
 		test_preimages_exist!(&preimages[15..20], monitor);
 
-		let dummy_tx = chan_utils::CommitmentTransaction::new_with_auxiliary_htlc_data::<()>(
-			281474976710653, 0, 0, dummy_key, dummy_key, dummy_tx_keys.clone(), 0, &mut Vec::new(), &directed_params,
-		);
-		monitor.provide_latest_counterparty_commitment_tx(
-			preimages_slice_to_htlc_outputs!(preimages[17..20]), &dummy_tx, &logger
-		);
+		monitor.legacy_provide_latest_counterparty_commitment_tx(Txid::from_byte_array(Sha256::hash(b"3").to_byte_array()),
+			preimages_slice_to_htlc_outputs!(preimages[17..20]), 281474976710653, dummy_key, &logger);
 
 		// Now provide a further secret, pruning preimages 15-17
 		secret[0..32].clone_from_slice(&<Vec<u8>>::from_hex("c7518c8ae4660ed02894df8976fa1a3659c1a8b4b5bec0c4b872abeba4cb8964").unwrap());
@@ -5712,12 +5701,8 @@ mod tests {
 		test_preimages_exist!(&preimages[0..10], monitor);
 		test_preimages_exist!(&preimages[17..20], monitor);
 
-		let dummy_tx = chan_utils::CommitmentTransaction::new_with_auxiliary_htlc_data::<()>(
-			281474976710652, 0, 0, dummy_key, dummy_key, dummy_tx_keys.clone(), 0, &mut Vec::new(), &directed_params,
-		);
-		monitor.provide_latest_counterparty_commitment_tx(
-			preimages_slice_to_htlc_outputs!(preimages[18..20]), &dummy_tx, &logger
-		);
+		monitor.legacy_provide_latest_counterparty_commitment_tx(Txid::from_byte_array(Sha256::hash(b"4").to_byte_array()),
+			preimages_slice_to_htlc_outputs!(preimages[18..20]), 281474976710652, dummy_key, &logger);
 
 		// Now update holder commitment tx info, pruning only element 18 as we still care about the
 		// previous commitment tx's preimages too
