@@ -3646,12 +3646,14 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		macro_rules! get_htlc_in_commitment {
 			($htlc: expr, $offered: expr) => {
 				HTLCOutputInCommitment {
-					offered: $offered,
-					amount_msat: $htlc.amount_msat,
-					cltv_expiry: $htlc.cltv_expiry,
-					payment_hash: $htlc.payment_hash,
+					data: HTLCData {
+						offered: $offered,
+						amount_msat: $htlc.amount_msat,
+						cltv_expiry: $htlc.cltv_expiry,
+						payment_hash: $htlc.payment_hash,
+						htlc_id: $htlc.htlc_id,
+					},
 					transaction_output_index: None,
-					htlc_id: $htlc.htlc_id,
 				}
 			}
 		}

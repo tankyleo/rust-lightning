@@ -589,24 +589,12 @@ pub fn get_counterparty_payment_script(channel_type_features: &ChannelTypeFeatur
 /// Information about an HTLC as it appears in a commitment transaction
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HTLCOutputInCommitment {
-	/// Whether the HTLC was "offered" (ie outbound in relation to this commitment transaction).
-	/// Note that this is not the same as whether it is ountbound *from us*. To determine that you
-	/// need to compare this value to whether the commitment transaction in question is that of
-	/// the counterparty or our own.
-	pub offered: bool,
-	/// The value, in msat, of the HTLC. The value as it appears in the commitment transaction is
-	/// this divided by 1000.
-	pub amount_msat: u64,
-	/// The CLTV lock-time at which this HTLC expires.
-	pub cltv_expiry: u32,
-	/// The hash of the preimage which unlocks this HTLC.
-	pub payment_hash: PaymentHash,
+	/// The data for that HTLC
+	pub data: HTLCData,
 	/// The position within the commitment transactions' outputs. This may be None if the value is
 	/// below the dust limit (in which case no output appears in the commitment transaction and the
 	/// value is spent to additional transaction fees).
 	pub transaction_output_index: Option<u32>,
-	/// HTLC ID
-	pub htlc_id: u64,
 }
 
 impl HTLCOutputInCommitment {
@@ -614,21 +602,26 @@ impl HTLCOutputInCommitment {
 	/// Typically this conversion is needed when transitioning from LN into base-layer Bitcoin,
 	/// e. g. in commitment transactions.
 	pub const fn to_bitcoin_amount(&self) -> Amount {
-		Amount::from_sat(self.amount_msat / 1000)
+		Amount::from_sat(self.data.amount_msat / 1000)
+	}
+}
+
+impl Deref for HTLCOutputInCommitment {
+	type Target = HTLCData;
+
+	fn deref(&self) -> &Self::Target {
+		&self.data
 	}
 }
 
 impl_writeable_tlv_based!(HTLCOutputInCommitment, {
-	(0, offered, required),
-	(2, amount_msat, required),
-	(4, cltv_expiry, required),
-	(6, payment_hash, required),
+	(0, data, required),
 	(8, transaction_output_index, option),
-	(10, htlc_id, required),
 });
 
+/// Data belonging to a HTLC
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct HTLCData {
+pub struct HTLCData {
 	/// Whether the HTLC was "offered" (ie outbound in relation to this commitment transaction).
 	/// Note that this is not the same as whether it is ountbound *from us*. To determine that you
 	/// need to compare this value to whether the commitment transaction in question is that of
@@ -655,33 +648,15 @@ impl_writeable_tlv_based!(HTLCData, {
 
 impl From<HTLCOutputInCommitment> for HTLCData {
 	fn from(htlc: HTLCOutputInCommitment) -> Self {
-		let HTLCOutputInCommitment {
-			offered,
-			amount_msat,
-			cltv_expiry,
-			payment_hash,
-			transaction_output_index: _,
-			htlc_id,
-		} = htlc;
-		HTLCData {
-			offered,
-			amount_msat,
-			cltv_expiry,
-			payment_hash,
-			htlc_id,
-		}
+		htlc.data
 	}
 }
 
 impl HTLCData {
-	pub(crate) fn with_index(&self, idx: u32) -> HTLCOutputInCommitment {
+	pub(crate) fn with_index(self, idx: u32) -> HTLCOutputInCommitment {
 		HTLCOutputInCommitment {
-			offered: self.offered,
-			amount_msat: self.amount_msat,
-			cltv_expiry: self.cltv_expiry,
-			payment_hash: self.payment_hash,
+			data: self,
 			transaction_output_index: Some(idx),
-			htlc_id: self.htlc_id,
 		}
 	}
 }
@@ -2029,7 +2004,7 @@ pub fn get_commitment_transaction_number_obscure_factor(
 mod tests {
 	use super::{CounterpartyCommitmentSecrets, ChannelPublicKeys};
 	use crate::chain;
-	use crate::ln::chan_utils::{get_htlc_redeemscript, get_to_countersigner_keyed_anchor_redeemscript, CommitmentTransaction, TxCreationKeys, ChannelTransactionParameters, CounterpartyChannelTransactionParameters, HTLCOutputInCommitment};
+	use crate::ln::chan_utils::{get_htlc_redeemscript, get_to_countersigner_keyed_anchor_redeemscript, CommitmentTransaction, TxCreationKeys, ChannelTransactionParameters, CounterpartyChannelTransactionParameters, HTLCOutputInCommitment, HTLCData};
 	use bitcoin::secp256k1::{PublicKey, SecretKey, Secp256k1};
 	use crate::util::test_utils;
 	use crate::sign::{ChannelSigner, SignerProvider};
@@ -2130,21 +2105,25 @@ mod tests {
 		assert_eq!(tx.built.transaction.output.len(), 2);
 
 		let received_htlc = HTLCOutputInCommitment {
-			offered: false,
-			amount_msat: 400000,
-			cltv_expiry: 100,
-			payment_hash: PaymentHash([42; 32]),
+			data: HTLCData {
+				offered: false,
+				amount_msat: 400000,
+				cltv_expiry: 100,
+				payment_hash: PaymentHash([42; 32]),
+				htlc_id: 0,
+			},
 			transaction_output_index: None,
-			htlc_id: 0,
 		};
 
 		let offered_htlc = HTLCOutputInCommitment {
-			offered: true,
-			amount_msat: 600000,
-			cltv_expiry: 100,
-			payment_hash: PaymentHash([43; 32]),
+			data: HTLCData {
+				offered: true,
+				amount_msat: 600000,
+				cltv_expiry: 100,
+				payment_hash: PaymentHash([43; 32]),
+				htlc_id: 1,
+			},
 			transaction_output_index: None,
-			htlc_id: 1,
 		};
 
 		// Generate broadcaster output and received and offered HTLC outputs,  w/o anchors

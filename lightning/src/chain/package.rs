@@ -1406,7 +1406,7 @@ where
 mod tests {
 	use crate::chain::package::{CounterpartyOfferedHTLCOutput, CounterpartyReceivedHTLCOutput, HolderFundingOutput, HolderHTLCOutput, PackageTemplate, PackageSolvingData, RevokedHTLCOutput, RevokedOutput, WEIGHT_REVOKED_OUTPUT, weight_offered_htlc, weight_received_htlc, feerate_bump};
 	use crate::chain::Txid;
-	use crate::ln::chan_utils::HTLCOutputInCommitment;
+	use crate::ln::chan_utils::{HTLCOutputInCommitment, HTLCData};
 	use crate::types::payment::{PaymentPreimage, PaymentHash};
 	use crate::ln::channel_keys::{DelayedPaymentBasepoint, HtlcBasepoint};
 
@@ -1457,7 +1457,16 @@ mod tests {
 				let dumb_scalar = SecretKey::from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
 				let dumb_point = PublicKey::from_secret_key(&secp_ctx, &dumb_scalar);
 				let hash = PaymentHash([1; 32]);
-				let htlc = HTLCOutputInCommitment { offered: false, amount_msat: 1_000_000, cltv_expiry: 0, payment_hash: hash, transaction_output_index: None, htlc_id: 0, };
+				let htlc = HTLCOutputInCommitment {
+					data: HTLCData {
+						offered: false,
+						amount_msat: 1_000_000,
+						cltv_expiry: 0,
+						payment_hash: hash,
+						htlc_id: 0,
+					},
+					transaction_output_index: None,
+				};
 				PackageSolvingData::RevokedHTLCOutput(RevokedHTLCOutput::build(dumb_point, DelayedPaymentBasepoint::from(dumb_point), HtlcBasepoint::from(dumb_point), dumb_scalar, 1_000_000 / 1_000, htlc, &ChannelTypeFeatures::anchors_zero_htlc_fee_and_dependencies()))
 			}
 		}
@@ -1470,7 +1479,16 @@ mod tests {
 				let dumb_scalar = SecretKey::from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
 				let dumb_point = PublicKey::from_secret_key(&secp_ctx, &dumb_scalar);
 				let hash = PaymentHash([1; 32]);
-				let htlc = HTLCOutputInCommitment { offered: true, amount_msat: $amt, cltv_expiry: $expiry, payment_hash: hash, transaction_output_index: None, htlc_id: 0, };
+				let htlc = HTLCOutputInCommitment {
+					data: HTLCData {
+						offered: true,
+						amount_msat: $amt,
+						cltv_expiry: $expiry,
+						payment_hash: hash,
+						htlc_id: 0,
+					},
+					transaction_output_index: None,
+				};
 				PackageSolvingData::CounterpartyReceivedHTLCOutput(CounterpartyReceivedHTLCOutput::build(dumb_point, DelayedPaymentBasepoint::from(dumb_point), HtlcBasepoint::from(dumb_point), htlc, $features))
 			}
 		}
@@ -1484,7 +1502,16 @@ mod tests {
 				let dumb_point = PublicKey::from_secret_key(&secp_ctx, &dumb_scalar);
 				let hash = PaymentHash([1; 32]);
 				let preimage = PaymentPreimage([2;32]);
-				let htlc = HTLCOutputInCommitment { offered: false, amount_msat: $amt, cltv_expiry: 0, payment_hash: hash, transaction_output_index: None, htlc_id: 0, };
+				let htlc = HTLCOutputInCommitment {
+					data: HTLCData {
+						offered: false,
+						amount_msat: $amt,
+						cltv_expiry: 0,
+						payment_hash: hash,
+						htlc_id: 0,
+					},
+					transaction_output_index: None,
+				};
 				PackageSolvingData::CounterpartyOfferedHTLCOutput(CounterpartyOfferedHTLCOutput::build(dumb_point, DelayedPaymentBasepoint::from(dumb_point), HtlcBasepoint::from(dumb_point), preimage, htlc, $features))
 			}
 		}

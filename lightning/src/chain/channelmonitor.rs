@@ -2415,7 +2415,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			let mut nondust_htlcs = Vec::with_capacity(counterparty_htlc_data.len());
 			for (offered, htlc_id, htlc_idx) in htlc_id_indices {
 				let (nondust_htlc, source) = counterparty_htlc_data.iter().find(|(htlc, _source)| htlc_id == &htlc.htlc_id && offered == &htlc.offered).unwrap();
-				let htlc = nondust_htlc.with_index(*htlc_idx);
+				let htlc = nondust_htlc.clone().with_index(*htlc_idx);
 				nondust_htlcs.push((htlc, source.clone()));
 			}
 			Some(nondust_htlcs)
@@ -5122,7 +5122,8 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 					let htlc_id: u64 = Readable::read(reader)?;
 
 					HTLCOutputInCommitment {
-						offered, amount_msat, cltv_expiry, payment_hash, transaction_output_index, htlc_id,
+						data: HTLCData { offered, amount_msat, cltv_expiry, payment_hash, htlc_id },
+						transaction_output_index,
 					}
 				}
 			}
@@ -5478,7 +5479,7 @@ mod tests {
 	use crate::ln::types::ChannelId;
 	use crate::types::payment::{PaymentPreimage, PaymentHash};
 	use crate::ln::channel_keys::{DelayedPaymentBasepoint, DelayedPaymentKey, HtlcBasepoint, RevocationBasepoint, RevocationKey};
-	use crate::ln::chan_utils::{self,HTLCOutputInCommitment, ChannelPublicKeys, ChannelTransactionParameters, HolderCommitmentTransaction, CounterpartyChannelTransactionParameters};
+	use crate::ln::chan_utils::{self,HTLCOutputInCommitment, HTLCData, ChannelPublicKeys, ChannelTransactionParameters, HolderCommitmentTransaction, CounterpartyChannelTransactionParameters};
 	use crate::ln::channelmanager::{PaymentId, RecipientOnionFields};
 	use crate::ln::functional_test_utils::*;
 	use crate::ln::script::ShutdownScript;
@@ -5608,12 +5609,14 @@ mod tests {
 					let mut res = Vec::new();
 					for (idx, preimage) in $preimages_slice.iter().enumerate() {
 						res.push((HTLCOutputInCommitment {
-							offered: true,
-							amount_msat: 0,
-							cltv_expiry: 0,
-							payment_hash: preimage.1.clone(),
+							data: HTLCData {
+								offered: true,
+								amount_msat: 0,
+								cltv_expiry: 0,
+								payment_hash: preimage.1.clone(),
+								htlc_id: idx as u64,
+							},
 							transaction_output_index: Some(idx as u32),
-							htlc_id: idx as u64,
 						}, ()));
 					}
 					res
@@ -5755,12 +5758,14 @@ mod tests {
 		macro_rules! sign_input {
 			($sighash_parts: expr, $idx: expr, $amount: expr, $weight: expr, $sum_actual_sigs: expr, $opt_anchors: expr) => {
 				let htlc = HTLCOutputInCommitment {
-					offered: if *$weight == weight_revoked_offered_htlc($opt_anchors) || *$weight == weight_offered_htlc($opt_anchors) { true } else { false },
-					amount_msat: 0,
-					cltv_expiry: 2 << 16,
-					payment_hash: PaymentHash([1; 32]),
+					data: HTLCData {
+						offered: if *$weight == weight_revoked_offered_htlc($opt_anchors) || *$weight == weight_offered_htlc($opt_anchors) { true } else { false },
+						amount_msat: 0,
+						cltv_expiry: 2 << 16,
+						payment_hash: PaymentHash([1; 32]),
+						htlc_id: $idx as u64,
+					},
 					transaction_output_index: Some($idx as u32),
-					htlc_id: $idx as u64,
 				};
 				let redeem_script = if *$weight == WEIGHT_REVOKED_OUTPUT { chan_utils::get_revokeable_redeemscript(&RevocationKey::from_basepoint(&secp_ctx, &RevocationBasepoint::from(pubkey), &pubkey), 256, &DelayedPaymentKey::from_basepoint(&secp_ctx, &DelayedPaymentBasepoint::from(pubkey), &pubkey)) } else { chan_utils::get_htlc_redeemscript_with_explicit_keys(&htlc, $opt_anchors, &HtlcKey::from_basepoint(&secp_ctx, &HtlcBasepoint::from(pubkey), &pubkey), &HtlcKey::from_basepoint(&secp_ctx, &HtlcBasepoint::from(pubkey), &pubkey), &RevocationKey::from_basepoint(&secp_ctx, &RevocationBasepoint::from(pubkey), &pubkey)) };
 				let sighash = hash_to_message!(&$sighash_parts.p2wsh_signature_hash($idx, &redeem_script, $amount, EcdsaSighashType::All).unwrap()[..]);

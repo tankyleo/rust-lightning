@@ -26,7 +26,7 @@ use crate::ln::channel::{get_holder_selected_channel_reserve_satoshis, Channel, 
 use crate::ln::channelmanager::{self, PaymentId, RAACommitmentOrder, RecipientOnionFields, BREAKDOWN_TIMEOUT, ENABLE_GOSSIP_TICKS, DISABLE_GOSSIP_TICKS, MIN_CLTV_EXPIRY_DELTA};
 use crate::ln::channel::{DISCONNECT_PEER_AWAITING_RESPONSE_TICKS, ChannelError, MIN_CHAN_DUST_LIMIT_SATOSHIS};
 use crate::ln::{chan_utils, onion_utils};
-use crate::ln::chan_utils::{commitment_tx_base_weight, COMMITMENT_TX_WEIGHT_PER_HTLC, OFFERED_HTLC_SCRIPT_WEIGHT, htlc_success_tx_weight, htlc_timeout_tx_weight, HTLCOutputInCommitment};
+use crate::ln::chan_utils::{commitment_tx_base_weight, COMMITMENT_TX_WEIGHT_PER_HTLC, OFFERED_HTLC_SCRIPT_WEIGHT, htlc_success_tx_weight, htlc_timeout_tx_weight, HTLCOutputInCommitment, HTLCData};
 use crate::routing::gossip::{NetworkGraph, NetworkUpdate};
 use crate::routing::router::{Path, PaymentParameters, Route, RouteHop, get_route, RouteParameters};
 use crate::types::features::{ChannelFeatures, ChannelTypeFeatures, NodeFeatures};
@@ -1496,12 +1496,14 @@ pub fn test_fee_spike_violation_fails_htlc() {
 	let local_chan_balance = 1313;
 
 	let accepted_htlc_info = chan_utils::HTLCOutputInCommitment {
-		offered: false,
-		amount_msat: 3460001,
-		cltv_expiry: htlc_cltv,
-		payment_hash,
+		data: HTLCData {
+			offered: false,
+			amount_msat: 3460001,
+			cltv_expiry: htlc_cltv,
+			payment_hash,
+			htlc_id: 0,
+		},
 		transaction_output_index: Some(1),
-		htlc_id: 0,
 	};
 
 	let commitment_number = INITIAL_COMMITMENT_NUMBER - 1;

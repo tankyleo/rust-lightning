@@ -1290,7 +1290,7 @@ mod tests {
 	use crate::chain::transaction::OutPoint;
 	use crate::ln::chan_utils::{
 		ChannelPublicKeys, ChannelTransactionParameters, CounterpartyChannelTransactionParameters,
-		HTLCOutputInCommitment, HolderCommitmentTransaction,
+		HTLCOutputInCommitment, HolderCommitmentTransaction, HTLCData,
 	};
 	use crate::ln::channel_keys::{DelayedPaymentBasepoint, HtlcBasepoint, RevocationBasepoint};
 	use crate::ln::functional_test_utils::create_dummy_block;
@@ -1365,12 +1365,14 @@ mod tests {
 			let hash = PaymentHash(Sha256::hash(&preimage.0[..]).to_byte_array());
 			htlcs.push((
 				HTLCOutputInCommitment {
-					offered: true,
-					amount_msat: 10000,
-					cltv_expiry: i as u32,
-					payment_hash: hash,
+					data: HTLCData {
+						offered: true,
+						amount_msat: 10000,
+						cltv_expiry: i as u32,
+						payment_hash: hash,
+						htlc_id: i as u64,
+					},
 					transaction_output_index: Some(i as u32),
-					htlc_id: i as u64,
 				},
 				(),
 			));
