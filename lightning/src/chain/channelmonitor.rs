@@ -880,7 +880,7 @@ struct FundingScope {
 	prev_counterparty_commitment_txid: Option<Txid>,
 
 	// the indices
-	counterparty_claimable_indices: HashMap<Txid, Vec<(bool, u64, u32)>>,
+	counterparty_htlc_indices: HashMap<Txid, Vec<(bool, u64, u32)>>,
 
 	// We store two holder commitment transactions to avoid any race conditions where we may update
 	// some monitors (potentially on watchtowers) but then fail to update others, resulting in the
@@ -902,7 +902,7 @@ pub(crate) struct ChannelMonitorImpl<Signer: EcdsaChannelSigner> {
 	/// transaction broadcast as we need to be able to construct the witness script in all cases.
 	counterparty_claimable_outpoints: HashMap<Txid, Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>>,
 
-	counterparty_claimable_data: HashMap<u64, Vec<(HTLCData, Option<Box<HTLCSource>>)>>,
+	counterparty_htlc_data: HashMap<u64, Vec<(HTLCData, Option<Box<HTLCSource>>)>>,
 
 	destination_script: ScriptBuf,
 	broadcasted_holder_revokable_script: Option<(ScriptBuf, PublicKey, RevocationKey)>,
@@ -1181,8 +1181,8 @@ impl<Signer: EcdsaChannelSigner> Writeable for ChannelMonitorImpl<Signer> {
 			}
 		}
 
-		writer.write_all(&(self.counterparty_claimable_data.len() as u64).to_be_bytes())?;
-		for (ref commitment_number, ref htlc_infos) in self.counterparty_claimable_data.iter() {
+		writer.write_all(&(self.counterparty_htlc_data.len() as u64).to_be_bytes())?;
+		for (ref commitment_number, ref htlc_infos) in self.counterparty_htlc_data.iter() {
 			writer.write_all(&commitment_number.to_be_bytes())?;
 			writer.write_all(&(htlc_infos.len() as u64).to_be_bytes())?;
 			for &(ref htlc_output, ref htlc_source) in htlc_infos.iter() {
@@ -1191,8 +1191,8 @@ impl<Signer: EcdsaChannelSigner> Writeable for ChannelMonitorImpl<Signer> {
 			}
 		}
 
-		writer.write_all(&(self.funding.counterparty_claimable_indices.len() as u64).to_be_bytes())?;
-		for (ref txid, ref htlc_indices) in self.funding.counterparty_claimable_indices.iter() {
+		writer.write_all(&(self.funding.counterparty_htlc_indices.len() as u64).to_be_bytes())?;
+		for (ref txid, ref htlc_indices) in self.funding.counterparty_htlc_indices.iter() {
 			writer.write_all(&txid[..])?;
 			writer.write_all(&(htlc_indices.len() as u64).to_be_bytes())?;
 			for &(offered, ref htlc_id, ref htlc_idx) in htlc_indices.iter() {
@@ -1475,7 +1475,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 
 				current_counterparty_commitment_txid: None,
 				prev_counterparty_commitment_txid: None,
-				counterparty_claimable_indices: new_hash_map(),
+				counterparty_htlc_indices: new_hash_map(),
 
 				current_holder_commitment_tx: holder_commitment_tx,
 				prev_holder_signed_commitment_tx: None,
@@ -1485,7 +1485,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 			commitment_transaction_number_obscure_factor,
 
 			counterparty_claimable_outpoints: new_hash_map(),
-			counterparty_claimable_data: new_hash_map(),
+			counterparty_htlc_data: new_hash_map(),
 
 			destination_script: destination_script.into(),
 			broadcasted_holder_revokable_script: None,
@@ -2409,9 +2409,9 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 	}
 
 	fn get_counterparty_nondust_htlcs(&self, funding: &FundingScope, txid: &Txid, commitment_number: Option<u64>) -> Option<Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>> {
-		if let Some(htlc_id_indices) = funding.counterparty_claimable_indices.get(txid) {
+		if let Some(htlc_id_indices) = funding.counterparty_htlc_indices.get(txid) {
 			let commitment_number = commitment_number.as_ref().or_else(|| self.counterparty_commitment_txn_on_chain.get(txid)).unwrap();
-			let counterparty_htlc_data = self.counterparty_claimable_data.get(commitment_number).unwrap();
+			let counterparty_htlc_data = self.counterparty_htlc_data.get(commitment_number).unwrap();
 			let mut nondust_htlcs = Vec::with_capacity(counterparty_htlc_data.len());
 			for (offered, htlc_id, htlc_idx) in htlc_id_indices {
 				let (nondust_htlc, source) = counterparty_htlc_data.iter().find(|(htlc, _source)| htlc_id == &htlc.htlc_id && offered == &htlc.offered).unwrap();
@@ -2430,7 +2430,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 	fn get_counterparty_htlc_data(&self, current: bool) -> Option<Vec<(HTLCData, Option<Box<HTLCSource>>)>> {
 		let number = if current { self.current_counterparty_commitment_number } else { self.current_counterparty_commitment_number + 1 };
 		let txid = if current { self.funding.current_counterparty_commitment_txid? } else { self.funding.prev_counterparty_commitment_txid? };
-		self.counterparty_claimable_data.get(&number).cloned().or_else(||
+		self.counterparty_htlc_data.get(&number).cloned().or_else(||
 			self.counterparty_claimable_outpoints.get(&txid).map(|data|
 				data.iter().map(|(htlc, source)| (htlc.clone().into(), source.clone())).collect()
 			)
@@ -2931,12 +2931,12 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 				let cur_claimables: Vec<(HTLCData, Option<Box<HTLCSource>>)> = self.counterparty_claimable_outpoints.get(
 					&self.funding.current_counterparty_commitment_txid.unwrap()
 				).map(|data| data.iter().map(|(htlc, source)| (HTLCData::from(htlc.clone()), source.clone())).collect()).unwrap_or_else(||
-					self.counterparty_claimable_data.get(&number).unwrap().clone()
+					self.counterparty_htlc_data.get(&number).unwrap().clone()
 				);
 				let prev_claimables = self.counterparty_claimable_outpoints.get(&prev_txid)
 				.map(|data| data.iter().map(|(htlc, source)| (HTLCData::from(htlc.clone()), source.clone())).collect())
 				.unwrap_or_else(||
-					self.counterparty_claimable_data.get(&(number + 1)).unwrap().clone()
+					self.counterparty_htlc_data.get(&(number + 1)).unwrap().clone()
 				);
 				for (_, ref source_opt) in prev_claimables {
 					if let Some(source) = source_opt {
@@ -2952,7 +2952,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 					*source_opt = None;
 				}
 
-				for &mut (_, ref mut source_opt) in self.counterparty_claimable_data.get_mut(&(number + 1)).unwrap_or(&mut Vec::new()) {
+				for &mut (_, ref mut source_opt) in self.counterparty_htlc_data.get_mut(&(number + 1)).unwrap_or(&mut Vec::new()) {
 					*source_opt = None;
 				}
 			} else {
@@ -3028,7 +3028,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		}
 
 		// TODO: clean this up
-		self.counterparty_claimable_data.insert(tx.commitment_number(), htlc_outputs);
+		self.counterparty_htlc_data.insert(tx.commitment_number(), htlc_outputs);
 
 		let mut htlc_indices = Vec::new();
 		tx.htlcs().iter().for_each(|htlc|
@@ -3037,7 +3037,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		log_trace!(logger, "Tracking new counterparty commitment transaction with txid {} at commitment number {} with {} HTLC outputs", tx.trust().txid(), tx.commitment_number(), tx.htlcs().len());
 		self.funding.prev_counterparty_commitment_txid = self.funding.current_counterparty_commitment_txid.take();
 		self.funding.current_counterparty_commitment_txid = Some(tx.trust().txid());
-		self.funding.counterparty_claimable_indices.insert(tx.trust().txid(), htlc_indices);
+		self.funding.counterparty_htlc_indices.insert(tx.trust().txid(), htlc_indices);
 		self.current_counterparty_commitment_number = tx.commitment_number();
 		//TODO: Merge this into the other per-counterparty-transaction output storage stuff
 		match self.their_cur_per_commitment_points {
@@ -5158,23 +5158,23 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 			}
 		}
 
-		let counterparty_claimable_data_len: u64 = Readable::read(reader)?;
-		let mut counterparty_claimable_data = hash_map_with_capacity(cmp::min(counterparty_claimable_data_len as usize, MAX_ALLOC_SIZE / 64));
-		for _ in 0..counterparty_claimable_data_len {
+		let counterparty_htlc_data_len: u64 = Readable::read(reader)?;
+		let mut counterparty_htlc_data = hash_map_with_capacity(cmp::min(counterparty_htlc_data_len as usize, MAX_ALLOC_SIZE / 64));
+		for _ in 0..counterparty_htlc_data_len {
 			let commitment_number: u64 = Readable::read(reader)?;
 			let htlcs_count: u64 = Readable::read(reader)?;
 			let mut htlcs = Vec::with_capacity(cmp::min(htlcs_count as usize, MAX_ALLOC_SIZE / 32));
 			for _ in 0..htlcs_count {
 				htlcs.push((read_htlc_in_commitment_v2!(), <Option<HTLCSource> as Readable>::read(reader)?.map(|o: HTLCSource| Box::new(o))));
 			}
-			if counterparty_claimable_data.insert(commitment_number, htlcs).is_some() {
+			if counterparty_htlc_data.insert(commitment_number, htlcs).is_some() {
 				return Err(DecodeError::InvalidValue);
 			}
 		}
 
-		let counterparty_claimable_indices_len: u64 = Readable::read(reader)?;
-		let mut counterparty_claimable_indices = hash_map_with_capacity(cmp::min(counterparty_claimable_indices_len as usize, MAX_ALLOC_SIZE / 64));
-		for _ in 0..counterparty_claimable_indices_len {
+		let counterparty_htlc_indices_len: u64 = Readable::read(reader)?;
+		let mut counterparty_htlc_indices = hash_map_with_capacity(cmp::min(counterparty_htlc_indices_len as usize, MAX_ALLOC_SIZE / 64));
+		for _ in 0..counterparty_htlc_indices_len {
 			let txid: Txid = Readable::read(reader)?;
 			let htlcs_count: u64 = Readable::read(reader)?;
 			let mut htlcs = Vec::with_capacity(cmp::min(htlcs_count as usize, MAX_ALLOC_SIZE / 32));
@@ -5184,7 +5184,7 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 				let htlc_idx: u32 = Readable::read(reader)?;
 				htlcs.push((offered, htlc_id, htlc_idx));
 			}
-			if counterparty_claimable_indices.insert(txid, htlcs).is_some() {
+			if counterparty_htlc_indices.insert(txid, htlcs).is_some() {
 				return Err(DecodeError::InvalidValue);
 			}
 		}
@@ -5383,7 +5383,7 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 
 				current_counterparty_commitment_txid,
 				prev_counterparty_commitment_txid,
-				counterparty_claimable_indices,
+				counterparty_htlc_indices,
 
 				current_holder_commitment_tx,
 				prev_holder_signed_commitment_tx,
@@ -5393,7 +5393,7 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 			commitment_transaction_number_obscure_factor,
 
 			counterparty_claimable_outpoints,
-			counterparty_claimable_data,
+			counterparty_htlc_data,
 
 			destination_script,
 			broadcasted_holder_revokable_script,
