@@ -2427,14 +2427,12 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		}
 	}
 
-	fn get_counterparty_htlc_data(&self, current: bool) -> Option<Vec<(HTLCData, Option<Box<HTLCSource>>)>> {
+	fn get_counterparty_htlc_data(&self, current: bool) -> Option<Vec<(&HTLCData, Option<&HTLCSource>)>> {
 		let number = if current { self.current_counterparty_commitment_number } else { self.current_counterparty_commitment_number + 1 };
 		let txid = if current { self.funding.current_counterparty_commitment_txid? } else { self.funding.prev_counterparty_commitment_txid? };
-		self.counterparty_htlc_data.get(&number).cloned().or_else(||
-			self.counterparty_claimable_outpoints.get(&txid).map(|data|
-				data.iter().map(|(htlc, source)| (htlc.clone().into(), source.clone())).collect()
-			)
-		)
+		let a = self.counterparty_htlc_data.get(&number).map(|data| data.iter().map(|(htlc, source)| (htlc, source.as_deref())).collect());
+		let b = self.counterparty_claimable_outpoints.get(&txid).map(|data| data.iter().map(|(htlc, source)| (htlc.deref(), source.as_deref())).collect());
+		a.or(b)
 	}
 }
 
@@ -2678,7 +2676,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 		macro_rules! walk_counterparty_commitment {
 			($current: expr) => {
 				if let Some(ref latest_outpoints) = us.get_counterparty_htlc_data($current) {
-					for &(ref htlc, ref source_option) in latest_outpoints.iter() {
+					for &(htlc, ref source_option) in latest_outpoints.iter() {
 						if let &Some(ref source) = source_option {
 							res.insert((**source).clone(), (htlc.clone(),
 								us.counterparty_fulfilled_htlcs.get(&SentHTLCId::from_source(source)).cloned()));
@@ -4485,18 +4483,16 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			// preimage for an HTLC by the time the previous hop's timeout expires, we've lost that
 			// HTLC, so we might as well fail it back instead of having our counterparty force-close
 			// the inbound channel.
-			let current_holder_htlcs: Vec<(HTLCData, Option<&HTLCSource>)> = self.funding.current_holder_commitment_tx.htlc_outputs.iter()
-				.map(|&(ref a, _, ref b)| (a.clone().into(), b.as_ref())).collect();
+			let current_holder_htlcs: Vec<(&HTLCData, Option<&HTLCSource>)> = self.funding.current_holder_commitment_tx.htlc_outputs.iter()
+				.map(|(a, _, b)| (a.deref(), b.as_ref())).collect();
 
 			// TODO: This is because when you call the function, you take a reference over the entire self, instead of just a member
-			let current_htlc_data = self.get_counterparty_htlc_data(true);
-			let prev_htlc_data = self.get_counterparty_htlc_data(false);
-			let current_counterparty_htlcs = current_htlc_data.iter().flatten().map(|(htlc, source)| (htlc, source.as_deref()));
-			let prev_counterparty_htlcs = prev_htlc_data.iter().flatten().map(|(htlc, source)| (htlc, source.as_deref()));
+			let current_htlc_data = self.get_counterparty_htlc_data(true).unwrap();
+			let prev_htlc_data = self.get_counterparty_htlc_data(false).unwrap();
 
-			let htlcs = current_holder_htlcs.iter().map(|(htlc, source)| (htlc, source.clone()))
-				.chain(current_counterparty_htlcs)
-				.chain(prev_counterparty_htlcs);
+			let htlcs = current_holder_htlcs.into_iter()
+				.chain(current_htlc_data.into_iter())
+				.chain(prev_htlc_data.into_iter());
 
 			let height = self.best_block.height;
 			for (htlc, source_opt) in htlcs {
@@ -4515,7 +4511,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 				}
 				let duplicate_event = self.pending_monitor_events.iter().any(
 					|update| if let &MonitorEvent::HTLCEvent(ref upd) = update {
-						upd.source == *source
+						&upd.source == source
 					} else { false });
 				if duplicate_event {
 					continue;
