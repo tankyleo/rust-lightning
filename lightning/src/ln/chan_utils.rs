@@ -627,6 +627,65 @@ impl_writeable_tlv_based!(HTLCOutputInCommitment, {
 	(10, htlc_id, required),
 });
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct HTLCData {
+	/// Whether the HTLC was "offered" (ie outbound in relation to this commitment transaction).
+	/// Note that this is not the same as whether it is ountbound *from us*. To determine that you
+	/// need to compare this value to whether the commitment transaction in question is that of
+	/// the counterparty or our own.
+	pub offered: bool,
+	/// The value, in msat, of the HTLC. The value as it appears in the commitment transaction is
+	/// this divided by 1000.
+	pub amount_msat: u64,
+	/// The CLTV lock-time at which this HTLC expires.
+	pub cltv_expiry: u32,
+	/// The hash of the preimage which unlocks this HTLC.
+	pub payment_hash: PaymentHash,
+	/// HTLC ID
+	pub htlc_id: u64,
+}
+
+impl_writeable_tlv_based!(HTLCData, {
+	(0, offered, required),
+	(2, amount_msat, required),
+	(4, cltv_expiry, required),
+	(6, payment_hash, required),
+	(8, htlc_id, required),
+});
+
+impl From<HTLCOutputInCommitment> for HTLCData {
+	fn from(htlc: HTLCOutputInCommitment) -> Self {
+		let HTLCOutputInCommitment {
+			offered,
+			amount_msat,
+			cltv_expiry,
+			payment_hash,
+			transaction_output_index: _,
+			htlc_id,
+		} = htlc;
+		HTLCData {
+			offered,
+			amount_msat,
+			cltv_expiry,
+			payment_hash,
+			htlc_id,
+		}
+	}
+}
+
+impl HTLCData {
+	pub(crate) fn with_index(&self, idx: u32) -> HTLCOutputInCommitment {
+		HTLCOutputInCommitment {
+			offered: self.offered,
+			amount_msat: self.amount_msat,
+			cltv_expiry: self.cltv_expiry,
+			payment_hash: self.payment_hash,
+			transaction_output_index: Some(idx),
+			htlc_id: self.htlc_id,
+		}
+	}
+}
+
 #[inline]
 pub(crate) fn get_htlc_redeemscript_with_explicit_keys(htlc: &HTLCOutputInCommitment, channel_type_features: &ChannelTypeFeatures, broadcaster_htlc_key: &HtlcKey, countersignatory_htlc_key: &HtlcKey, revocation_key: &RevocationKey) -> ScriptBuf {
 	let payment_hash160 = Ripemd160::hash(&htlc.payment_hash.0[..]).to_byte_array();

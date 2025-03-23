@@ -38,7 +38,7 @@ use crate::types::features::ChannelTypeFeatures;
 use crate::types::payment::{PaymentHash, PaymentPreimage};
 use crate::ln::msgs::DecodeError;
 use crate::ln::channel_keys::{DelayedPaymentKey, DelayedPaymentBasepoint, HtlcBasepoint, HtlcKey, RevocationKey, RevocationBasepoint};
-use crate::ln::chan_utils::{self,CommitmentTransaction, CounterpartyCommitmentSecrets, HTLCOutputInCommitment, HTLCClaim, ChannelTransactionParameters, HolderCommitmentTransaction, TxCreationKeys};
+use crate::ln::chan_utils::{self,CommitmentTransaction, CounterpartyCommitmentSecrets, HTLCOutputInCommitment, HTLCClaim, ChannelTransactionParameters, HolderCommitmentTransaction, TxCreationKeys, HTLCData};
 use crate::ln::channelmanager::{HTLCSource, SentHTLCId, PaymentClaimDetails};
 use crate::chain;
 use crate::chain::{BestBlock, WatchedOutput};
@@ -546,7 +546,7 @@ pub(crate) enum ChannelMonitorUpdateStep {
 	},
 	LatestCounterpartyCommitmentTX {
 		// The dust and non-dust htlcs for that commitment
-		htlc_outputs: Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
+		htlc_outputs: Vec<(HTLCData, Option<Box<HTLCSource>>)>,
 		// Contains only the non-dust htlcs
 		commitment_tx: CommitmentTransaction,
 	},
@@ -902,7 +902,7 @@ pub(crate) struct ChannelMonitorImpl<Signer: EcdsaChannelSigner> {
 	/// transaction broadcast as we need to be able to construct the witness script in all cases.
 	counterparty_claimable_outpoints: HashMap<Txid, Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>>,
 
-	counterparty_claimable_data: HashMap<u64, Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>>,
+	counterparty_claimable_data: HashMap<u64, Vec<(HTLCData, Option<Box<HTLCSource>>)>>,
 
 	destination_script: ScriptBuf,
 	broadcasted_holder_revokable_script: Option<(ScriptBuf, PublicKey, RevocationKey)>,
@@ -1602,7 +1602,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 	#[cfg(test)]
 	fn provide_latest_counterparty_commitment_tx<L: Deref>(
 		&self,
-		htlc_outputs: Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
+		htlc_outputs: Vec<(HTLCData, Option<Box<HTLCSource>>)>,
 		tx: &CommitmentTransaction,
 		logger: &L,
 	) where L::Target: Logger {
@@ -2408,25 +2408,33 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		None
 	}
 
-	// TODO: rename this function
-	fn get_counterparty_populated_htlcs(&self, funding: &FundingScope, txid: &Txid, commitment_number: Option<u64>) -> Option<Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>> {
+	fn get_counterparty_nondust_htlcs(&self, funding: &FundingScope, txid: &Txid, commitment_number: Option<u64>) -> Option<Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>> {
 		if let Some(htlc_id_indices) = funding.counterparty_claimable_indices.get(txid) {
 			let commitment_number = commitment_number.as_ref().or_else(|| self.counterparty_commitment_txn_on_chain.get(txid)).unwrap();
-			let mut counterparty_tx_htlcs = self.counterparty_claimable_data.get(commitment_number).unwrap().clone();
+			let counterparty_htlc_data = self.counterparty_claimable_data.get(commitment_number).unwrap();
+			let mut nondust_htlcs = Vec::with_capacity(counterparty_htlc_data.len());
 			for (offered, htlc_id, htlc_idx) in htlc_id_indices {
-				let (nondust_htlc, _) = counterparty_tx_htlcs.iter_mut().find(|(htlc, _source)| htlc_id == &htlc.htlc_id && offered == &htlc.offered).unwrap();
-				nondust_htlc.transaction_output_index = Some(*htlc_idx);
+				let (nondust_htlc, source) = counterparty_htlc_data.iter().find(|(htlc, _source)| htlc_id == &htlc.htlc_id && offered == &htlc.offered).unwrap();
+				let htlc = nondust_htlc.with_index(*htlc_idx);
+				nondust_htlcs.push((htlc, source.clone()));
 			}
-			Some(counterparty_tx_htlcs)
+			Some(nondust_htlcs)
 		} else {
-			self.counterparty_claimable_outpoints.get(txid).cloned()
+			self.counterparty_claimable_outpoints.get(txid).cloned().map(|mut nondust_htlcs| {
+				nondust_htlcs.retain(|(htlc, _source)| htlc.transaction_output_index.is_some());
+				nondust_htlcs
+			})
 		}
 	}
 
-	fn get_counterparty_htlc_data(&self, current: bool) -> Option<&Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>> {
+	fn get_counterparty_htlc_data(&self, current: bool) -> Option<Vec<(HTLCData, Option<Box<HTLCSource>>)>> {
 		let number = if current { self.current_counterparty_commitment_number } else { self.current_counterparty_commitment_number + 1 };
 		let txid = if current { self.funding.current_counterparty_commitment_txid? } else { self.funding.prev_counterparty_commitment_txid? };
-		self.counterparty_claimable_data.get(&number).or_else(|| self.counterparty_claimable_outpoints.get(&txid))
+		self.counterparty_claimable_data.get(&number).cloned().or_else(||
+			self.counterparty_claimable_outpoints.get(&txid).map(|data|
+				data.iter().map(|(htlc, source)| (htlc.clone().into(), source.clone())).collect()
+			)
+		)
 	}
 }
 
@@ -2484,7 +2492,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 
 		if let Some(txid) = confirmed_txid {
 			let mut found_commitment_tx = false;
-			if let Some(populated_htlcs) = us.get_counterparty_populated_htlcs(&us.funding, &txid, None) {
+			if let Some(populated_htlcs) = us.get_counterparty_nondust_htlcs(&us.funding, &txid, None) {
 				// First look for the to_remote output back to us.
 				if let Some(conf_thresh) = pending_commitment_tx_conf_thresh {
 					if let Some(value) = us.onchain_events_awaiting_threshold_conf.iter().find_map(|event| {
@@ -2662,7 +2670,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 	/// This is similar to [`Self::get_pending_or_resolved_outbound_htlcs`] except it includes
 	/// HTLCs which were resolved on-chain (i.e. where the final HTLC resolution was done by an
 	/// event from this `ChannelMonitor`).
-	pub(crate) fn get_all_current_outbound_htlcs(&self) -> HashMap<HTLCSource, (HTLCOutputInCommitment, Option<PaymentPreimage>)> {
+	pub(crate) fn get_all_current_outbound_htlcs(&self) -> HashMap<HTLCSource, (HTLCData, Option<PaymentPreimage>)> {
 		let mut res = new_hash_map();
 		// Just examine the available counterparty commitment transactions. See docs on
 		// `fail_unbroadcast_htlcs`, below, for justification.
@@ -2691,7 +2699,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 	///
 	/// Currently, the preimage is unused, however if it is present in the relevant internal state
 	/// an HTLC is always included even if it has been resolved.
-	pub(crate) fn get_pending_or_resolved_outbound_htlcs(&self) -> HashMap<HTLCSource, (HTLCOutputInCommitment, Option<PaymentPreimage>)> {
+	pub(crate) fn get_pending_or_resolved_outbound_htlcs(&self) -> HashMap<HTLCSource, (HTLCData, Option<PaymentPreimage>)> {
 		let us = self.inner.lock().unwrap();
 		// We're only concerned with the confirmation count of HTLC transactions, and don't
 		// actually care how many confirmations a commitment transaction may or may not have. Thus,
@@ -2742,7 +2750,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 						let counterparty_resolved_preimage_opt =
 							us.counterparty_fulfilled_htlcs.get(&SentHTLCId::from_source(source)).cloned();
 						if !htlc_update_confd || counterparty_resolved_preimage_opt.is_some() {
-							res.insert(source.clone(), (htlc.clone(), counterparty_resolved_preimage_opt));
+							res.insert(source.clone(), (htlc.clone().into(), counterparty_resolved_preimage_opt));
 						}
 					}
 				}
@@ -2751,7 +2759,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 
 		let txid = confirmed_txid.unwrap();
 		if Some(txid) == us.funding.current_counterparty_commitment_txid || Some(txid) == us.funding.prev_counterparty_commitment_txid {
-			walk_htlcs!(false, us.get_counterparty_populated_htlcs(&us.funding, &txid, None).unwrap().iter().filter_map(|(a, b)| {
+			walk_htlcs!(false, us.get_counterparty_nondust_htlcs(&us.funding, &txid, None).unwrap().iter().filter_map(|(a, b)| {
 				if let &Some(ref source) = b {
 					Some((a, &**source))
 				} else { None }
@@ -2857,8 +2865,8 @@ macro_rules! fail_unbroadcast_htlcs {
 				}
 			}
 		}
-		check_htlc_fails!("current", $self.get_counterparty_htlc_data(true).cloned());
-		check_htlc_fails!("previous", $self.get_counterparty_htlc_data(false).cloned());
+		check_htlc_fails!("current", $self.get_counterparty_htlc_data(true));
+		check_htlc_fails!("previous", $self.get_counterparty_htlc_data(false));
 	} }
 }
 
@@ -2920,13 +2928,15 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 				// We do not use `get_countparty_claimable_data` here because we don't want to
 				// upset the borrow checker - this below makes it extra clear we are not trying
 				// to write to something while holding a shared reference to that thing.
-				let cur_claimables = self.counterparty_claimable_outpoints.get(
+				let cur_claimables: Vec<(HTLCData, Option<Box<HTLCSource>>)> = self.counterparty_claimable_outpoints.get(
 					&self.funding.current_counterparty_commitment_txid.unwrap()
-				).unwrap_or_else(||
-					&self.counterparty_claimable_data.get(&number).unwrap()
+				).map(|data| data.iter().map(|(htlc, source)| (HTLCData::from(htlc.clone()), source.clone())).collect()).unwrap_or_else(||
+					self.counterparty_claimable_data.get(&number).unwrap().clone()
 				);
-				let prev_claimables = self.counterparty_claimable_outpoints.get(&prev_txid).unwrap_or_else(||
-					&self.counterparty_claimable_data.get(&(number + 1)).unwrap()
+				let prev_claimables = self.counterparty_claimable_outpoints.get(&prev_txid)
+				.map(|data| data.iter().map(|(htlc, source)| (HTLCData::from(htlc.clone()), source.clone())).collect())
+				.unwrap_or_else(||
+					self.counterparty_claimable_data.get(&(number + 1)).unwrap().clone()
 				);
 				for (_, ref source_opt) in prev_claimables {
 					if let Some(source) = source_opt {
@@ -3006,7 +3016,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 
 	fn provide_latest_counterparty_commitment_tx<L: Deref>(
 		&mut self,
-		htlc_outputs: Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)>,
+		htlc_outputs: Vec<(HTLCData, Option<Box<HTLCSource>>)>,
 		tx: &CommitmentTransaction, logger: &WithChannelMonitor<L>,
 	) where L::Target: Logger {
 		// TODO: Encrypt the htlc_outputs data with the single-hash of the commitment transaction
@@ -3018,15 +3028,13 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		}
 
 		// TODO: clean this up
-		let mut htlc_data = htlc_outputs.clone();
-		htlc_data.iter_mut().for_each(|(htlc, _)| htlc.transaction_output_index = None);
-		self.counterparty_claimable_data.insert(tx.commitment_number(), htlc_data);
+		self.counterparty_claimable_data.insert(tx.commitment_number(), htlc_outputs);
 
 		let mut htlc_indices = Vec::new();
-		htlc_outputs.iter().for_each(|(htlc, _)|
+		tx.htlcs().iter().for_each(|htlc|
 			if let Some(htlc_idx) = htlc.transaction_output_index { htlc_indices.push((htlc.offered, htlc.htlc_id, htlc_idx)) });
 
-		log_trace!(logger, "Tracking new counterparty commitment transaction with txid {} at commitment number {} with {} HTLC outputs", tx.trust().txid(), tx.commitment_number(), htlc_outputs.len());
+		log_trace!(logger, "Tracking new counterparty commitment transaction with txid {} at commitment number {} with {} HTLC outputs", tx.trust().txid(), tx.commitment_number(), tx.htlcs().len());
 		self.funding.prev_counterparty_commitment_txid = self.funding.current_counterparty_commitment_txid.take();
 		self.funding.current_counterparty_commitment_txid = Some(tx.trust().txid());
 		self.funding.counterparty_claimable_indices.insert(tx.trust().txid(), htlc_indices);
@@ -3222,7 +3230,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		if let Some(txid) = self.funding.current_counterparty_commitment_txid {
 			if txid == confirmed_spend_txid {
 				if let Some(commitment_number) = self.counterparty_commitment_txn_on_chain.get(&txid) {
-					claim_htlcs!(*commitment_number, txid, self.get_counterparty_populated_htlcs(&self.funding, &txid, None).as_ref());
+					claim_htlcs!(*commitment_number, txid, self.get_counterparty_nondust_htlcs(&self.funding, &txid, None).as_ref());
 				} else {
 					debug_assert!(false);
 					log_error!(logger, "Detected counterparty commitment tx on-chain without tracking commitment number");
@@ -3233,7 +3241,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		if let Some(txid) = self.funding.prev_counterparty_commitment_txid {
 			if txid == confirmed_spend_txid {
 				if let Some(commitment_number) = self.counterparty_commitment_txn_on_chain.get(&txid) {
-					claim_htlcs!(*commitment_number, txid, self.get_counterparty_populated_htlcs(&self.funding, &txid, None).as_ref());
+					claim_htlcs!(*commitment_number, txid, self.get_counterparty_nondust_htlcs(&self.funding, &txid, None).as_ref());
 				} else {
 					debug_assert!(false);
 					log_error!(logger, "Detected counterparty commitment tx on-chain without tracking commitment number");
@@ -3738,7 +3746,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 
 		let commitment_txid = tx.compute_txid(); //TODO: This is gonna be a performance bottleneck for watchtowers!
 
-		let per_commitment_option = self.get_counterparty_populated_htlcs(&self.funding, &commitment_txid, Some(commitment_number));
+		let per_commitment_option = self.get_counterparty_nondust_htlcs(&self.funding, &commitment_txid, Some(commitment_number));
 		let per_commitment_option = per_commitment_option.as_ref();
 
 		macro_rules! ignore_error {
@@ -4098,7 +4106,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			}
 			// If we have generated claims for counterparty_commitment_txid earlier, we can rely on always
 			// having claim related htlcs for counterparty_commitment_txid in counterparty_claimable_outpoints.
-			for (htlc, _) in self.get_counterparty_populated_htlcs(&self.funding, counterparty_commitment_txid, Some(*commitment_number)).unwrap_or(vec![]) {
+			for (htlc, _) in self.get_counterparty_nondust_htlcs(&self.funding, counterparty_commitment_txid, Some(*commitment_number)).unwrap_or(vec![]) {
 				log_trace!(logger, "Canceling claims for previously confirmed counterparty commitment {}",
 					counterparty_commitment_txid);
 				let mut outpoint = BitcoinOutPoint { txid: *counterparty_commitment_txid, vout: 0 };
@@ -4477,16 +4485,16 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			// preimage for an HTLC by the time the previous hop's timeout expires, we've lost that
 			// HTLC, so we might as well fail it back instead of having our counterparty force-close
 			// the inbound channel.
-			let current_holder_htlcs = self.funding.current_holder_commitment_tx.htlc_outputs.iter()
-				.map(|&(ref a, _, ref b)| (a, b.as_ref()));
+			let current_holder_htlcs: Vec<(HTLCData, Option<&HTLCSource>)> = self.funding.current_holder_commitment_tx.htlc_outputs.iter()
+				.map(|&(ref a, _, ref b)| (a.clone().into(), b.as_ref())).collect();
 
 			// TODO: This is because when you call the function, you take a reference over the entire self, instead of just a member
-			let current_htlc_data = self.get_counterparty_htlc_data(true).cloned();
-			let prev_htlc_data = self.get_counterparty_htlc_data(false).cloned();
+			let current_htlc_data = self.get_counterparty_htlc_data(true);
+			let prev_htlc_data = self.get_counterparty_htlc_data(false);
 			let current_counterparty_htlcs = current_htlc_data.iter().flatten().map(|(htlc, source)| (htlc, source.as_deref()));
 			let prev_counterparty_htlcs = prev_htlc_data.iter().flatten().map(|(htlc, source)| (htlc, source.as_deref()));
 
-			let htlcs = current_holder_htlcs
+			let htlcs = current_holder_htlcs.iter().map(|(htlc, source)| (htlc, source.clone()))
 				.chain(current_counterparty_htlcs)
 				.chain(prev_counterparty_htlcs);
 
@@ -4774,7 +4782,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 
 			macro_rules! check_htlc_valid_counterparty {
 				($htlc_output: expr, $per_commitment_data: expr) => {
-						for &(ref pending_htlc, ref pending_source) in $per_commitment_data {
+						for (ref pending_htlc, ref pending_source) in $per_commitment_data {
 							if pending_htlc.payment_hash == $htlc_output.payment_hash && pending_htlc.amount_msat == $htlc_output.amount_msat {
 								if let &Some(ref source) = pending_source {
 									log_claim!("revoked counterparty commitment tx", false, pending_htlc, true);
@@ -4843,7 +4851,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 				}
 			}
 			// We assume here that for both non-revoked and revoked counterparty htlc transactions, we have already seen its parent (the commit tx)
-			if let Some(ref htlc_outputs) = self.get_counterparty_populated_htlcs(&self.funding, &input.previous_output.txid, None) {
+			if let Some(ref htlc_outputs) = self.get_counterparty_nondust_htlcs(&self.funding, &input.previous_output.txid, None) {
 				scan_commitment!(htlc_outputs.iter().map(|&(ref a, ref b)| (a, b.as_deref())),
 					"counterparty commitment tx", false);
 			}
@@ -5129,8 +5137,8 @@ impl<'a, 'b, ES: EntropySource, SP: SignerProvider> ReadableArgs<(&'a ES, &'b SP
 					let payment_hash: PaymentHash = Readable::read(reader)?;
 					let htlc_id: u64 = Readable::read(reader)?;
 
-					HTLCOutputInCommitment {
-						offered, amount_msat, cltv_expiry, payment_hash, transaction_output_index: None, htlc_id,
+					HTLCData {
+						offered, amount_msat, cltv_expiry, payment_hash, htlc_id,
 					}
 				}
 			}

@@ -45,7 +45,7 @@ use crate::ln::chan_utils::{
 	HolderCommitmentTransaction, ChannelTransactionParameters,
 	CounterpartyChannelTransactionParameters, max_htlcs,
 	get_commitment_transaction_number_obscure_factor,
-	ClosingTransaction, commit_tx_fee_sat,
+	ClosingTransaction, commit_tx_fee_sat, HTLCData,
 };
 #[cfg(splicing)]
 use crate::ln::chan_utils::FUNDING_TRANSACTION_WITNESS_WEIGHT;
@@ -8726,8 +8726,8 @@ impl<SP: Deref> FundedChannel<SP> where
 
 		let (mut htlcs_ref, counterparty_commitment_tx) =
 			self.build_commitment_no_state_update(logger);
-		let htlcs: Vec<(HTLCOutputInCommitment, Option<Box<HTLCSource>>)> =
-			htlcs_ref.drain(..).map(|(htlc, htlc_source)| (htlc, htlc_source.map(|source_ref| Box::new(source_ref.clone())))).collect();
+		let htlcs: Vec<(HTLCData, Option<Box<HTLCSource>>)> =
+			htlcs_ref.drain(..).map(|(htlc, htlc_source)| (htlc.into(), htlc_source.map(|source_ref| Box::new(source_ref.clone())))).collect();
 
 		if self.context.announcement_sigs_state == AnnouncementSigsState::MessageSent {
 			self.context.announcement_sigs_state = AnnouncementSigsState::Committed;
@@ -8739,7 +8739,7 @@ impl<SP: Deref> FundedChannel<SP> where
 			// Soon, we will switch this to `LatestCounterpartyCommitmentTX`,
 			// and provide the full commit tx instead of the information needed to rebuild it.
 			updates: vec![ChannelMonitorUpdateStep::LatestCounterpartyCommitmentTX {
-				htlc_outputs: htlcs.clone(),
+				htlc_outputs: htlcs,
 				commitment_tx: counterparty_commitment_tx,
 			}],
 			channel_id: Some(self.context.channel_id()),
