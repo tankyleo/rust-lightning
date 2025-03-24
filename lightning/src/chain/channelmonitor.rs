@@ -38,7 +38,7 @@ use crate::types::features::ChannelTypeFeatures;
 use crate::types::payment::{PaymentHash, PaymentPreimage};
 use crate::ln::msgs::DecodeError;
 use crate::ln::channel_keys::{DelayedPaymentKey, DelayedPaymentBasepoint, HtlcBasepoint, HtlcKey, RevocationKey, RevocationBasepoint};
-use crate::ln::chan_utils::{self,CommitmentTransaction, CounterpartyCommitmentSecrets, HTLCOutputInCommitment, HTLCClaim, ChannelTransactionParameters, HolderCommitmentTransaction};
+use crate::ln::chan_utils::{self,CommitmentTransaction, CounterpartyCommitmentSecrets, HTLCOutputInCommitment, HTLCData, HTLCClaim, ChannelTransactionParameters, HolderCommitmentTransaction};
 use crate::ln::channelmanager::{HTLCSource, SentHTLCId, PaymentClaimDetails};
 use crate::chain;
 use crate::chain::{BestBlock, WatchedOutput};
@@ -3507,8 +3507,15 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		nondust_htlcs: Vec<HTLCOutputInCommitment>,
 	) -> CommitmentTransaction {
 		let channel_parameters = &self.funding.channel_parameters.as_counterparty_broadcastable();
+		let htlc_data = nondust_htlcs.into_iter().map(|htlc| HTLCData {
+			offered: htlc.offered,
+			payment_hash: htlc.payment_hash,
+			amount_msat: htlc.amount_msat,
+			cltv_expiry: htlc.cltv_expiry,
+			htlc_id: 0,
+		}).collect();
 		CommitmentTransaction::new(commitment_number, their_per_commitment_point,
-			to_broadcaster_value, to_countersignatory_value, feerate_per_kw, nondust_htlcs, channel_parameters, &self.onchain_tx_handler.secp_ctx)
+			to_broadcaster_value, to_countersignatory_value, feerate_per_kw, htlc_data, channel_parameters, &self.onchain_tx_handler.secp_ctx)
 	}
 
 	fn counterparty_commitment_txs_from_update(&self, update: &ChannelMonitorUpdate) -> Vec<CommitmentTransaction> {
@@ -5294,7 +5301,7 @@ mod tests {
 	use crate::ln::types::ChannelId;
 	use crate::types::payment::{PaymentPreimage, PaymentHash};
 	use crate::ln::channel_keys::{DelayedPaymentBasepoint, DelayedPaymentKey, HtlcBasepoint, RevocationBasepoint, RevocationKey};
-	use crate::ln::chan_utils::{self,HTLCOutputInCommitment, ChannelPublicKeys, ChannelTransactionParameters, HolderCommitmentTransaction, CounterpartyChannelTransactionParameters};
+	use crate::ln::chan_utils::{self,HTLCOutputInCommitment, ChannelPublicKeys, ChannelTransactionParameters, HolderCommitmentTransaction, CounterpartyChannelTransactionParameters, HTLCData};
 	use crate::ln::channelmanager::{PaymentId, RecipientOnionFields};
 	use crate::ln::functional_test_utils::*;
 	use crate::ln::script::ShutdownScript;
@@ -5498,6 +5505,13 @@ mod tests {
 		);
 
 		let htlcs = preimages_slice_to_htlcs!(preimages[0..10]);
+		let htlcs = htlcs.into_iter().map(|htlc| HTLCData {
+			offered: htlc.offered,
+			cltv_expiry: htlc.cltv_expiry,
+			amount_msat: htlc.amount_msat,
+			payment_hash: htlc.payment_hash,
+			htlc_id: 0,
+		}).collect();
 		let dummy_commitment_tx = HolderCommitmentTransaction::dummy(0, htlcs);
 		// These htlcs now have their output indices assigned
 		let htlcs = dummy_commitment_tx.htlcs().clone();
@@ -5539,6 +5553,13 @@ mod tests {
 		// Now update holder commitment tx info, pruning only element 18 as we still care about the
 		// previous commitment tx's preimages too
 		let htlcs = preimages_slice_to_htlcs!(preimages[0..5]);
+		let htlcs = htlcs.into_iter().map(|htlc| HTLCData {
+			offered: htlc.offered,
+			cltv_expiry: htlc.cltv_expiry,
+			amount_msat: htlc.amount_msat,
+			payment_hash: htlc.payment_hash,
+			htlc_id: 0,
+		}).collect();
 		let dummy_commitment_tx = HolderCommitmentTransaction::dummy(0, htlcs);
 		// These htlcs now have their output indices assigned
 		let htlcs = dummy_commitment_tx.htlcs().clone();
@@ -5552,6 +5573,13 @@ mod tests {
 
 		// But if we do it again, we'll prune 5-10
 		let htlcs = preimages_slice_to_htlcs!(preimages[0..3]);
+		let htlcs = htlcs.into_iter().map(|htlc| HTLCData {
+			offered: htlc.offered,
+			cltv_expiry: htlc.cltv_expiry,
+			amount_msat: htlc.amount_msat,
+			payment_hash: htlc.payment_hash,
+			htlc_id: 0,
+		}).collect();
 		let dummy_commitment_tx = HolderCommitmentTransaction::dummy(0, htlcs);
 		// These htlcs now have their output indices assigned
 		let htlcs = dummy_commitment_tx.htlcs().clone();

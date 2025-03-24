@@ -45,7 +45,7 @@ use crate::ln::chan_utils::{
 	HolderCommitmentTransaction, ChannelTransactionParameters,
 	CounterpartyChannelTransactionParameters, max_htlcs,
 	get_commitment_transaction_number_obscure_factor,
-	ClosingTransaction, commit_tx_fee_sat,
+	ClosingTransaction, commit_tx_fee_sat, HTLCData,
 };
 #[cfg(splicing)]
 use crate::ln::chan_utils::FUNDING_TRANSACTION_WITNESS_WEIGHT;
@@ -3627,7 +3627,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 		// This will contain all the htlcs included on the commitment transaction due to their state, both dust, and non-dust.
 		// Non-dust htlcs will come first, with their output indices populated, then dust htlcs, with their output indices set to `None`.
-		let mut htlcs_in_tx: Vec<(HTLCOutputInCommitment, Option<&HTLCSource>)> = Vec::with_capacity(num_htlcs);
+		let mut htlcs_in_tx: Vec<(HTLCData, Option<&HTLCSource>)> = Vec::with_capacity(num_htlcs);
 
 		let broadcaster_dust_limit_satoshis = if local { self.holder_dust_limit_satoshis } else { self.counterparty_dust_limit_satoshis };
 		let mut value_to_self_msat_offset = 0;
@@ -3653,12 +3653,12 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 		macro_rules! get_htlc_in_commitment {
 			($htlc: expr, $offered: expr) => {
-				HTLCOutputInCommitment {
+				HTLCData {
 					offered: $offered,
 					amount_msat: $htlc.amount_msat,
 					cltv_expiry: $htlc.cltv_expiry,
 					payment_hash: $htlc.payment_hash,
-					transaction_output_index: None
+					htlc_id: $htlc.htlc_id,
 				}
 			}
 		}
@@ -3759,19 +3759,22 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			broadcaster_max_commitment_tx_output.1 = cmp::max(broadcaster_max_commitment_tx_output.1, stats.remote_balance_before_fee_msat);
 		}
 
+		let mut populated_htlcs: Vec<(HTLCOutputInCommitment, Option<&HTLCSource>)> = htlcs_in_tx.iter().cloned().map(|(htlc, source)| (htlc.into(), source)).collect();
+
 		// This brute-force search is O(n^2) over ~1k HTLCs in the worst case. This case is very
 		// rare (non-existent?) at the moment. Feel free to optimize if LN channels start seeing an
 		// increasing number of HTLCs on their commitment transactions.
-		for nondust_htlc in stats.tx.htlcs() {
-				for (htlc, _) in htlcs_in_tx.iter_mut() {
-						if htlc.transaction_output_index.is_none() && nondust_htlc.partially_equal(htlc) {
-								htlc.transaction_output_index = nondust_htlc.transaction_output_index;
+		for &(id, idx) in stats.tx.id_idx() {
+				for (i, (htlc, _)) in htlcs_in_tx.iter_mut().enumerate() {
+						let target_id = (u64::from(htlc.offered) << 63) + htlc.htlc_id;
+						if target_id == id {
+							populated_htlcs[i].0.transaction_output_index = Some(idx);
 								break;
 						}
 				}
 		}
 
-		htlcs_in_tx.sort_unstable_by(|(htlc_a, _), (htlc_b, _)| {
+		populated_htlcs.sort_unstable_by(|(htlc_a, _), (htlc_b, _)| {
 			match (htlc_a.transaction_output_index, htlc_b.transaction_output_index) {
 				// `None` is smaller than `Some`, but we want `Some` ordered before `None` in the vector
 				(None, Some(_)) => cmp::Ordering::Greater,
@@ -3782,7 +3785,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 		CommitmentData {
 			stats,
-			htlcs_included: htlcs_in_tx,
+			htlcs_included: populated_htlcs,
 			inbound_htlc_preimages,
 			outbound_htlc_preimages,
 		}

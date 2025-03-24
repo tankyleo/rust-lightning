@@ -7,7 +7,7 @@ use core::ops::Deref;
 use bitcoin::secp256k1::{self, PublicKey, Secp256k1};
 
 use crate::ln::chan_utils::{
-	self, ChannelTransactionParameters, CommitmentTransaction, HTLCOutputInCommitment,
+	self, ChannelTransactionParameters, CommitmentTransaction, HTLCData,
 };
 use crate::ln::channel::{self, CommitmentStats};
 use crate::prelude::*;
@@ -18,7 +18,7 @@ pub(crate) trait TxBuilder {
 	fn build_commitment_transaction<L: Deref>(
 		&self, local: bool, commitment_number: u64, per_commitment_point: &PublicKey,
 		channel_parameters: &ChannelTransactionParameters, secp_ctx: &Secp256k1<secp256k1::All>,
-		value_to_self_with_offset_msat: u64, htlcs_in_tx: Vec<HTLCOutputInCommitment>,
+		value_to_self_with_offset_msat: u64, htlcs_in_tx: Vec<HTLCData>,
 		feerate_per_kw: u32, broadcaster_dust_limit_satoshis: u64, logger: &L,
 	) -> CommitmentStats
 	where
@@ -33,7 +33,7 @@ impl TxBuilder for SpecTxBuilder {
 	fn build_commitment_transaction<L: Deref>(
 		&self, local: bool, commitment_number: u64, per_commitment_point: &PublicKey,
 		channel_parameters: &ChannelTransactionParameters, secp_ctx: &Secp256k1<secp256k1::All>,
-		value_to_self_with_offset_msat: u64, mut htlcs_in_tx: Vec<HTLCOutputInCommitment>,
+		value_to_self_with_offset_msat: u64, mut htlcs_in_tx: Vec<HTLCData>,
 		feerate_per_kw: u32, broadcaster_dust_limit_satoshis: u64, logger: &L,
 	) -> CommitmentStats
 	where

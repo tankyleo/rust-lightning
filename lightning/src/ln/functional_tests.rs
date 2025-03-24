@@ -1547,12 +1547,12 @@ pub fn test_fee_spike_violation_fails_htlc() {
 	// signature for the commitment_signed message.
 	let local_chan_balance = 1313;
 
-	let mut accepted_htlc_info = chan_utils::HTLCOutputInCommitment {
+	let mut accepted_htlc_info = chan_utils::HTLCData {
 		offered: false,
 		amount_msat: 3460001,
 		cltv_expiry: htlc_cltv,
 		payment_hash,
-		transaction_output_index: Some(1),
+		htlc_id: 1,
 	};
 
 	let commitment_number = INITIAL_COMMITMENT_NUMBER - 1;
