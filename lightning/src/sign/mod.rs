@@ -1377,7 +1377,7 @@ impl EcdsaChannelSigner for InMemorySigner {
 				&keys.broadcaster_delayed_payment_key,
 				&keys.revocation_key,
 			);
-			let htlc_redeemscript = chan_utils::get_htlc_redeemscript(&htlc, chan_type, &keys);
+			let htlc_redeemscript = chan_utils::get_htlc_redeemscript(htlc, chan_type, &keys);
 			let htlc_sighashtype = if chan_type.supports_anchors_zero_fee_htlc_tx() {
 				EcdsaSighashType::SinglePlusAnyoneCanPay
 			} else {
@@ -1528,7 +1528,7 @@ impl EcdsaChannelSigner for InMemorySigner {
 				&per_commitment_point,
 			);
 			chan_utils::get_htlc_redeemscript_with_explicit_keys(
-				&htlc,
+				htlc,
 				&channel_parameters.channel_type_features,
 				&counterparty_htlcpubkey,
 				&holder_htlcpubkey,
@@ -1600,7 +1600,7 @@ impl EcdsaChannelSigner for InMemorySigner {
 		let htlcpubkey = HtlcKey::from_basepoint(&secp_ctx, &htlc_basepoint, &per_commitment_point);
 		let chan_type = &channel_parameters.channel_type_features;
 		let witness_script = chan_utils::get_htlc_redeemscript_with_explicit_keys(
-			&htlc,
+			htlc,
 			chan_type,
 			&counterparty_htlcpubkey,
 			&htlcpubkey,

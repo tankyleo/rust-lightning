@@ -1290,7 +1290,7 @@ mod tests {
 	use crate::chain::transaction::OutPoint;
 	use crate::ln::chan_utils::{
 		ChannelPublicKeys, ChannelTransactionParameters, CounterpartyChannelTransactionParameters,
-		HTLCOutputInCommitment, HolderCommitmentTransaction,
+		HolderCommitmentTransaction, HTLCOutput,
 	};
 	use crate::ln::channel_keys::{DelayedPaymentBasepoint, HtlcBasepoint, RevocationBasepoint};
 	use crate::ln::functional_test_utils::create_dummy_block;
@@ -1363,25 +1363,24 @@ mod tests {
 		for i in 0..3 {
 			let preimage = PaymentPreimage([i; 32]);
 			let hash = PaymentHash(Sha256::hash(&preimage.0[..]).to_byte_array());
-			htlcs.push((
-				HTLCOutputInCommitment {
+			htlcs.push(
+				HTLCOutput {
 					offered: true,
 					amount_msat: 10000,
 					cltv_expiry: i as u32,
 					payment_hash: hash,
-					transaction_output_index: Some(i as u32),
+					id: i as u64,
 				},
-				(),
-			));
+			);
 		}
-		let holder_commit = HolderCommitmentTransaction::dummy(1000000, &mut htlcs);
+		let holder_commit = HolderCommitmentTransaction::dummy(1000000, htlcs);
 		let mut tx_handler = OnchainTxHandler::new(
 			1000000,
 			[0; 32],
 			ScriptBuf::new(),
 			signer,
 			chan_params,
-			holder_commit,
+			holder_commit.clone(),
 			secp_ctx,
 		);
 
@@ -1400,7 +1399,7 @@ mod tests {
 		// Request claiming of each HTLC on the holder's commitment, with current block height 1.
 		let holder_commit_txid = tx_handler.get_unsigned_holder_commitment_tx().compute_txid();
 		let mut requests = Vec::new();
-		for (htlc, _) in htlcs {
+		for htlc in holder_commit.nondust_htlcs() {
 			requests.push(PackageTemplate::build_package(
 				holder_commit_txid,
 				htlc.transaction_output_index.unwrap(),
