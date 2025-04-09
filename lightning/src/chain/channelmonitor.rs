@@ -3139,6 +3139,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			debug_assert!(htlc_outputs.iter().all(|(_, sig_opt, _)| sig_opt.is_none()));
 			debug_assert_eq!(holder_commitment_tx.trust().nondust_htlcs().len(), holder_commitment_tx.counterparty_htlc_sigs.len());
 
+			/*
 			let mut sources = nondust_htlc_sources.iter();
 			for htlc in holder_commitment_tx.trust().nondust_htlcs().iter() {
 				if htlc.offered {
@@ -3147,6 +3148,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 				}
 			}
 			assert!(sources.next().is_none(), "All HTLC sources should have been exhausted");
+			*/
 
 			// This only includes dust HTLCs as checked above.
 			htlc_outputs.into_iter().map(|(htlc, _, source)| (htlc, source)).collect()

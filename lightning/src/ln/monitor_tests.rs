@@ -1589,9 +1589,19 @@ fn do_test_revoked_counterparty_commitment_balances(anchors: bool, confirm_htlc_
 	test_spendable_output(&nodes[1], &as_revoked_txn[0], false);
 
 	let mut payment_failed_events = nodes[1].node.get_and_clear_pending_events();
-	expect_payment_failed_conditions_event(payment_failed_events[..2].to_vec(),
+	let nondust_pos = payment_failed_events.iter().position(|event| match event {
+		Event::PaymentPathFailed { payment_hash, .. } if *payment_hash == missing_htlc_payment_hash => true,
+		_ => false,
+
+	}).unwrap();
+	expect_payment_failed_conditions_event(payment_failed_events[nondust_pos..nondust_pos + 2].to_vec(),
 		missing_htlc_payment_hash, false, PaymentFailedConditions::new());
-	expect_payment_failed_conditions_event(payment_failed_events[2..].to_vec(),
+	let dust_pos = payment_failed_events.iter().position(|event| match event {
+		Event::PaymentPathFailed { payment_hash, .. } if *payment_hash == dust_payment_hash => true,
+		_ => false,
+
+	}).unwrap();
+	expect_payment_failed_conditions_event(payment_failed_events[dust_pos..dust_pos + 2].to_vec(),
 		dust_payment_hash, false, PaymentFailedConditions::new());
 
 	connect_blocks(&nodes[1], 1);

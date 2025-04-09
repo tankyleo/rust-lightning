@@ -3794,21 +3794,24 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		let holder_keys = commitment_data.tx.trust().keys();
 		let mut nondust_htlc_sources = Vec::with_capacity(commitment_data.tx.nondust_htlcs().len());
 		let mut dust_htlcs = Vec::with_capacity(commitment_data.htlcs_included.len() - commitment_data.tx.nondust_htlcs().len());
-		for (idx, (htlc, mut source_opt)) in commitment_data.htlcs_included.into_iter().enumerate() {
-			if let Some(_) = htlc.transaction_output_index {
-				let htlc_tx = chan_utils::build_htlc_transaction(&commitment_txid, commitment_data.tx.feerate_per_kw(),
-					funding.get_counterparty_selected_contest_delay().unwrap(), &htlc, funding.get_channel_type(),
-					&holder_keys.broadcaster_delayed_payment_key, &holder_keys.revocation_key);
+		// Zip here; we've checked above that the sig and non-dust htlc vecs are the same length
+		for (sig, htlc) in msg.htlc_signatures.iter().zip(commitment_data.tx.nondust_htlcs()) {
+			let htlc_tx = chan_utils::build_htlc_transaction(&commitment_txid, commitment_data.tx.feerate_per_kw(),
+				funding.get_counterparty_selected_contest_delay().unwrap(), &htlc, funding.get_channel_type(),
+				&holder_keys.broadcaster_delayed_payment_key, &holder_keys.revocation_key);
 
-				let htlc_redeemscript = chan_utils::get_htlc_redeemscript(&htlc, funding.get_channel_type(), &holder_keys);
-				let htlc_sighashtype = if funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() { EcdsaSighashType::SinglePlusAnyoneCanPay } else { EcdsaSighashType::All };
-				let htlc_sighash = hash_to_message!(&sighash::SighashCache::new(&htlc_tx).p2wsh_signature_hash(0, &htlc_redeemscript, htlc.to_bitcoin_amount(), htlc_sighashtype).unwrap()[..]);
-				log_trace!(logger, "Checking HTLC tx signature {} by key {} against tx {} (sighash {}) with redeemscript {} in channel {}.",
-					log_bytes!(msg.htlc_signatures[idx].serialize_compact()[..]), log_bytes!(holder_keys.countersignatory_htlc_key.to_public_key().serialize()),
-					encode::serialize_hex(&htlc_tx), log_bytes!(htlc_sighash[..]), encode::serialize_hex(&htlc_redeemscript), &self.channel_id());
-				if let Err(_) = self.secp_ctx.verify_ecdsa(&htlc_sighash, &msg.htlc_signatures[idx], &holder_keys.countersignatory_htlc_key.to_public_key()) {
-					return Err(ChannelError::close("Invalid HTLC tx signature from peer".to_owned()));
-				}
+			let htlc_redeemscript = chan_utils::get_htlc_redeemscript(&htlc, funding.get_channel_type(), &holder_keys);
+			let htlc_sighashtype = if funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() { EcdsaSighashType::SinglePlusAnyoneCanPay } else { EcdsaSighashType::All };
+			let htlc_sighash = hash_to_message!(&sighash::SighashCache::new(&htlc_tx).p2wsh_signature_hash(0, &htlc_redeemscript, htlc.to_bitcoin_amount(), htlc_sighashtype).unwrap()[..]);
+			log_trace!(logger, "Checking HTLC tx signature {} by key {} against tx {} (sighash {}) with redeemscript {} in channel {}.",
+				log_bytes!(sig.serialize_compact()[..]), log_bytes!(holder_keys.countersignatory_htlc_key.to_public_key().serialize()),
+				encode::serialize_hex(&htlc_tx), log_bytes!(htlc_sighash[..]), encode::serialize_hex(&htlc_redeemscript), &self.channel_id());
+			if let Err(_) = self.secp_ctx.verify_ecdsa(&htlc_sighash, sig, &holder_keys.countersignatory_htlc_key.to_public_key()) {
+				return Err(ChannelError::close("Invalid HTLC tx signature from peer".to_owned()));
+			}
+		}
+		for (htlc, mut source_opt) in commitment_data.htlcs_included.into_iter() {
+			if let Some(_) = htlc.transaction_output_index {
 				if htlc.offered {
 					if let Some(source) = source_opt.take() {
 						nondust_htlc_sources.push(source.clone());
@@ -4056,10 +4059,8 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		                                                             &channel_parameters,
 		                                                             &self.secp_ctx,
 		);
-		let mut htlcs_included = included_non_dust_htlcs;
-		// The unwrap is safe, because all non-dust HTLCs have been assigned an output index
-		htlcs_included.sort_unstable_by_key(|h| h.0.transaction_output_index.unwrap());
-		htlcs_included.append(&mut included_dust_htlcs);
+		let mut htlcs_included = included_dust_htlcs;
+		htlcs_included.append(&mut included_non_dust_htlcs);
 
 		CommitmentData {
 			tx,
