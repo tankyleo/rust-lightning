@@ -586,6 +586,49 @@ pub fn get_counterparty_payment_script(channel_type_features: &ChannelTypeFeatur
 	}
 }
 
+/// Information about an HTLC that is constant per commitment number
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HTLCOutputData {
+	/// Whether the HTLC was "offered" (ie outbound in relation to this commitment transaction).
+	/// Note that this is not the same as whether it is ountbound *from us*. To determine that you
+	/// need to compare this value to whether the commitment transaction in question is that of
+	/// the counterparty or our own.
+	pub offered: bool,
+	/// The value, in msat, of the HTLC. The value as it appears in the commitment transaction is
+	/// this divided by 1000.
+	pub amount_msat: u64,
+	/// The CLTV lock-time at which this HTLC expires.
+	pub cltv_expiry: u32,
+	/// The hash of the preimage which unlocks this HTLC.
+	pub payment_hash: PaymentHash,
+}
+
+impl_writeable_tlv_based!(HTLCOutputData, {
+	(0, offered, required),
+	(2, amount_msat, required),
+	(4, cltv_expiry, required),
+	(6, payment_hash, required),
+});
+
+impl From<HTLCOutputData> for HTLCOutputInCommitment {
+	fn from(value: HTLCOutputData) -> Self {
+		let HTLCOutputData {
+			offered,
+			amount_msat,
+			cltv_expiry,
+			payment_hash,
+		} = value;
+
+		HTLCOutputInCommitment {
+			offered,
+			amount_msat,
+			cltv_expiry,
+			payment_hash,
+			transaction_output_index: None,
+		}
+	}
+}
+
 /// Information about an HTLC as it appears in a commitment transaction
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HTLCOutputInCommitment {
@@ -613,6 +656,13 @@ impl HTLCOutputInCommitment {
 	/// e. g. in commitment transactions.
 	pub const fn to_bitcoin_amount(&self) -> Amount {
 		Amount::from_sat(self.amount_msat / 1000)
+	}
+
+	pub(crate) fn is_data_equal(&self, other: &HTLCOutputInCommitment) -> bool {
+		self.offered == other.offered
+			&& self.amount_msat == other.amount_msat
+			&& self.cltv_expiry == other.cltv_expiry
+			&& self.payment_hash == other.payment_hash
 	}
 }
 
