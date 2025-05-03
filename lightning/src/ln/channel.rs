@@ -24,7 +24,7 @@ use bitcoin::hash_types::{Txid, BlockHash};
 use bitcoin::secp256k1::constants::PUBLIC_KEY_SIZE;
 use bitcoin::secp256k1::{PublicKey,SecretKey};
 use bitcoin::secp256k1::{Secp256k1,ecdsa::Signature};
-use bitcoin::{secp256k1, sighash};
+use bitcoin::secp256k1;
 
 use crate::ln::types::ChannelId;
 use crate::types::payment::{PaymentPreimage, PaymentHash};
@@ -2276,7 +2276,12 @@ trait InitialRemoteCommitmentReceiver<SP: Deref> where SP::Target: SignerProvide
 			&self.funding().counterparty_funding_pubkey()
 		);
 
-		if context.holder_signer.as_ref().validate_holder_commitment(&holder_commitment_tx, Vec::new()).is_err() {
+		if context.holder_signer.as_ref().validate_holder_commitment(
+			&self.funding().channel_transaction_parameters,
+			&holder_commitment_tx,
+			Vec::new(),
+			&context.secp_ctx
+		).is_err() {
 			return Err(ChannelError::close("Failed to validate our commitment".to_owned()));
 		}
 
@@ -3747,25 +3752,9 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 	where
 		L::Target: Logger,
 	{
-		let funding_script = funding.get_funding_redeemscript();
-
 		let commitment_data = self.build_commitment_transaction(funding,
 			holder_commitment_point.transaction_number(), &holder_commitment_point.current_point(),
 			true, false, logger);
-		let commitment_txid = {
-			let trusted_tx = commitment_data.tx.trust();
-			let bitcoin_tx = trusted_tx.built_transaction();
-			let sighash = bitcoin_tx.get_sighash_all(&funding_script, funding.get_value_satoshis());
-
-			log_trace!(logger, "Checking commitment tx signature {} by key {} against tx {} (sighash {}) with redeemscript {} in channel {}",
-				log_bytes!(msg.signature.serialize_compact()[..]),
-				log_bytes!(funding.counterparty_funding_pubkey().serialize()), encode::serialize_hex(&bitcoin_tx.transaction),
-				log_bytes!(sighash[..]), encode::serialize_hex(&funding_script), &self.channel_id());
-			if let Err(_) = self.secp_ctx.verify_ecdsa(&sighash, &msg.signature, &funding.counterparty_funding_pubkey()) {
-				return Err(ChannelError::close("Invalid commitment tx signature from peer".to_owned()));
-			}
-			bitcoin_tx.txid
-		};
 
 		// If our counterparty updated the channel fee in this commitment transaction, check that
 		// they can actually afford the new fee now.
@@ -3797,28 +3786,27 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			}
 		}
 
-		if msg.htlc_signatures.len() != commitment_data.tx.nondust_htlcs().len() {
+		let num_nondust_htlcs = commitment_data.tx.nondust_htlcs().len();
+
+		if msg.htlc_signatures.len() != num_nondust_htlcs {
 			return Err(ChannelError::close(format!("Got wrong number of HTLC signatures ({}) from remote. It must be {}", msg.htlc_signatures.len(), commitment_data.tx.nondust_htlcs().len())));
 		}
 
-		let holder_keys = commitment_data.tx.trust().keys();
-		let mut nondust_htlc_sources = Vec::with_capacity(commitment_data.tx.nondust_htlcs().len());
-		let mut dust_htlcs = Vec::with_capacity(commitment_data.htlcs_included.len() - commitment_data.tx.nondust_htlcs().len());
-		for (idx, (htlc, mut source_opt)) in commitment_data.htlcs_included.into_iter().enumerate() {
-			if let Some(_) = htlc.transaction_output_index {
-				let htlc_tx = chan_utils::build_htlc_transaction(&commitment_txid, commitment_data.tx.feerate_per_kw(),
-					funding.get_counterparty_selected_contest_delay().unwrap(), &htlc, funding.get_channel_type(),
-					&holder_keys.broadcaster_delayed_payment_key, &holder_keys.revocation_key);
+		let holder_commitment_tx = HolderCommitmentTransaction::new(
+			commitment_data.tx,
+			msg.signature,
+			msg.htlc_signatures.clone(),
+			&funding.get_holder_pubkeys().funding_pubkey,
+			funding.counterparty_funding_pubkey()
+		);
 
-				let htlc_redeemscript = chan_utils::get_htlc_redeemscript(&htlc, funding.get_channel_type(), &holder_keys);
-				let htlc_sighashtype = if funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() { EcdsaSighashType::SinglePlusAnyoneCanPay } else { EcdsaSighashType::All };
-				let htlc_sighash = hash_to_message!(&sighash::SighashCache::new(&htlc_tx).p2wsh_signature_hash(0, &htlc_redeemscript, htlc.to_bitcoin_amount(), htlc_sighashtype).unwrap()[..]);
-				log_trace!(logger, "Checking HTLC tx signature {} by key {} against tx {} (sighash {}) with redeemscript {} in channel {}.",
-					log_bytes!(msg.htlc_signatures[idx].serialize_compact()[..]), log_bytes!(holder_keys.countersignatory_htlc_key.to_public_key().serialize()),
-					encode::serialize_hex(&htlc_tx), log_bytes!(htlc_sighash[..]), encode::serialize_hex(&htlc_redeemscript), &self.channel_id());
-				if let Err(_) = self.secp_ctx.verify_ecdsa(&htlc_sighash, &msg.htlc_signatures[idx], &holder_keys.countersignatory_htlc_key.to_public_key()) {
-					return Err(ChannelError::close("Invalid HTLC tx signature from peer".to_owned()));
-				}
+		self.holder_signer.as_ref().validate_holder_commitment(&funding.channel_transaction_parameters, &holder_commitment_tx, commitment_data.outbound_htlc_preimages, &self.secp_ctx)
+			.map_err(|_| ChannelError::close("Failed to validate our commitment".to_owned()))?;
+
+		let mut nondust_htlc_sources = Vec::with_capacity(num_nondust_htlcs);
+		let mut dust_htlcs = Vec::with_capacity(commitment_data.htlcs_included.len() - num_nondust_htlcs);
+		for (htlc, mut source_opt) in commitment_data.htlcs_included.into_iter() {
+			if let Some(_) = htlc.transaction_output_index {
 				if htlc.offered {
 					if let Some(source) = source_opt.take() {
 						nondust_htlc_sources.push(source.clone());
@@ -3831,17 +3819,6 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			}
 			debug_assert!(source_opt.is_none(), "HTLCSource should have been put somewhere");
 		}
-
-		let holder_commitment_tx = HolderCommitmentTransaction::new(
-			commitment_data.tx,
-			msg.signature,
-			msg.htlc_signatures.clone(),
-			&funding.get_holder_pubkeys().funding_pubkey,
-			funding.counterparty_funding_pubkey()
-		);
-
-		self.holder_signer.as_ref().validate_holder_commitment(&holder_commitment_tx, commitment_data.outbound_htlc_preimages)
-			.map_err(|_| ChannelError::close("Failed to validate our commitment".to_owned()))?;
 
 		Ok(LatestHolderCommitmentTXInfo {
 			commitment_tx: holder_commitment_tx,
