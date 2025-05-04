@@ -9,11 +9,12 @@ use crate::ln::chan_utils::{
 };
 use crate::ln::channel::{self, CommitmentStats};
 use crate::prelude::*;
+use crate::types::features::ChannelTypeFeatures;
 use crate::util::logger::Logger;
 
 pub(crate) trait TxBuilder {
 	fn build_commitment_stats(
-		&self, local: bool, channel_parameters: &ChannelTransactionParameters,
+		&self, local: bool, channel_type: &ChannelTypeFeatures, channel_value_msat: u64,
 		value_to_self_msat: u64, htlcs_in_tx: &Vec<HTLCOutputInCommitment>, feerate_per_kw: u32,
 		broadcaster_dust_limit_sat: u64, extra_nondust_htlcs: usize,
 	) -> CommitmentStats;
@@ -33,11 +34,10 @@ pub(crate) struct SpecTxBuilder {}
 
 impl TxBuilder for SpecTxBuilder {
 	fn build_commitment_stats(
-		&self, local: bool, channel_parameters: &ChannelTransactionParameters,
+		&self, local: bool, channel_type: &ChannelTypeFeatures, channel_value_msat: u64,
 		value_to_self_msat: u64, htlcs_in_tx: &Vec<HTLCOutputInCommitment>, feerate_per_kw: u32,
 		broadcaster_dust_limit_sat: u64, extra_nondust_htlcs: usize,
 	) -> CommitmentStats {
-		let channel_type = &channel_parameters.channel_type_features;
 		let mut local_htlc_total_msat = 0;
 		let mut remote_htlc_total_msat = 0;
 		let mut nondust_htlc_count = extra_nondust_htlcs;
@@ -58,8 +58,7 @@ impl TxBuilder for SpecTxBuilder {
 		// The value going to each party MUST be 0 or positive, even if all HTLCs pending in the
 		// commitment clear by failure.
 
-		let mut value_to_remote_msat =
-			channel_parameters.channel_value_satoshis * 1000 - value_to_self_msat;
+		let mut value_to_remote_msat = channel_value_msat - value_to_self_msat;
 		let value_to_self_msat = value_to_self_msat.checked_sub(local_htlc_total_msat).unwrap();
 		value_to_remote_msat = value_to_remote_msat.checked_sub(remote_htlc_total_msat).unwrap();
 
@@ -91,7 +90,8 @@ impl TxBuilder for SpecTxBuilder {
 	{
 		let stats = self.build_commitment_stats(
 			local,
-			&channel_parameters,
+			&channel_parameters.channel_type_features,
+			channel_parameters.channel_value_satoshis * 1000,
 			value_to_self_msat,
 			&htlcs_in_tx,
 			feerate_per_kw,

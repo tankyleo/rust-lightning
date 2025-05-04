@@ -3887,7 +3887,8 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		let stats = TxBuilder::build_commitment_stats(
 			&SpecTxBuilder {},
 			local,
-			&funding.channel_transaction_parameters,
+			funding.get_channel_type(),
+			funding.get_value_satoshis() * 1000,
 			value_to_self_with_offset_msat,
 			&htlcs_included,
 			feerate_per_kw,
