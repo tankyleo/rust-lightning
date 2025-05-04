@@ -3006,17 +3006,29 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		debug_assert!(!channel_type.supports_any_optional_bits());
 		debug_assert!(!channel_type.requires_unknown_bits_from(&channelmanager::provided_channel_type_features(&config)));
 
-		let (commitment_conf_target, anchor_outputs_value_msat)  = if channel_type.supports_anchors_zero_fee_htlc_tx() {
-			(ConfirmationTarget::AnchorChannelFee, ANCHOR_OUTPUT_VALUE_SATOSHI * 2 * 1000)
+		let commitment_conf_target = if channel_type.supports_anchors_zero_fee_htlc_tx() {
+			ConfirmationTarget::AnchorChannelFee
 		} else {
-			(ConfirmationTarget::NonAnchorChannelFee, 0)
+			ConfirmationTarget::NonAnchorChannelFee
 		};
 		let commitment_feerate = fee_estimator.bounded_sat_per_1000_weight(commitment_conf_target);
 
 		let value_to_self_msat = channel_value_satoshis * 1000 - push_msat;
-		let commitment_tx_fee = commit_tx_fee_sat(commitment_feerate, MIN_AFFORDABLE_HTLC_COUNT, &channel_type) * 1000;
-		if value_to_self_msat.saturating_sub(anchor_outputs_value_msat) < commitment_tx_fee {
-			return Err(APIError::APIMisuseError{ err: format!("Funding amount ({}) can't even pay fee for initial commitment transaction fee of {}.", value_to_self_msat / 1000, commitment_tx_fee / 1000) });
+		let stats = TxBuilder::build_commitment_stats(
+			&SpecTxBuilder {},
+			true,
+			&channel_type,
+			channel_value_satoshis * 1000,
+			value_to_self_msat,
+			&Vec::new(),
+			commitment_feerate,
+			MIN_CHAN_DUST_LIMIT_SATOSHIS,
+			MIN_AFFORDABLE_HTLC_COUNT
+		);
+		debug_assert_eq!(stats.local_balance_before_fee_anchors_msat, value_to_self_msat);
+
+		if stats.local_balance_before_fee_anchors_msat.saturating_sub(stats.total_anchors_sat * 1000) < stats.total_fee_sat * 1000 {
+			return Err(APIError::APIMisuseError{ err: format!("Funding amount ({}) can't even pay fee for initial commitment transaction fee of {}.", stats.local_balance_before_fee_anchors_msat / 1000, stats.total_fee_sat) });
 		}
 
 		let mut secp_ctx = Secp256k1::new();
