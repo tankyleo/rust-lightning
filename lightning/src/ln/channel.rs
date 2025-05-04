@@ -2738,7 +2738,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			&channel_type,
 			open_channel_fields.funding_satoshis * 1000,
 			msg_push_msat,
-			&Vec::new(),
+			Vec::new(),
 			open_channel_fields.commitment_feerate_sat_per_1000_weight,
 			open_channel_fields.dust_limit_satoshis,
 			MIN_AFFORDABLE_HTLC_COUNT
@@ -3020,7 +3020,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			&channel_type,
 			channel_value_satoshis * 1000,
 			value_to_self_msat,
-			&Vec::new(),
+			Vec::new(),
 			commitment_feerate,
 			MIN_CHAN_DUST_LIMIT_SATOSHIS,
 			MIN_AFFORDABLE_HTLC_COUNT
@@ -3861,21 +3861,9 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		let mut htlcs_included = Vec::with_capacity(num_htlcs);
 		let mut value_to_self_msat_offset = 0;
 
-		macro_rules! get_htlc_in_commitment {
-			($htlc: expr, $offered: expr) => {
-				HTLCOutputInCommitment {
-					offered: $offered,
-					amount_msat: $htlc.amount_msat,
-					cltv_expiry: $htlc.cltv_expiry,
-					payment_hash: $htlc.payment_hash,
-					transaction_output_index: None
-				}
-			}
-		}
-
 		for htlc in self.pending_inbound_htlcs.iter() {
 			if htlc.state.included_in_commitment(generated_by_local) {
-				htlcs_included.push(get_htlc_in_commitment!(htlc, !local));
+				htlcs_included.push((!local, htlc.amount_msat));
 			} else {
 				if htlc.state.preimage().is_some() {
 					value_to_self_msat_offset += htlc.amount_msat as i64;
@@ -3885,7 +3873,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 		for htlc in self.pending_outbound_htlcs.iter() {
 			if htlc.state.included_in_commitment(generated_by_local) {
-				htlcs_included.push(get_htlc_in_commitment!(htlc, local));
+				htlcs_included.push((local, htlc.amount_msat));
 			} else {
 				if htlc.state.preimage().is_some() {
 					value_to_self_msat_offset -= htlc.amount_msat as i64;
@@ -3907,7 +3895,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			funding.get_channel_type(),
 			funding.get_value_satoshis() * 1000,
 			value_to_self_with_offset_msat,
-			&htlcs_included,
+			htlcs_included,
 			feerate_per_kw,
 			broadcaster_dust_limit_sat,
 			0,
@@ -4467,75 +4455,72 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		let context = &self;
 		assert!(funding.is_outbound());
 
-		let (htlc_success_dust_limit, htlc_timeout_dust_limit) = if funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
-			(0, 0)
-		} else {
-			(context.feerate_per_kw as u64 * htlc_success_tx_weight(funding.get_channel_type()) / 1000,
-				context.feerate_per_kw as u64 * htlc_timeout_tx_weight(funding.get_channel_type()) / 1000)
-		};
-		let real_dust_limit_success_sat = htlc_success_dust_limit + context.holder_dust_limit_satoshis;
-		let real_dust_limit_timeout_sat = htlc_timeout_dust_limit + context.holder_dust_limit_satoshis;
+		let mut included_htlcs = Vec::new();
 
 		let mut addl_htlcs = 0;
 		if fee_spike_buffer_htlc.is_some() { addl_htlcs += 1; }
 		match htlc.origin {
 			HTLCInitiator::LocalOffered => {
-				if htlc.amount_msat / 1000 >= real_dust_limit_timeout_sat {
-					addl_htlcs += 1;
-				}
+				included_htlcs.push((true, htlc.amount_msat));
 			},
 			HTLCInitiator::RemoteOffered => {
-				if htlc.amount_msat / 1000 >= real_dust_limit_success_sat {
-					addl_htlcs += 1;
-				}
+				included_htlcs.push((false, htlc.amount_msat));
 			}
 		}
+		let mut offset = 0;
 
-		let mut included_htlcs = 0;
 		for ref htlc in context.pending_inbound_htlcs.iter() {
-			if htlc.amount_msat / 1000 < real_dust_limit_success_sat {
-				continue
-			}
 			// We include LocalRemoved HTLCs here because we may still need to broadcast a commitment
 			// transaction including this HTLC if it times out before they RAA.
-			included_htlcs += 1;
+			included_htlcs.push((false, htlc.amount_msat));
 		}
 
 		for ref htlc in context.pending_outbound_htlcs.iter() {
-			if htlc.amount_msat / 1000 < real_dust_limit_timeout_sat {
-				continue
-			}
 			match htlc.state {
-				OutboundHTLCState::LocalAnnounced {..} => included_htlcs += 1,
-				OutboundHTLCState::Committed => included_htlcs += 1,
-				OutboundHTLCState::RemoteRemoved {..} => included_htlcs += 1,
+				OutboundHTLCState::LocalAnnounced {..} => included_htlcs.push((true, htlc.amount_msat)),
+				OutboundHTLCState::Committed => included_htlcs.push((true, htlc.amount_msat)),
+				OutboundHTLCState::RemoteRemoved {..} => included_htlcs.push((true, htlc.amount_msat)),
 				// We don't include AwaitingRemoteRevokeToRemove HTLCs because our next commitment
 				// transaction won't be generated until they send us their next RAA, which will mean
 				// dropping any HTLCs in this state.
-				_ => {},
+				_ => {
+					if htlc.state.preimage().is_some() {
+						offset -= htlc.amount_msat as i64;
+					}
+				},
 			}
 		}
 
 		for htlc in context.holding_cell_htlc_updates.iter() {
 			match htlc {
 				&HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } => {
-					if amount_msat / 1000 < real_dust_limit_timeout_sat {
-						continue
-					}
-					included_htlcs += 1
+					included_htlcs.push((true, amount_msat));
 				},
 				_ => {}, // Don't include claims/fails that are awaiting ack, because once we get the
 				         // ack we're guaranteed to never include them in commitment txs anymore.
 			}
 		}
 
-		let num_htlcs = included_htlcs + addl_htlcs;
-		let res = commit_tx_fee_sat(context.feerate_per_kw, num_htlcs, funding.get_channel_type()) * 1000;
+		#[cfg(any(test, fuzzing))]
+		let count_htlcs = included_htlcs.len();
+		let stats = TxBuilder::build_commitment_stats(
+			&SpecTxBuilder {},
+			true,
+			funding.get_channel_type(),
+			funding.get_value_satoshis() * 1000,
+			(funding.value_to_self_msat as i64 + offset).try_into().unwrap(),
+			included_htlcs,
+			context.feerate_per_kw,
+			context.holder_dust_limit_satoshis,
+			addl_htlcs,
+		);
+		let res = stats.total_fee_sat * 1000;
+
 		#[cfg(any(test, fuzzing))]
 		{
 			let mut fee = res;
 			if fee_spike_buffer_htlc.is_some() {
-				fee = commit_tx_fee_sat(context.feerate_per_kw, num_htlcs - 1, funding.get_channel_type()) * 1000;
+				fee = commit_tx_fee_sat(context.feerate_per_kw, count_htlcs, funding.get_channel_type()) * 1000;
 			}
 			let total_pending_htlcs = context.pending_inbound_htlcs.len() + context.pending_outbound_htlcs.len()
 				+ context.holding_cell_htlc_updates.len();
@@ -11752,7 +11737,7 @@ mod tests {
 		// Create Node A's channel pointing to Node B's pubkey
 		let node_b_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
 		let config = UserConfig::default();
-		let mut node_a_chan = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_init_features(&config), 10000000, 100000, 42, &config, 0, 42, None, &logger).unwrap();
+		let mut node_a_chan = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_init_features(&config), 10_000_000, 5_000_000_000, 42, &config, 0, 42, None, &logger).unwrap();
 
 		// Create Node B's channel by receiving Node A's open_channel message
 		// Make sure A's dust limit is as we expect.
@@ -11837,7 +11822,7 @@ mod tests {
 
 		let node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
 		let config = UserConfig::default();
-		let mut chan = OutboundV1Channel::<&TestKeysInterface>::new(&fee_est, &&keys_provider, &&keys_provider, node_id, &channelmanager::provided_init_features(&config), 10000000, 100000, 42, &config, 0, 42, None, &logger).unwrap();
+		let mut chan = OutboundV1Channel::<&TestKeysInterface>::new(&fee_est, &&keys_provider, &&keys_provider, node_id, &channelmanager::provided_init_features(&config), 10_000_000, 5_000_000_000, 42, &config, 0, 42, None, &logger).unwrap();
 
 		let commitment_tx_fee_0_htlcs = commit_tx_fee_sat(chan.context.feerate_per_kw, 0, chan.funding.get_channel_type()) * 1000;
 		let commitment_tx_fee_1_htlc = commit_tx_fee_sat(chan.context.feerate_per_kw, 1, chan.funding.get_channel_type()) * 1000;

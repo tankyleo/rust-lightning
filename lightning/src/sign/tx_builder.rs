@@ -5,7 +5,8 @@ use core::ops::Deref;
 use bitcoin::secp256k1::{self, PublicKey, Secp256k1};
 
 use crate::ln::chan_utils::{
-	self, ChannelTransactionParameters, CommitmentTransaction, HTLCOutputInCommitment,
+	self, htlc_success_tx_weight, htlc_timeout_tx_weight, ChannelTransactionParameters,
+	CommitmentTransaction, HTLCOutputInCommitment,
 };
 use crate::ln::channel::{self, CommitmentStats};
 use crate::prelude::*;
@@ -15,7 +16,7 @@ use crate::util::logger::Logger;
 pub(crate) trait TxBuilder {
 	fn build_commitment_stats(
 		&self, local: bool, channel_type: &ChannelTypeFeatures, channel_value_msat: u64,
-		value_to_self_msat: u64, htlcs_in_tx: &Vec<HTLCOutputInCommitment>, feerate_per_kw: u32,
+		value_to_self_msat: u64, htlcs_in_tx: Vec<(bool, u64)>, feerate_per_kw: u32,
 		broadcaster_dust_limit_sat: u64, fee_buffer_nondust_htlcs: usize,
 	) -> CommitmentStats;
 
@@ -32,10 +33,35 @@ pub(crate) trait TxBuilder {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SpecTxBuilder {}
 
+trait IsDust {
+	fn is_dust(
+		&self, feerate_per_kw: u32, broadcaster_dust_limit_sat: u64, features: &ChannelTypeFeatures,
+	) -> bool;
+}
+
+impl IsDust for (bool, u64) {
+	fn is_dust(
+		&self, feerate_per_kw: u32, broadcaster_dust_limit_sat: u64, features: &ChannelTypeFeatures,
+	) -> bool {
+		let htlc_tx_fee_sat = if features.supports_anchors_zero_fee_htlc_tx() {
+			0
+		} else {
+			let htlc_tx_weight = if self.0 {
+				htlc_timeout_tx_weight(features)
+			} else {
+				htlc_success_tx_weight(features)
+			};
+			// As required by the spec, round down
+			feerate_per_kw as u64 * htlc_tx_weight / 1000
+		};
+		self.1 / 1000 < broadcaster_dust_limit_sat + htlc_tx_fee_sat
+	}
+}
+
 impl TxBuilder for SpecTxBuilder {
 	fn build_commitment_stats(
 		&self, local: bool, channel_type: &ChannelTypeFeatures, channel_value_msat: u64,
-		value_to_self_msat: u64, htlcs_in_tx: &Vec<HTLCOutputInCommitment>, feerate_per_kw: u32,
+		value_to_self_msat: u64, htlcs_in_tx: Vec<(bool, u64)>, feerate_per_kw: u32,
 		broadcaster_dust_limit_sat: u64, fee_buffer_nondust_htlcs: usize,
 	) -> CommitmentStats {
 		let mut local_htlc_total_msat = 0;
@@ -43,10 +69,10 @@ impl TxBuilder for SpecTxBuilder {
 		let mut nondust_htlc_count = fee_buffer_nondust_htlcs;
 
 		for htlc in htlcs_in_tx {
-			if htlc.offered == local {
-				local_htlc_total_msat += htlc.amount_msat;
+			if htlc.0 == local {
+				local_htlc_total_msat += htlc.1;
 			} else {
-				remote_htlc_total_msat += htlc.amount_msat;
+				remote_htlc_total_msat += htlc.1;
 			}
 			if !htlc.is_dust(feerate_per_kw, broadcaster_dust_limit_sat, channel_type) {
 				nondust_htlc_count += 1;
@@ -58,7 +84,7 @@ impl TxBuilder for SpecTxBuilder {
 		// The value going to each party MUST be 0 or positive, even if all HTLCs pending in the
 		// commitment clear by failure.
 
-		let mut value_to_remote_msat = channel_value_msat - value_to_self_msat;
+		let mut value_to_remote_msat = channel_value_msat.checked_sub(value_to_self_msat).unwrap();
 		let value_to_self_msat = value_to_self_msat.checked_sub(local_htlc_total_msat).unwrap();
 		value_to_remote_msat = value_to_remote_msat.checked_sub(remote_htlc_total_msat).unwrap();
 
@@ -93,7 +119,7 @@ impl TxBuilder for SpecTxBuilder {
 			&channel_parameters.channel_type_features,
 			channel_parameters.channel_value_satoshis * 1000,
 			value_to_self_msat,
-			&htlcs_in_tx,
+			htlcs_in_tx.iter().map(|htlc| (htlc.offered, htlc.amount_msat)).collect(),
 			feerate_per_kw,
 			broadcaster_dust_limit_satoshis,
 			0,
