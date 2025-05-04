@@ -16,7 +16,7 @@ pub(crate) trait TxBuilder {
 	fn build_commitment_stats(
 		&self, local: bool, channel_type: &ChannelTypeFeatures, channel_value_msat: u64,
 		value_to_self_msat: u64, htlcs_in_tx: &Vec<HTLCOutputInCommitment>, feerate_per_kw: u32,
-		broadcaster_dust_limit_sat: u64, extra_nondust_htlcs: usize,
+		broadcaster_dust_limit_sat: u64, fee_buffer_nondust_htlcs: usize,
 	) -> CommitmentStats;
 
 	fn build_commitment_transaction<L: Deref>(
@@ -36,11 +36,11 @@ impl TxBuilder for SpecTxBuilder {
 	fn build_commitment_stats(
 		&self, local: bool, channel_type: &ChannelTypeFeatures, channel_value_msat: u64,
 		value_to_self_msat: u64, htlcs_in_tx: &Vec<HTLCOutputInCommitment>, feerate_per_kw: u32,
-		broadcaster_dust_limit_sat: u64, extra_nondust_htlcs: usize,
+		broadcaster_dust_limit_sat: u64, fee_buffer_nondust_htlcs: usize,
 	) -> CommitmentStats {
 		let mut local_htlc_total_msat = 0;
 		let mut remote_htlc_total_msat = 0;
-		let mut nondust_htlc_count = extra_nondust_htlcs;
+		let mut nondust_htlc_count = fee_buffer_nondust_htlcs;
 
 		for htlc in htlcs_in_tx {
 			if htlc.offered == local {
