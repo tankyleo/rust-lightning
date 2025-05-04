@@ -3892,6 +3892,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			&htlcs_included,
 			feerate_per_kw,
 			broadcaster_dust_limit_sat,
+			0,
 		);
 
 		#[cfg(debug_assertions)]
