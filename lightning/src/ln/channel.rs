@@ -2732,18 +2732,23 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 		// check if the funder's amount for the initial commitment tx is sufficient
 		// for full fee payment plus a few HTLCs to ensure the channel will be useful.
-		let anchor_outputs_value = if channel_type.supports_anchors_zero_fee_htlc_tx() {
-			ANCHOR_OUTPUT_VALUE_SATOSHI * 2
-		} else {
-			0
-		};
-		let funders_amount_msat = open_channel_fields.funding_satoshis * 1000 - msg_push_msat;
-		let commitment_tx_fee = commit_tx_fee_sat(open_channel_fields.commitment_feerate_sat_per_1000_weight, MIN_AFFORDABLE_HTLC_COUNT, &channel_type);
-		if (funders_amount_msat / 1000).saturating_sub(anchor_outputs_value) < commitment_tx_fee {
-			return Err(ChannelError::close(format!("Funding amount ({} sats) can't even pay fee for initial commitment transaction fee of {} sats.", (funders_amount_msat / 1000).saturating_sub(anchor_outputs_value), commitment_tx_fee)));
+		let stats = TxBuilder::build_commitment_stats(
+			&SpecTxBuilder {},
+			false,
+			&channel_type,
+			open_channel_fields.funding_satoshis * 1000,
+			msg_push_msat,
+			&Vec::new(),
+			open_channel_fields.commitment_feerate_sat_per_1000_weight,
+			open_channel_fields.dust_limit_satoshis,
+			MIN_AFFORDABLE_HTLC_COUNT
+		);
+
+		if (stats.remote_balance_before_fee_anchors_msat).saturating_sub(stats.total_anchors_sat * 1000) < stats.total_fee_sat * 1000 {
+			return Err(ChannelError::close(format!("Funding amount ({} sats) can't even pay fee for initial commitment transaction fee of {} sats.", (stats.remote_balance_before_fee_anchors_msat / 1000).saturating_sub(stats.total_anchors_sat), stats.total_fee_sat)));
 		}
 
-		let to_remote_satoshis = funders_amount_msat / 1000 - commitment_tx_fee - anchor_outputs_value;
+		let to_remote_satoshis = stats.remote_balance_before_fee_anchors_msat / 1000 - stats.total_fee_sat - stats.total_anchors_sat;
 		// While it's reasonable for us to not meet the channel reserve initially (if they don't
 		// want to push much to us), our counterparty should always have more than our reserve.
 		if to_remote_satoshis < holder_selected_channel_reserve_satoshis {
