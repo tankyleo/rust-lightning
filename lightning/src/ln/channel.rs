@@ -4467,7 +4467,6 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 				included_htlcs.push((false, htlc.amount_msat));
 			}
 		}
-		let mut offset = 0;
 
 		for ref htlc in context.pending_inbound_htlcs.iter() {
 			// We include LocalRemoved HTLCs here because we may still need to broadcast a commitment
@@ -4483,11 +4482,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 				// We don't include AwaitingRemoteRevokeToRemove HTLCs because our next commitment
 				// transaction won't be generated until they send us their next RAA, which will mean
 				// dropping any HTLCs in this state.
-				_ => {
-					if htlc.state.preimage().is_some() {
-						offset -= htlc.amount_msat as i64;
-					}
-				},
+				_ => {},
 			}
 		}
 
@@ -4501,12 +4496,9 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			}
 		}
 
-		let stats = TxBuilder::build_commitment_stats(
+		let total_fee_sat = TxBuilder::commitment_transaction_fee_sat(
 			&SpecTxBuilder {},
-			true,
 			funding.get_channel_type(),
-			funding.get_value_satoshis() * 1000,
-			(funding.value_to_self_msat as i64 + offset).try_into().unwrap(),
 			#[cfg(any(test, fuzzing))]
 			included_htlcs.clone(),
 			#[cfg(not(any(test, fuzzing)))]
@@ -4515,24 +4507,22 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			context.holder_dust_limit_satoshis,
 			addl_htlcs,
 		);
-		let res = stats.total_fee_sat * 1000;
+
+		let res = total_fee_sat * 1000;
 
 		#[cfg(any(test, fuzzing))]
 		{
 			let mut fee = res;
 			if fee_spike_buffer_htlc.is_some() {
-				let stats = TxBuilder::build_commitment_stats(
+				let total_fee_sat = TxBuilder::commitment_transaction_fee_sat(
 					&SpecTxBuilder {},
-					true,
 					funding.get_channel_type(),
-					funding.get_value_satoshis() * 1000,
-					(funding.value_to_self_msat as i64 + offset).try_into().unwrap(),
 					included_htlcs,
 					context.feerate_per_kw,
 					context.holder_dust_limit_satoshis,
 					0,
 				);
-				fee = stats.total_fee_sat * 1000;
+				fee = total_fee_sat * 1000;
 			}
 			let total_pending_htlcs = context.pending_inbound_htlcs.len() + context.pending_outbound_htlcs.len()
 				+ context.holding_cell_htlc_updates.len();
@@ -4572,28 +4562,17 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		let context = &self;
 		assert!(!funding.is_outbound());
 
-		let (htlc_success_dust_limit, htlc_timeout_dust_limit) = if funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
-			(0, 0)
-		} else {
-			(context.feerate_per_kw as u64 * htlc_success_tx_weight(funding.get_channel_type()) / 1000,
-				context.feerate_per_kw as u64 * htlc_timeout_tx_weight(funding.get_channel_type()) / 1000)
-		};
-		let real_dust_limit_success_sat = htlc_success_dust_limit + context.counterparty_dust_limit_satoshis;
-		let real_dust_limit_timeout_sat = htlc_timeout_dust_limit + context.counterparty_dust_limit_satoshis;
+		let mut included_htlcs = Vec::new();
 
 		let mut addl_htlcs = 0;
 		if fee_spike_buffer_htlc.is_some() { addl_htlcs += 1; }
 		if let Some(htlc) = &htlc {
 			match htlc.origin {
 				HTLCInitiator::LocalOffered => {
-					if htlc.amount_msat / 1000 >= real_dust_limit_success_sat {
-						addl_htlcs += 1;
-					}
+					included_htlcs.push((false, htlc.amount_msat));
 				},
 				HTLCInitiator::RemoteOffered => {
-					if htlc.amount_msat / 1000 >= real_dust_limit_timeout_sat {
-						addl_htlcs += 1;
-					}
+					included_htlcs.push((true, htlc.amount_msat));
 				}
 			}
 		}
@@ -4601,35 +4580,48 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		// When calculating the set of HTLCs which will be included in their next commitment_signed, all
 		// non-dust inbound HTLCs are included (as all states imply it will be included) and only
 		// committed outbound HTLCs, see below.
-		let mut included_htlcs = 0;
 		for ref htlc in context.pending_inbound_htlcs.iter() {
-			if htlc.amount_msat / 1000 <= real_dust_limit_timeout_sat {
-				continue
-			}
-			included_htlcs += 1;
+			included_htlcs.push((true, htlc.amount_msat));
 		}
 
 		for ref htlc in context.pending_outbound_htlcs.iter() {
-			if htlc.amount_msat / 1000 <= real_dust_limit_success_sat {
-				continue
-			}
 			// We only include outbound HTLCs if it will not be included in their next commitment_signed,
 			// i.e. if they've responded to us with an RAA after announcement.
 			match htlc.state {
-				OutboundHTLCState::Committed => included_htlcs += 1,
-				OutboundHTLCState::RemoteRemoved {..} => included_htlcs += 1,
-				OutboundHTLCState::LocalAnnounced { .. } => included_htlcs += 1,
+				OutboundHTLCState::Committed => included_htlcs.push((false, htlc.amount_msat)),
+				OutboundHTLCState::RemoteRemoved {..} => included_htlcs.push((false, htlc.amount_msat)),
+				OutboundHTLCState::LocalAnnounced { .. } => included_htlcs.push((false, htlc.amount_msat)),
 				_ => {},
 			}
 		}
+		
+		let total_fee_sat = TxBuilder::commitment_transaction_fee_sat(
+			&SpecTxBuilder {},
+			funding.get_channel_type(),
+			#[cfg(any(test, fuzzing))]
+			included_htlcs.clone(),
+			#[cfg(not(any(test, fuzzing)))]
+			included_htlcs,
+			context.feerate_per_kw,
+			context.counterparty_dust_limit_satoshis,
+			addl_htlcs,
+		);
 
-		let num_htlcs = included_htlcs + addl_htlcs;
-		let res = commit_tx_fee_sat(context.feerate_per_kw, num_htlcs, funding.get_channel_type()) * 1000;
+		let res = total_fee_sat * 1000;
+
 		#[cfg(any(test, fuzzing))]
 		if let Some(htlc) = &htlc {
 			let mut fee = res;
 			if fee_spike_buffer_htlc.is_some() {
-				fee = commit_tx_fee_sat(context.feerate_per_kw, num_htlcs - 1, funding.get_channel_type()) * 1000;
+				let total_fee_sat = TxBuilder::commitment_transaction_fee_sat(
+					&SpecTxBuilder {},
+					funding.get_channel_type(),
+					included_htlcs,
+					context.feerate_per_kw,
+					context.counterparty_dust_limit_satoshis,
+					0,
+				);
+				fee = total_fee_sat * 1000;
 			}
 			let total_pending_htlcs = context.pending_inbound_htlcs.len() + context.pending_outbound_htlcs.len();
 			let commitment_tx_info = CommitmentTxInfoCached {

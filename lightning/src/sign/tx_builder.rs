@@ -14,6 +14,11 @@ use crate::types::features::ChannelTypeFeatures;
 use crate::util::logger::Logger;
 
 pub(crate) trait TxBuilder {
+	fn commitment_transaction_fee_sat(
+		&self, channel_type: &ChannelTypeFeatures, htlcs_in_tx: Vec<(bool, u64)>,
+		feerate_per_kw: u32, broadcaster_dust_limit_sat: u64, fee_buffer_nondust_htlcs: usize,
+	) -> u64;
+
 	fn build_commitment_stats(
 		&self, local: bool, channel_type: &ChannelTypeFeatures, channel_value_msat: u64,
 		value_to_self_msat: u64, htlcs_in_tx: Vec<(bool, u64)>, feerate_per_kw: u32,
@@ -59,6 +64,20 @@ impl IsDust for (bool, u64) {
 }
 
 impl TxBuilder for SpecTxBuilder {
+	fn commitment_transaction_fee_sat(
+		&self, channel_type: &ChannelTypeFeatures, htlcs_in_tx: Vec<(bool, u64)>,
+		feerate_per_kw: u32, broadcaster_dust_limit_sat: u64, fee_buffer_nondust_htlcs: usize,
+	) -> u64 {
+		let mut nondust_htlc_count = fee_buffer_nondust_htlcs;
+
+		for htlc in htlcs_in_tx {
+			if !htlc.is_dust(feerate_per_kw, broadcaster_dust_limit_sat, channel_type) {
+				nondust_htlc_count += 1;
+			}
+		}
+
+		chan_utils::commit_tx_fee_sat(feerate_per_kw, nondust_htlc_count, channel_type)
+	}
 	fn build_commitment_stats(
 		&self, local: bool, channel_type: &ChannelTypeFeatures, channel_value_msat: u64,
 		value_to_self_msat: u64, htlcs_in_tx: Vec<(bool, u64)>, feerate_per_kw: u32,
