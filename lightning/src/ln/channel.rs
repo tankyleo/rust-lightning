@@ -4501,14 +4501,15 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			}
 		}
 
-		#[cfg(any(test, fuzzing))]
-		let count_htlcs = included_htlcs.len();
 		let stats = TxBuilder::build_commitment_stats(
 			&SpecTxBuilder {},
 			true,
 			funding.get_channel_type(),
 			funding.get_value_satoshis() * 1000,
 			(funding.value_to_self_msat as i64 + offset).try_into().unwrap(),
+			#[cfg(any(test, fuzzing))]
+			included_htlcs.clone(),
+			#[cfg(not(any(test, fuzzing)))]
 			included_htlcs,
 			context.feerate_per_kw,
 			context.holder_dust_limit_satoshis,
@@ -4520,7 +4521,18 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		{
 			let mut fee = res;
 			if fee_spike_buffer_htlc.is_some() {
-				fee = commit_tx_fee_sat(context.feerate_per_kw, count_htlcs, funding.get_channel_type()) * 1000;
+				let stats = TxBuilder::build_commitment_stats(
+					&SpecTxBuilder {},
+					true,
+					funding.get_channel_type(),
+					funding.get_value_satoshis() * 1000,
+					(funding.value_to_self_msat as i64 + offset).try_into().unwrap(),
+					included_htlcs,
+					context.feerate_per_kw,
+					context.holder_dust_limit_satoshis,
+					0,
+				);
+				fee = stats.total_fee_sat * 1000;
 			}
 			let total_pending_htlcs = context.pending_inbound_htlcs.len() + context.pending_outbound_htlcs.len()
 				+ context.holding_cell_htlc_updates.len();
