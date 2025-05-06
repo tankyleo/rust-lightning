@@ -4357,16 +4357,18 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			}
 
 			let htlc_above_dust = HTLCCandidate::new(real_dust_limit_success_sat * 1000, HTLCInitiator::LocalOffered);
-			let max_reserved_commit_tx_fee_msat = context.next_remote_commit_tx_fee_msat(&funding, Some(htlc_above_dust), None);
+			if available_capacity_msat >= real_dust_limit_success_sat * 1000 {
+				let max_reserved_commit_tx_fee_msat = context.next_remote_commit_tx_fee_msat(&funding, Some(htlc_above_dust), None);
 
-			let holder_selected_chan_reserve_msat = funding.holder_selected_channel_reserve_satoshis * 1000;
-			let remote_balance_msat = (funding.get_value_satoshis() * 1000 - funding.value_to_self_msat)
-				.saturating_sub(htlc_stats.pending_inbound_htlcs_value_msat);
+				let holder_selected_chan_reserve_msat = funding.holder_selected_channel_reserve_satoshis * 1000;
+				let remote_balance_msat = (funding.get_value_satoshis() * 1000 - funding.value_to_self_msat)
+					.saturating_sub(htlc_stats.pending_inbound_htlcs_value_msat);
 
-			if remote_balance_msat < max_reserved_commit_tx_fee_msat + holder_selected_chan_reserve_msat + anchor_outputs_value_msat {
-				// If another HTLC's fee would reduce the remote's balance below the reserve limit
-				// we've selected for them, we can only send dust HTLCs.
-				available_capacity_msat = cmp::min(available_capacity_msat, real_dust_limit_success_sat * 1000 - 1);
+				if remote_balance_msat < max_reserved_commit_tx_fee_msat + holder_selected_chan_reserve_msat + anchor_outputs_value_msat {
+					// If another HTLC's fee would reduce the remote's balance below the reserve limit
+					// we've selected for them, we can only send dust HTLCs.
+					available_capacity_msat = real_dust_limit_success_sat * 1000 - 1;
+				}
 			}
 		}
 
@@ -4598,6 +4600,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			included_htlcs.push((true, htlc.amount_msat));
 		}
 
+		let mut to_self_offset_msat = 0;
 		for ref htlc in context.pending_outbound_htlcs.iter() {
 			// We only include outbound HTLCs if it will not be included in their next commitment_signed,
 			// i.e. if they've responded to us with an RAA after announcement.
@@ -4605,13 +4608,24 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 				OutboundHTLCState::Committed => included_htlcs.push((false, htlc.amount_msat)),
 				OutboundHTLCState::RemoteRemoved {..} => included_htlcs.push((false, htlc.amount_msat)),
 				OutboundHTLCState::LocalAnnounced { .. } => included_htlcs.push((false, htlc.amount_msat)),
-				_ => {},
+				_ => {
+					if htlc.state.preimage().is_some() {
+						to_self_offset_msat += htlc.amount_msat;
+					}
+				},
 			}
 		}
 		
-		let total_fee_sat = TxBuilder::commitment_transaction_fee_sat(
+		println!("INCLUDED HTLCS: {:?}", included_htlcs);
+		println!("ADD HTLCS: {}", addl_htlcs);
+		println!("FUNDING VALUE: {}", funding.get_value_satoshis());
+		println!("TO_SELF VALUE: {}", funding.value_to_self_msat / 1000);
+		let total_fee_sat = TxBuilder::build_commitment_stats(
 			&SpecTxBuilder {},
+			false,
 			funding.get_channel_type(),
+			funding.get_value_satoshis() * 1000,
+			funding.value_to_self_msat.checked_sub(to_self_offset_msat).unwrap(),
 			#[cfg(any(test, fuzzing))]
 			included_htlcs.clone(),
 			#[cfg(not(any(test, fuzzing)))]
@@ -4619,7 +4633,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			context.feerate_per_kw,
 			context.counterparty_dust_limit_satoshis,
 			addl_htlcs,
-		);
+		).total_fee_sat;
 
 		let res = total_fee_sat * 1000;
 
