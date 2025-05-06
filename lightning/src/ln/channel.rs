@@ -4530,9 +4530,6 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 					funding.get_channel_type(),
 					funding.get_value_satoshis() * 1000,
 					funding.value_to_self_msat.checked_sub(to_self_offset).unwrap(),
-					#[cfg(any(test, fuzzing))]
-					included_htlcs.clone(),
-					#[cfg(not(any(test, fuzzing)))]
 					included_htlcs,
 					context.feerate_per_kw,
 					context.holder_dust_limit_satoshis,
@@ -4616,10 +4613,6 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			}
 		}
 		
-		println!("INCLUDED HTLCS: {:?}", included_htlcs);
-		println!("ADD HTLCS: {}", addl_htlcs);
-		println!("FUNDING VALUE: {}", funding.get_value_satoshis());
-		println!("TO_SELF VALUE: {}", funding.value_to_self_msat / 1000);
 		let total_fee_sat = TxBuilder::build_commitment_stats(
 			&SpecTxBuilder {},
 			false,
@@ -4641,14 +4634,17 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		if let Some(htlc) = &htlc {
 			let mut fee = res;
 			if fee_spike_buffer_htlc.is_some() {
-				let total_fee_sat = TxBuilder::commitment_transaction_fee_sat(
+				let total_fee_sat = TxBuilder::build_commitment_stats(
 					&SpecTxBuilder {},
+					false,
 					funding.get_channel_type(),
+					funding.get_value_satoshis() * 1000,
+					funding.value_to_self_msat.checked_sub(to_self_offset_msat).unwrap(),
 					included_htlcs,
 					context.feerate_per_kw,
 					context.counterparty_dust_limit_satoshis,
 					0,
-				);
+				).total_fee_sat;
 				fee = total_fee_sat * 1000;
 			}
 			let total_pending_htlcs = context.pending_inbound_htlcs.len() + context.pending_outbound_htlcs.len();
