@@ -4474,6 +4474,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			included_htlcs.push((false, htlc.amount_msat));
 		}
 
+		let mut to_self_offset = 0;
 		for ref htlc in context.pending_outbound_htlcs.iter() {
 			match htlc.state {
 				OutboundHTLCState::LocalAnnounced {..} => included_htlcs.push((true, htlc.amount_msat)),
@@ -4482,7 +4483,11 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 				// We don't include AwaitingRemoteRevokeToRemove HTLCs because our next commitment
 				// transaction won't be generated until they send us their next RAA, which will mean
 				// dropping any HTLCs in this state.
-				_ => {},
+				_ => {
+					if htlc.state.preimage().is_some() {
+						to_self_offset += htlc.amount_msat;
+					}
+				},
 			}
 		}
 
@@ -4496,9 +4501,12 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			}
 		}
 
-		let total_fee_sat = TxBuilder::commitment_transaction_fee_sat(
+		let total_fee_sat = TxBuilder::build_commitment_stats(
 			&SpecTxBuilder {},
+			true,
 			funding.get_channel_type(),
+			funding.get_value_satoshis() * 1000,
+			funding.value_to_self_msat.checked_sub(to_self_offset).unwrap(),
 			#[cfg(any(test, fuzzing))]
 			included_htlcs.clone(),
 			#[cfg(not(any(test, fuzzing)))]
@@ -4506,7 +4514,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			context.feerate_per_kw,
 			context.holder_dust_limit_satoshis,
 			addl_htlcs,
-		);
+		).total_fee_sat;
 
 		let res = total_fee_sat * 1000;
 
