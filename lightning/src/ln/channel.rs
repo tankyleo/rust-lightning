@@ -954,7 +954,6 @@ struct CommitmentData<'a> {
 pub(crate) struct CommitmentStats {
 	pub(crate) total_fee_sat: u64, // the total fee included in the transaction
 	pub(crate) total_anchors_sat: u64, // the sum of the anchors' amounts
-	pub(crate) nondust_htlc_count: usize, // the number of non-dust HTLCs at that commitment
 	pub(crate) local_balance_before_fee_anchors_msat: u64, // local balance before fees and anchors *not* considering dust limits
 	pub(crate) remote_balance_before_fee_anchors_msat: u64, // remote balance before fees and anchors *not* considering dust limits
 }

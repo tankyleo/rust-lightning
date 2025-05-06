@@ -98,7 +98,6 @@ impl TxBuilder for SpecTxBuilder {
 		CommitmentStats {
 			total_fee_sat,
 			total_anchors_sat,
-			nondust_htlc_count,
 			local_balance_before_fee_anchors_msat: value_to_self_msat,
 			remote_balance_before_fee_anchors_msat: value_to_remote_msat,
 		}
@@ -126,7 +125,6 @@ impl TxBuilder for SpecTxBuilder {
 		let CommitmentStats {
 			total_fee_sat,
 			total_anchors_sat,
-			nondust_htlc_count,
 			local_balance_before_fee_anchors_msat,
 			remote_balance_before_fee_anchors_msat,
 		} = stats;
@@ -151,7 +149,6 @@ impl TxBuilder for SpecTxBuilder {
 				true
 			}
 		});
-		debug_assert_eq!(htlcs_in_tx.len(), nondust_htlc_count);
 
 		// We MUST use saturating subs here, as the funder's balance is not guaranteed to be greater
 		// than or equal to the sum of `total_fee_sat` and `total_anchors_sat`.
