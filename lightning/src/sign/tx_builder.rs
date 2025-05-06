@@ -15,7 +15,7 @@ use crate::util::logger::Logger;
 
 pub(crate) trait TxBuilder {
 	fn build_commitment_stats(
-		&self, local: bool, channel_type: &ChannelTypeFeatures, channel_value_msat: u64,
+		&self, local: bool, outbound: bool, channel_type: &ChannelTypeFeatures, channel_value_msat: u64,
 		value_to_self_msat: u64, htlcs_in_tx: Vec<(bool, u64)>, feerate_per_kw: u32,
 		broadcaster_dust_limit_sat: u64, fee_buffer_nondust_htlcs: usize,
 	) -> CommitmentStats;
@@ -59,7 +59,7 @@ impl IsDust for (bool, u64) {
 
 impl TxBuilder for SpecTxBuilder {
 	fn build_commitment_stats(
-		&self, local: bool, channel_type: &ChannelTypeFeatures, channel_value_msat: u64,
+		&self, local: bool, outbound: bool, channel_type: &ChannelTypeFeatures, channel_value_msat: u64,
 		value_to_self_msat: u64, htlcs_in_tx: Vec<(bool, u64)>, feerate_per_kw: u32,
 		broadcaster_dust_limit_sat: u64, fee_buffer_nondust_htlcs: usize,
 	) -> CommitmentStats {
@@ -95,11 +95,16 @@ impl TxBuilder for SpecTxBuilder {
 			0
 		};
 
+		let (local_balance_before_fee_msat, remote_balance_before_fee_msat) = if outbound {
+			(value_to_self_msat.saturating_sub(total_anchors_sat * 1000), value_to_remote_msat)
+		} else {
+			(value_to_self_msat, value_to_remote_msat.saturating_sub(total_anchors_sat * 1000))
+		};
+
 		CommitmentStats {
 			total_fee_sat,
-			total_anchors_sat,
-			local_balance_before_fee_anchors_msat: value_to_self_msat,
-			remote_balance_before_fee_anchors_msat: value_to_remote_msat,
+			local_balance_before_fee_msat,
+			remote_balance_before_fee_msat,
 		}
 	}
 
@@ -114,6 +119,7 @@ impl TxBuilder for SpecTxBuilder {
 	{
 		let stats = self.build_commitment_stats(
 			local,
+			channel_parameters.is_outbound_from_holder,
 			&channel_parameters.channel_type_features,
 			channel_parameters.channel_value_satoshis * 1000,
 			value_to_self_msat,
@@ -124,9 +130,8 @@ impl TxBuilder for SpecTxBuilder {
 		);
 		let CommitmentStats {
 			total_fee_sat,
-			total_anchors_sat,
-			local_balance_before_fee_anchors_msat,
-			remote_balance_before_fee_anchors_msat,
+			local_balance_before_fee_msat,
+			remote_balance_before_fee_msat,
 		} = stats;
 
 		// Trim dust htlcs
@@ -159,16 +164,14 @@ impl TxBuilder for SpecTxBuilder {
 
 		let (value_to_self, value_to_remote) = if channel_parameters.is_outbound_from_holder {
 			(
-				(local_balance_before_fee_anchors_msat / 1000)
-					.saturating_sub(total_anchors_sat)
+				(local_balance_before_fee_msat / 1000)
 					.saturating_sub(total_fee_sat),
-				remote_balance_before_fee_anchors_msat / 1000,
+				remote_balance_before_fee_msat / 1000,
 			)
 		} else {
 			(
-				local_balance_before_fee_anchors_msat / 1000,
-				(remote_balance_before_fee_anchors_msat / 1000)
-					.saturating_sub(total_anchors_sat)
+				local_balance_before_fee_msat / 1000,
+				(remote_balance_before_fee_msat / 1000)
 					.saturating_sub(total_fee_sat),
 			)
 		};
