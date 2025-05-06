@@ -45,7 +45,7 @@ use crate::ln::chan_utils::{
 	HolderCommitmentTransaction, ChannelTransactionParameters,
 	CounterpartyChannelTransactionParameters, max_htlcs,
 	get_commitment_transaction_number_obscure_factor,
-	ClosingTransaction, commit_tx_fee_sat,
+	ClosingTransaction,
 };
 #[cfg(splicing)]
 use crate::ln::chan_utils::FUNDING_TRANSACTION_WITNESS_WEIGHT;
@@ -3853,9 +3853,9 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 	/// commitment transaction. See `build_commitment_transaction` for further docs.
 	#[inline]
 	#[allow(dead_code)]
-	fn build_commitment_stats(&self, funding: &FundingScope, local: bool, generated_by_local: bool) -> CommitmentStats {
+	fn build_commitment_stats(&self, funding: &FundingScope, local: bool, generated_by_local: bool, feerate_per_kw: Option<u32>, buffer_nondust_htlcs: usize) -> CommitmentStats {
 		let broadcaster_dust_limit_sat = if local { self.holder_dust_limit_satoshis } else { self.counterparty_dust_limit_satoshis };
-		let feerate_per_kw = self.get_commitment_feerate(funding, generated_by_local);
+		let feerate_per_kw = feerate_per_kw.unwrap_or_else(|| self.get_commitment_feerate(funding, generated_by_local));
 
 		let num_htlcs = self.pending_inbound_htlcs.len() + self.pending_outbound_htlcs.len();
 		let mut htlcs_included = Vec::with_capacity(num_htlcs);
@@ -3898,7 +3898,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			htlcs_included,
 			feerate_per_kw,
 			broadcaster_dust_limit_sat,
-			0,
+			buffer_nondust_htlcs,
 		);
 
 		#[cfg(debug_assertions)]
@@ -4020,7 +4020,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			broadcaster_dust_limit_sat,
 			logger,
 		);
-		debug_assert_eq!(stats, self.build_commitment_stats(funding, local, generated_by_local));
+		debug_assert_eq!(stats, self.build_commitment_stats(funding, local, generated_by_local, None, 0));
 
 		// This populates the HTLC-source table with the indices from the HTLCs in the commitment
 		// transaction.
@@ -6614,9 +6614,8 @@ impl<SP: Deref> FundedChannel<SP> where
 		// Before proposing a feerate update, check that we can actually afford the new fee.
 		let dust_exposure_limiting_feerate = self.context.get_dust_exposure_limiting_feerate(&fee_estimator);
 		let htlc_stats = self.context.get_pending_htlc_stats(&self.funding, Some(feerate_per_kw), dust_exposure_limiting_feerate);
-		let stats = self.context.build_commitment_stats(&self.funding, true, true);
-		let buffer_fee_msat = commit_tx_fee_sat(feerate_per_kw, stats.nondust_htlc_count + htlc_stats.on_holder_tx_outbound_holding_cell_htlcs_count as usize + CONCURRENT_INBOUND_HTLC_FEE_BUFFER as usize, self.funding.get_channel_type()) * 1000;
-		let fee_anchors_sum_msat = buffer_fee_msat + stats.total_anchors_sat * 1000;
+		let stats = self.context.build_commitment_stats(&self.funding, true, true, Some(feerate_per_kw), htlc_stats.on_holder_tx_outbound_holding_cell_htlcs_count as usize + CONCURRENT_INBOUND_HTLC_FEE_BUFFER as usize);
+		let fee_anchors_sum_msat = (stats.total_fee_sat + stats.total_anchors_sat) * 1000;
 		let holder_balance_msat = stats.local_balance_before_fee_anchors_msat - htlc_stats.outbound_holding_cell_msat;
 		if holder_balance_msat < fee_anchors_sum_msat + self.funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 {
 			//TODO: auto-close after a number of failures?
@@ -11574,13 +11573,13 @@ mod tests {
 	use crate::ln::channel_keys::{RevocationKey, RevocationBasepoint};
 	use crate::ln::channelmanager::{self, HTLCSource, PaymentId};
 	use crate::ln::channel::InitFeatures;
-	use crate::ln::channel::{AwaitingChannelReadyFlags, ChannelState, FundedChannel, InboundHTLCOutput, OutboundV1Channel, InboundV1Channel, OutboundHTLCOutput, InboundHTLCState, OutboundHTLCState, HTLCCandidate, HTLCInitiator, HTLCUpdateAwaitingACK, commit_tx_fee_sat};
+	use crate::ln::channel::{AwaitingChannelReadyFlags, ChannelState, FundedChannel, InboundHTLCOutput, OutboundV1Channel, InboundV1Channel, OutboundHTLCOutput, InboundHTLCState, OutboundHTLCState, HTLCCandidate, HTLCInitiator, HTLCUpdateAwaitingACK};
 	use crate::ln::channel::{MAX_FUNDING_SATOSHIS_NO_WUMBO, TOTAL_BITCOIN_SUPPLY_SATOSHIS, MIN_THEIR_CHAN_RESERVE_SATOSHIS};
 	use crate::types::features::{ChannelFeatures, ChannelTypeFeatures, NodeFeatures};
 	use crate::ln::msgs;
 	use crate::ln::msgs::{ChannelUpdate, UnsignedChannelUpdate, MAX_VALUE_MSAT};
 	use crate::ln::script::ShutdownScript;
-	use crate::ln::chan_utils::{self, htlc_success_tx_weight, htlc_timeout_tx_weight};
+	use crate::ln::chan_utils::{self, htlc_success_tx_weight, htlc_timeout_tx_weight, commit_tx_fee_sat};
 	use crate::chain::BestBlock;
 	use crate::chain::chaininterface::{FeeEstimator, LowerBoundedFeeEstimator, ConfirmationTarget};
 	use crate::sign::{ChannelSigner, InMemorySigner, EntropySource, SignerProvider};
