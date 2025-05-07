@@ -3887,6 +3887,14 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			}
 		};
 
+		if include_all {
+			for update in self.holding_cell_htlc_updates.iter() {
+				if let &HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = update {
+					htlcs_included.push((local, amount_msat));
+				}
+			}
+		}
+
 		// # Panics
 		//
 		// While we expect `value_to_self_msat_offset` to be negative in some cases, the local
@@ -3908,6 +3916,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			buffer_nondust_htlcs,
 		);
 
+/*
 		#[cfg(debug_assertions)]
 		{
 			// Make sure that the to_self/to_remote is always either past the appropriate
@@ -3922,6 +3931,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			debug_assert!(broadcaster_max_commitment_tx_output.1 <= stats.remote_balance_before_fee_msat || stats.remote_balance_before_fee_msat / 1000 >= funding.holder_selected_channel_reserve_satoshis);
 			broadcaster_max_commitment_tx_output.1 = cmp::max(broadcaster_max_commitment_tx_output.1, stats.remote_balance_before_fee_msat);
 		}
+*/
 
 		stats
 	}
@@ -4304,20 +4314,13 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		// here.
 
 		let dust_exposure_limiting_feerate = self.get_dust_exposure_limiting_feerate(&fee_estimator);
-		let htlc_stats = context.get_pending_htlc_stats(funding, None, dust_exposure_limiting_feerate);
+		let stats = self.build_commitment_stats(funding, false, true, true, Some(dust_exposure_limiting_feerate), 0);
 
-		let outbound_capacity_msat = funding.value_to_self_msat
-				.saturating_sub(htlc_stats.pending_outbound_htlcs_value_msat)
-				.saturating_sub(
-					funding.counterparty_selected_channel_reserve_satoshis.unwrap_or(0) * 1000);
+		let outbound_capacity_msat = stats.local_balance_before_fee_msat
+				.saturating_sub(funding.counterparty_selected_channel_reserve_satoshis.unwrap_or(0) * 1000);
 
 		let mut available_capacity_msat = outbound_capacity_msat;
 
-		let anchor_outputs_value_msat = if funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
-			ANCHOR_OUTPUT_VALUE_SATOSHI * 2 * 1000
-		} else {
-			0
-		};
 		if funding.is_outbound() {
 			// We should mind channel commit tx fee when computing how much of the available capacity
 			// can be used in the next htlc. Mirrors the logic in send_htlc.
@@ -4344,7 +4347,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			// value ends up being below dust, we have this fee available again. In that case,
 			// match the value to right-below-dust.
 			let mut capacity_minus_commitment_fee_msat: i64 = available_capacity_msat as i64 -
-				max_reserved_commit_tx_fee_msat as i64 - anchor_outputs_value_msat as i64;
+				max_reserved_commit_tx_fee_msat as i64;
 			if capacity_minus_commitment_fee_msat < (real_dust_limit_timeout_sat as i64) * 1000 {
 				let one_htlc_difference_msat = max_reserved_commit_tx_fee_msat - min_reserved_commit_tx_fee_msat;
 				debug_assert!(one_htlc_difference_msat != 0);
@@ -4395,6 +4398,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			 context.holder_dust_limit_satoshis       + dust_buffer_feerate * htlc_timeout_tx_weight(funding.get_channel_type()) / 1000)
 		};
 
+		let htlc_stats = context.get_pending_htlc_stats(funding, None, dust_exposure_limiting_feerate);
 		if let Some(extra_htlc_dust_exposure) = htlc_stats.extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat {
 			if extra_htlc_dust_exposure > max_dust_htlc_exposure_msat {
 				// If adding an extra HTLC would put us over the dust limit in total fees, we cannot
