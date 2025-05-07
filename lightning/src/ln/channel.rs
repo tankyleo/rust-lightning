@@ -926,7 +926,6 @@ enum HTLCInitiator {
 
 /// Current counts of various HTLCs, useful for calculating current balances available exactly.
 struct HTLCStats {
-	pending_inbound_htlcs: usize,
 	pending_outbound_htlcs: usize,
 	pending_inbound_htlcs_value_msat: u64,
 	pending_outbound_htlcs_value_msat: u64,
@@ -4181,7 +4180,6 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		});
 
 		HTLCStats {
-			pending_inbound_htlcs: self.pending_inbound_htlcs.len(),
 			pending_outbound_htlcs,
 			pending_inbound_htlcs_value_msat,
 			pending_outbound_htlcs_value_msat,
@@ -5716,12 +5714,10 @@ impl<SP: Deref> FundedChannel<SP> where
 			return Err(ChannelError::close(format!("Remote side tried to send less than our minimum HTLC value. Lower limit: ({}). Actual: ({})", self.context.holder_htlc_minimum_msat, msg.amount_msat)));
 		}
 
-		let dust_exposure_limiting_feerate = self.context.get_dust_exposure_limiting_feerate(&fee_estimator);
-		let htlc_stats = self.context.get_pending_htlc_stats(&self.funding, None, dust_exposure_limiting_feerate);
-		if htlc_stats.pending_inbound_htlcs + 1 > self.context.holder_max_accepted_htlcs as usize {
+		if self.context.pending_inbound_htlcs.len() + 1 > self.context.holder_max_accepted_htlcs as usize {
 			return Err(ChannelError::close(format!("Remote tried to push more than our max accepted HTLCs ({})", self.context.holder_max_accepted_htlcs)));
 		}
-		if htlc_stats.pending_inbound_htlcs_value_msat + msg.amount_msat > self.context.holder_max_htlc_value_in_flight_msat {
+		if self.context.pending_inbound_htlcs.iter().map(|htlc| htlc.amount_msat).sum::<u64>() + msg.amount_msat > self.context.holder_max_htlc_value_in_flight_msat {
 			return Err(ChannelError::close(format!("Remote HTLC add would put them over our max HTLC value ({})", self.context.holder_max_htlc_value_in_flight_msat)));
 		}
 
@@ -5737,20 +5733,10 @@ impl<SP: Deref> FundedChannel<SP> where
 		// violate the reserve value if we do not do this (as we forget inbound HTLCs from the
 		// Channel state once they will not be present in the next received commitment
 		// transaction).
-		let mut removed_outbound_total_msat = 0;
-		for ref htlc in self.context.pending_outbound_htlcs.iter() {
-			if let OutboundHTLCState::AwaitingRemoteRevokeToRemove(OutboundHTLCOutcome::Success(_)) = htlc.state {
-				removed_outbound_total_msat += htlc.amount_msat;
-			} else if let OutboundHTLCState::AwaitingRemovedRemoteRevoke(OutboundHTLCOutcome::Success(_)) = htlc.state {
-				removed_outbound_total_msat += htlc.amount_msat;
-			}
-		}
+		let dust_exposure_limiting_feerate = self.context.get_dust_exposure_limiting_feerate(&fee_estimator);
+		let stats = self.context.build_commitment_stats(&self.funding, false, false, Some(dust_exposure_limiting_feerate), 0);
 
-		let pending_value_to_self_msat =
-			self.funding.value_to_self_msat + htlc_stats.pending_inbound_htlcs_value_msat - removed_outbound_total_msat;
-		let pending_remote_value_msat =
-			self.funding.get_value_satoshis() * 1000 - pending_value_to_self_msat;
-		if pending_remote_value_msat < msg.amount_msat {
+		if stats.remote_balance_before_fee_msat < msg.amount_msat {
 			return Err(ChannelError::close("Remote HTLC add would overdraw remaining funds".to_owned()));
 		}
 
@@ -5761,29 +5747,20 @@ impl<SP: Deref> FundedChannel<SP> where
 				let htlc_candidate = HTLCCandidate::new(msg.amount_msat, HTLCInitiator::RemoteOffered);
 				self.context.next_remote_commit_tx_fee_msat(&self.funding, Some(htlc_candidate), None) // Don't include the extra fee spike buffer HTLC in calculations
 			};
-			let anchor_outputs_value_msat = if !self.funding.is_outbound() && self.funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
-				ANCHOR_OUTPUT_VALUE_SATOSHI * 2 * 1000
-			} else {
-				0
-			};
-			if pending_remote_value_msat.saturating_sub(msg.amount_msat).saturating_sub(anchor_outputs_value_msat) < remote_commit_tx_fee_msat {
+
+			if stats.remote_balance_before_fee_msat.saturating_sub(msg.amount_msat) < remote_commit_tx_fee_msat {
 				return Err(ChannelError::close("Remote HTLC add would not leave enough to pay for fees".to_owned()));
 			};
-			if pending_remote_value_msat.saturating_sub(msg.amount_msat).saturating_sub(remote_commit_tx_fee_msat).saturating_sub(anchor_outputs_value_msat) < self.funding.holder_selected_channel_reserve_satoshis * 1000 {
+			if stats.remote_balance_before_fee_msat.saturating_sub(msg.amount_msat).saturating_sub(remote_commit_tx_fee_msat) < self.funding.holder_selected_channel_reserve_satoshis * 1000 {
 				return Err(ChannelError::close("Remote HTLC add would put them under remote reserve value".to_owned()));
 			}
 		}
 
-		let anchor_outputs_value_msat = if self.funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
-			ANCHOR_OUTPUT_VALUE_SATOSHI * 2 * 1000
-		} else {
-			0
-		};
 		if self.funding.is_outbound() {
 			// Check that they won't violate our local required channel reserve by adding this HTLC.
 			let htlc_candidate = HTLCCandidate::new(msg.amount_msat, HTLCInitiator::RemoteOffered);
 			let local_commit_tx_fee_msat = self.context.next_local_commit_tx_fee_msat(&self.funding, htlc_candidate, None);
-			if self.funding.value_to_self_msat < self.funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 + local_commit_tx_fee_msat + anchor_outputs_value_msat {
+			if stats.local_balance_before_fee_msat < self.funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 + local_commit_tx_fee_msat {
 				return Err(ChannelError::close("Cannot accept HTLC that would put our balance under counterparty-announced channel reserve value".to_owned()));
 			}
 		}
