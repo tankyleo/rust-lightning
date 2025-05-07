@@ -3916,22 +3916,22 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			buffer_nondust_htlcs,
 		);
 
-/*
 		#[cfg(debug_assertions)]
 		{
-			// Make sure that the to_self/to_remote is always either past the appropriate
-			// channel_reserve *or* it is making progress towards it.
-			let mut broadcaster_max_commitment_tx_output = if generated_by_local {
-				funding.holder_max_commitment_tx_output.lock().unwrap()
-			} else {
-				funding.counterparty_max_commitment_tx_output.lock().unwrap()
-			};
-			debug_assert!(broadcaster_max_commitment_tx_output.0 <= stats.local_balance_before_fee_msat || stats.local_balance_before_fee_msat / 1000 >= funding.counterparty_selected_channel_reserve_satoshis.unwrap());
-			broadcaster_max_commitment_tx_output.0 = cmp::max(broadcaster_max_commitment_tx_output.0, stats.local_balance_before_fee_msat);
-			debug_assert!(broadcaster_max_commitment_tx_output.1 <= stats.remote_balance_before_fee_msat || stats.remote_balance_before_fee_msat / 1000 >= funding.holder_selected_channel_reserve_satoshis);
-			broadcaster_max_commitment_tx_output.1 = cmp::max(broadcaster_max_commitment_tx_output.1, stats.remote_balance_before_fee_msat);
+			if !include_all {
+				// Make sure that the to_self/to_remote is always either past the appropriate
+				// channel_reserve *or* it is making progress towards it.
+				let mut broadcaster_max_commitment_tx_output = if generated_by_local {
+					funding.holder_max_commitment_tx_output.lock().unwrap()
+				} else {
+					funding.counterparty_max_commitment_tx_output.lock().unwrap()
+				};
+				debug_assert!(broadcaster_max_commitment_tx_output.0 <= stats.local_balance_before_fee_msat || stats.local_balance_before_fee_msat / 1000 >= funding.counterparty_selected_channel_reserve_satoshis.unwrap());
+				broadcaster_max_commitment_tx_output.0 = cmp::max(broadcaster_max_commitment_tx_output.0, stats.local_balance_before_fee_msat);
+				debug_assert!(broadcaster_max_commitment_tx_output.1 <= stats.remote_balance_before_fee_msat || stats.remote_balance_before_fee_msat / 1000 >= funding.holder_selected_channel_reserve_satoshis);
+				broadcaster_max_commitment_tx_output.1 = cmp::max(broadcaster_max_commitment_tx_output.1, stats.remote_balance_before_fee_msat);
+			}
 		}
-*/
 
 		stats
 	}
@@ -4314,7 +4314,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		// here.
 
 		let dust_exposure_limiting_feerate = self.get_dust_exposure_limiting_feerate(&fee_estimator);
-		let stats = self.build_commitment_stats(funding, false, true, true, Some(dust_exposure_limiting_feerate), 0);
+		let stats = self.build_commitment_stats(funding, true, true, true, Some(dust_exposure_limiting_feerate), 0);
 
 		let outbound_capacity_msat = stats.local_balance_before_fee_msat
 				.saturating_sub(funding.counterparty_selected_channel_reserve_satoshis.unwrap_or(0) * 1000);
