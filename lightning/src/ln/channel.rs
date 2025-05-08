@@ -927,7 +927,6 @@ enum HTLCInitiator {
 /// Current counts of various HTLCs, useful for calculating current balances available exactly.
 struct HTLCStats {
 	pending_outbound_htlcs: usize,
-	pending_outbound_htlcs_value_msat: u64,
 	on_counterparty_tx_dust_exposure_msat: u64,
 	// If the counterparty sets a feerate on the channel in excess of our dust_exposure_limiting_feerate,
 	// this will be set to the dust exposure that would result from us adding an additional nondust outbound
@@ -4143,7 +4142,6 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			}
 		}
 
-		let mut pending_outbound_htlcs_value_msat = 0;
 		let mut outbound_holding_cell_msat = 0;
 		let mut on_holder_tx_outbound_holding_cell_htlcs_count = 0;
 		let mut pending_outbound_htlcs = self.pending_outbound_htlcs.len();
@@ -4151,7 +4149,6 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			let counterparty_dust_limit_success_sat = htlc_success_dust_limit + context.counterparty_dust_limit_satoshis;
 			let holder_dust_limit_timeout_sat = htlc_timeout_dust_limit + context.holder_dust_limit_satoshis;
 			for ref htlc in context.pending_outbound_htlcs.iter() {
-				pending_outbound_htlcs_value_msat += htlc.amount_msat;
 				if htlc.amount_msat / 1000 < counterparty_dust_limit_success_sat {
 					on_counterparty_tx_dust_exposure_msat += htlc.amount_msat;
 				} else {
@@ -4165,7 +4162,6 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			for update in context.holding_cell_htlc_updates.iter() {
 				if let &HTLCUpdateAwaitingACK::AddHTLC { ref amount_msat, .. } = update {
 					pending_outbound_htlcs += 1;
-					pending_outbound_htlcs_value_msat += amount_msat;
 					outbound_holding_cell_msat += amount_msat;
 					if *amount_msat / 1000 < counterparty_dust_limit_success_sat {
 						on_counterparty_tx_dust_exposure_msat += amount_msat;
@@ -4196,7 +4192,6 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 		HTLCStats {
 			pending_outbound_htlcs,
-			pending_outbound_htlcs_value_msat,
 			on_counterparty_tx_dust_exposure_msat,
 			extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat,
 			on_holder_tx_dust_exposure_msat,
@@ -4426,8 +4421,16 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			}
 		}
 
+		let pending_outbound_htlcs_value_msat = context.pending_outbound_htlcs.iter().map(|htlc| htlc.amount_msat).chain(context.holding_cell_htlc_updates.iter().filter_map(|update| {
+			if let &HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = update {
+				Some(amount_msat)
+			} else {
+				None
+			}
+		})).sum::<u64>();
+
 		available_capacity_msat = cmp::min(available_capacity_msat,
-			context.counterparty_max_htlc_value_in_flight_msat - htlc_stats.pending_outbound_htlcs_value_msat);
+			context.counterparty_max_htlc_value_in_flight_msat - pending_outbound_htlcs_value_msat);
 
 		if htlc_stats.pending_outbound_htlcs + 1 > context.counterparty_max_accepted_htlcs as usize {
 			available_capacity_msat = 0;
