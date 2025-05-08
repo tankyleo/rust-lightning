@@ -4365,9 +4365,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 			let htlc_above_dust = HTLCCandidate::new(real_dust_limit_success_sat * 1000, HTLCInitiator::LocalOffered);
 			if available_capacity_msat >= real_dust_limit_success_sat * 1000 {
-				let stats = self.build_commitment_stats(funding, false, false, true, Some(dust_exposure_limiting_feerate), 0);
 				let max_reserved_commit_tx_fee_msat = context.next_remote_commit_tx_fee_msat(&funding, Some(htlc_above_dust), None);
-
 				let holder_selected_chan_reserve_msat = funding.holder_selected_channel_reserve_satoshis * 1000;
 
 				if stats.remote_balance_before_fee_msat < max_reserved_commit_tx_fee_msat + holder_selected_chan_reserve_msat {
