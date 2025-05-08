@@ -927,7 +927,6 @@ enum HTLCInitiator {
 /// Current counts of various HTLCs, useful for calculating current balances available exactly.
 struct HTLCStats {
 	pending_outbound_htlcs: usize,
-	pending_inbound_htlcs_value_msat: u64,
 	pending_outbound_htlcs_value_msat: u64,
 	on_counterparty_tx_dust_exposure_msat: u64,
 	// If the counterparty sets a feerate on the channel in excess of our dust_exposure_limiting_feerate,
@@ -4129,13 +4128,10 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		let mut on_counterparty_tx_offered_nondust_htlcs = 0;
 		let mut on_counterparty_tx_accepted_nondust_htlcs = 0;
 
-		let mut pending_inbound_htlcs_value_msat = 0;
-
 		{
 			let counterparty_dust_limit_timeout_sat = htlc_timeout_dust_limit + context.counterparty_dust_limit_satoshis;
 			let holder_dust_limit_success_sat = htlc_success_dust_limit + context.holder_dust_limit_satoshis;
 			for ref htlc in context.pending_inbound_htlcs.iter() {
-				pending_inbound_htlcs_value_msat += htlc.amount_msat;
 				if htlc.amount_msat / 1000 < counterparty_dust_limit_timeout_sat {
 					on_counterparty_tx_dust_exposure_msat += htlc.amount_msat;
 				} else {
@@ -4200,7 +4196,6 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 		HTLCStats {
 			pending_outbound_htlcs,
-			pending_inbound_htlcs_value_msat,
 			pending_outbound_htlcs_value_msat,
 			on_counterparty_tx_dust_exposure_msat,
 			extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat,
@@ -4321,6 +4316,9 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 		let mut available_capacity_msat = outbound_capacity_msat;
 
+		let inbound_capacity_msat = stats.remote_balance_before_fee_msat
+				.saturating_sub(funding.holder_selected_channel_reserve_satoshis * 1000);
+
 		if funding.is_outbound() {
 			// We should mind channel commit tx fee when computing how much of the available capacity
 			// can be used in the next htlc. Mirrors the logic in send_htlc.
@@ -4439,11 +4437,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 		#[allow(deprecated)] // TODO: Remove once balance_msat is removed.
 		AvailableBalances {
-			inbound_capacity_msat: cmp::max(funding.get_value_satoshis() as i64 * 1000
-					- funding.value_to_self_msat as i64
-					- htlc_stats.pending_inbound_htlcs_value_msat as i64
-					- funding.holder_selected_channel_reserve_satoshis as i64 * 1000,
-				0) as u64,
+			inbound_capacity_msat,
 			outbound_capacity_msat,
 			next_outbound_htlc_limit_msat: available_capacity_msat,
 			next_outbound_htlc_minimum_msat,
