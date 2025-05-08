@@ -926,14 +926,12 @@ enum HTLCInitiator {
 
 /// Current counts of various HTLCs, useful for calculating current balances available exactly.
 struct HTLCStats {
-	pending_outbound_htlcs: usize,
 	on_counterparty_tx_dust_exposure_msat: u64,
 	// If the counterparty sets a feerate on the channel in excess of our dust_exposure_limiting_feerate,
 	// this will be set to the dust exposure that would result from us adding an additional nondust outbound
 	// htlc on the counterparty's commitment transaction.
 	extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat: Option<u64>,
 	on_holder_tx_dust_exposure_msat: u64,
-	outbound_holding_cell_msat: u64,
 	on_holder_tx_outbound_holding_cell_htlcs_count: u32, // dust HTLCs *non*-included
 }
 
@@ -4142,9 +4140,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			}
 		}
 
-		let mut outbound_holding_cell_msat = 0;
 		let mut on_holder_tx_outbound_holding_cell_htlcs_count = 0;
-		let mut pending_outbound_htlcs = self.pending_outbound_htlcs.len();
 		{
 			let counterparty_dust_limit_success_sat = htlc_success_dust_limit + context.counterparty_dust_limit_satoshis;
 			let holder_dust_limit_timeout_sat = htlc_timeout_dust_limit + context.holder_dust_limit_satoshis;
@@ -4161,8 +4157,6 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 			for update in context.holding_cell_htlc_updates.iter() {
 				if let &HTLCUpdateAwaitingACK::AddHTLC { ref amount_msat, .. } = update {
-					pending_outbound_htlcs += 1;
-					outbound_holding_cell_msat += amount_msat;
 					if *amount_msat / 1000 < counterparty_dust_limit_success_sat {
 						on_counterparty_tx_dust_exposure_msat += amount_msat;
 					} else {
@@ -4191,11 +4185,9 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		});
 
 		HTLCStats {
-			pending_outbound_htlcs,
 			on_counterparty_tx_dust_exposure_msat,
 			extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat,
 			on_holder_tx_dust_exposure_msat,
-			outbound_holding_cell_msat,
 			on_holder_tx_outbound_holding_cell_htlcs_count,
 		}
 	}
@@ -4421,18 +4413,20 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			}
 		}
 
-		let pending_outbound_htlcs_value_msat = context.pending_outbound_htlcs.iter().map(|htlc| htlc.amount_msat).chain(context.holding_cell_htlc_updates.iter().filter_map(|update| {
+		let (pending_outbound_htlcs_value_msat, pending_outbound_htlcs) = context.pending_outbound_htlcs.iter().map(|htlc| htlc.amount_msat).chain(context.holding_cell_htlc_updates.iter().filter_map(|update| {
 			if let &HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = update {
 				Some(amount_msat)
 			} else {
 				None
 			}
-		})).sum::<u64>();
+		})).fold((0, 0), |(sum, count), amount_msat| {
+			(sum + amount_msat, count + 1)
+		});
 
 		available_capacity_msat = cmp::min(available_capacity_msat,
 			context.counterparty_max_htlc_value_in_flight_msat - pending_outbound_htlcs_value_msat);
 
-		if htlc_stats.pending_outbound_htlcs + 1 > context.counterparty_max_accepted_htlcs as usize {
+		if pending_outbound_htlcs + 1 > context.counterparty_max_accepted_htlcs as usize {
 			available_capacity_msat = 0;
 		}
 
@@ -6626,7 +6620,7 @@ impl<SP: Deref> FundedChannel<SP> where
 		let dust_exposure_limiting_feerate = self.context.get_dust_exposure_limiting_feerate(&fee_estimator);
 		let htlc_stats = self.context.get_pending_htlc_stats(&self.funding, Some(feerate_per_kw), dust_exposure_limiting_feerate);
 		let stats = self.context.build_commitment_stats(&self.funding, true, true, false, Some(feerate_per_kw), htlc_stats.on_holder_tx_outbound_holding_cell_htlcs_count as usize + CONCURRENT_INBOUND_HTLC_FEE_BUFFER as usize);
-		let holder_balance_msat = stats.local_balance_before_fee_msat - htlc_stats.outbound_holding_cell_msat;
+		let holder_balance_msat = stats.local_balance_before_fee_msat - self.context.holding_cell_htlc_updates.iter().filter_map(|update| if let &HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = update { Some(amount_msat) } else { None }).sum::<u64>();
 		if holder_balance_msat < stats.total_fee_sat * 1000 + self.funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 {
 			//TODO: auto-close after a number of failures?
 			log_debug!(logger, "Cannot afford to send new feerate at {}", feerate_per_kw);
