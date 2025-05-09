@@ -989,7 +989,6 @@ struct CommitmentStats {
 	feerate_per_kw: u32, // the feerate of the commitment transaction
 	total_fee_sat: u64, // the total fee included in the transaction
 	total_anchors_sat: u64, // the sum of the anchors' amounts
-	broadcaster_dust_limit_sat: u64, // the broadcaster's dust limit
 	local_balance_before_fee_anchors_msat: u64, // local balance before fees and anchors *not* considering dust limits
 	remote_balance_before_fee_anchors_msat: u64, // remote balance before fees and anchors *not* considering dust limits
 }
@@ -3933,7 +3932,6 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			feerate_per_kw,
 			total_fee_sat,
 			total_anchors_sat,
-			broadcaster_dust_limit_sat,
 			local_balance_before_fee_anchors_msat: value_to_self_msat,
 			remote_balance_before_fee_anchors_msat: value_to_remote_msat,
 		}
@@ -3956,12 +3954,13 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 	fn build_commitment_transaction<L: Deref>(&self, funding: &FundingScope, commitment_number: u64, per_commitment_point: &PublicKey, local: bool, generated_by_local: bool, logger: &L) -> CommitmentData
 		where L::Target: Logger
 	{
+		let broadcaster_dust_limit_sat = if local { self.holder_dust_limit_satoshis } else { self.counterparty_dust_limit_satoshis };
+
 		let stats = self.build_commitment_stats(funding, local, generated_by_local);
 		let CommitmentStats {
 			feerate_per_kw,
 			total_fee_sat,
 			total_anchors_sat,
-			broadcaster_dust_limit_sat,
 			local_balance_before_fee_anchors_msat,
 			remote_balance_before_fee_anchors_msat
 		} = stats;
