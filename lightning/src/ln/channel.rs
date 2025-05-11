@@ -4355,18 +4355,30 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		let dust_exposure_limiting_feerate = self.get_dust_exposure_limiting_feerate(&fee_estimator);
 		let htlc_stats = context.get_pending_htlc_stats(funding, None, dust_exposure_limiting_feerate);
 
-		let outbound_capacity_msat = funding.value_to_self_msat
-				.saturating_sub(htlc_stats.pending_outbound_htlcs_value_msat)
+		// This call could be simplified because we really are only interested in the local and remote
+		// balances, which are the same for both local and remote commitments. But this would require a
+		// new method on `TxBuilder`, and we prefer to keep the number of methods on the trait to a minimum.
+		let pending_htlcs: Vec<_> = self.get_pending_outbound_htlc_details(funding).into_iter().map(|htlc| HTLCDirectionAmount(true, htlc.amount_msat)).chain(
+			self.get_pending_inbound_htlc_details(funding).into_iter().map(|htlc| HTLCDirectionAmount(false, htlc.amount_msat))
+		).collect();
+		let stats = SpecTxBuilder{}.build_commitment_stats(
+			true,
+			funding.is_outbound(),
+			funding.get_channel_type(),
+			funding.get_value_satoshis() * 1000,
+			funding.value_to_self_msat,
+			pending_htlcs,
+			dust_exposure_limiting_feerate,
+			context.holder_dust_limit_satoshis,
+			0,
+		);
+
+		let outbound_capacity_msat = stats.local_balance_before_fee_msat
 				.saturating_sub(
 					funding.counterparty_selected_channel_reserve_satoshis.unwrap_or(0) * 1000);
 
 		let mut available_capacity_msat = outbound_capacity_msat;
 
-		let anchor_outputs_value_msat = if funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
-			ANCHOR_OUTPUT_VALUE_SATOSHI * 2 * 1000
-		} else {
-			0
-		};
 		if funding.is_outbound() {
 			// We should mind channel commit tx fee when computing how much of the available capacity
 			// can be used in the next htlc. Mirrors the logic in send_htlc.
@@ -4393,7 +4405,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			// value ends up being below dust, we have this fee available again. In that case,
 			// match the value to right-below-dust.
 			let mut capacity_minus_commitment_fee_msat: i64 = available_capacity_msat as i64 -
-				max_reserved_commit_tx_fee_msat as i64 - anchor_outputs_value_msat as i64;
+				max_reserved_commit_tx_fee_msat as i64;
 			if capacity_minus_commitment_fee_msat < (real_dust_limit_timeout_sat as i64) * 1000 {
 				let one_htlc_difference_msat = max_reserved_commit_tx_fee_msat - min_reserved_commit_tx_fee_msat;
 				debug_assert!(one_htlc_difference_msat != 0);
@@ -4415,10 +4427,8 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			let max_reserved_commit_tx_fee_msat = context.next_remote_commit_tx_fee_msat(&funding, Some(htlc_above_dust), None);
 
 			let holder_selected_chan_reserve_msat = funding.holder_selected_channel_reserve_satoshis * 1000;
-			let remote_balance_msat = (funding.get_value_satoshis() * 1000 - funding.value_to_self_msat)
-				.saturating_sub(htlc_stats.pending_inbound_htlcs_value_msat);
 
-			if remote_balance_msat < max_reserved_commit_tx_fee_msat + holder_selected_chan_reserve_msat + anchor_outputs_value_msat {
+			if stats.remote_balance_before_fee_msat < max_reserved_commit_tx_fee_msat + holder_selected_chan_reserve_msat {
 				// If another HTLC's fee would reduce the remote's balance below the reserve limit
 				// we've selected for them, we can only send dust HTLCs.
 				available_capacity_msat = cmp::min(available_capacity_msat, real_dust_limit_success_sat * 1000 - 1);
@@ -4483,11 +4493,8 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 		#[allow(deprecated)] // TODO: Remove once balance_msat is removed.
 		AvailableBalances {
-			inbound_capacity_msat: cmp::max(funding.get_value_satoshis() as i64 * 1000
-					- funding.value_to_self_msat as i64
-					- htlc_stats.pending_inbound_htlcs_value_msat as i64
-					- funding.holder_selected_channel_reserve_satoshis as i64 * 1000,
-				0) as u64,
+			inbound_capacity_msat: stats.remote_balance_before_fee_msat
+				.saturating_sub(funding.holder_selected_channel_reserve_satoshis * 1000),
 			outbound_capacity_msat,
 			next_outbound_htlc_limit_msat: available_capacity_msat,
 			next_outbound_htlc_minimum_msat,
