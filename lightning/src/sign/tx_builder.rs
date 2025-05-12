@@ -28,6 +28,7 @@ impl HTLCDirectionAmount {
 }
 
 pub(crate) trait TxBuilder {
+	fn commit_tx_fee_sat(&self, feerate_per_kw: u32, num_nondust_htlcs: usize, channel_type_features: &ChannelTypeFeatures) -> u64;
 	fn build_commitment_stats(
 		&self, local: bool, is_outbound_from_holder: bool, channel_features: &ChannelTypeFeatures,
 		channel_value_msat: u64, value_to_self_msat: u64, htlcs_in_tx: Vec<HTLCDirectionAmount>,
@@ -39,6 +40,9 @@ pub(crate) trait TxBuilder {
 pub(crate) struct SpecTxBuilder {}
 
 impl TxBuilder for SpecTxBuilder {
+	fn commit_tx_fee_sat(&self, feerate_per_kw: u32, num_nondust_htlcs: usize, channel_type_features: &ChannelTypeFeatures) -> u64 {
+		chan_utils::commit_tx_fee_sat(feerate_per_kw, num_nondust_htlcs, channel_type_features)
+	}
 	fn build_commitment_stats(
 		&self, local: bool, is_outbound_from_holder: bool, channel_type: &ChannelTypeFeatures,
 		channel_value_msat: u64, value_to_self_msat: u64, htlcs_in_tx: Vec<HTLCDirectionAmount>,
