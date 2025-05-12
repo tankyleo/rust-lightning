@@ -3882,11 +3882,11 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 	/// Builds stats on a potential commitment transaction build, without actually building the
 	/// commitment transaction. See `build_commitment_transaction` for further docs.
 	#[inline]
-	fn build_commitment_stats(&self, funding: &FundingScope, local: bool, generated_by_local: bool) -> CommitmentStats {
+	fn build_commitment_stats(&self, funding: &FundingScope, local: bool, generated_by_local: bool, feerate_per_kw: Option<u32>, fee_buffer_nondust_htlcs: Option<usize>) -> CommitmentStats {
 		let broadcaster_dust_limit_sat = if local { self.holder_dust_limit_satoshis } else { self.counterparty_dust_limit_satoshis };
 		let mut value_to_self_msat_offset = 0;
 
-		let feerate_per_kw = self.get_commitment_feerate(funding, generated_by_local);
+		let feerate_per_kw = feerate_per_kw.unwrap_or_else(|| self.get_commitment_feerate(funding, generated_by_local));
 
 		let mut htlcs_included: Vec<HTLCDirectionAmount> = Vec::with_capacity(self.pending_inbound_htlcs.len() + self.pending_outbound_htlcs.len());
 
@@ -3927,7 +3927,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 			htlcs_included,
 			feerate_per_kw,
 			broadcaster_dust_limit_sat,
-			0,
+			fee_buffer_nondust_htlcs.unwrap_or(0),
 		);
 
 		#[cfg(debug_assertions)]
@@ -3968,7 +3968,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 		let broadcaster_dust_limit_sat = if local { self.holder_dust_limit_satoshis } else { self.counterparty_dust_limit_satoshis };
 		let feerate_per_kw = self.get_commitment_feerate(funding, generated_by_local);
 
-		let stats = self.build_commitment_stats(funding, local, generated_by_local);
+		let stats = self.build_commitment_stats(funding, local, generated_by_local, None, None);
 		let CommitmentStats {
 			total_fee_sat,
 			local_balance_before_fee_msat,
@@ -5771,7 +5771,7 @@ impl<SP: Deref> FundedChannel<SP> where
 		// violate the reserve value if we do not do this (as we forget inbound HTLCs from the
 		// Channel state once they will not be present in the next received commitment
 		// transaction).
-		let stats = self.context.build_commitment_stats(&self.funding, false, false);
+		let stats = self.context.build_commitment_stats(&self.funding, false, false, None, None);
 
 		if stats.remote_balance_before_fee_msat < msg.amount_msat {
 			return Err(ChannelError::close("Remote HTLC add would overdraw remaining funds".to_owned()));
@@ -6654,13 +6654,9 @@ impl<SP: Deref> FundedChannel<SP> where
 		// Before proposing a feerate update, check that we can actually afford the new fee.
 		let dust_exposure_limiting_feerate = self.context.get_dust_exposure_limiting_feerate(&fee_estimator);
 		let htlc_stats = self.context.get_pending_htlc_stats(&self.funding, Some(feerate_per_kw), dust_exposure_limiting_feerate);
-		let commitment_data = self.context.build_commitment_transaction(
-			&self.funding, self.holder_commitment_point.transaction_number(),
-			&self.holder_commitment_point.current_point(), true, true, logger,
-		);
-		let buffer_fee_msat = commit_tx_fee_sat(feerate_per_kw, commitment_data.tx.nondust_htlcs().len() + htlc_stats.on_holder_tx_outbound_holding_cell_htlcs_count as usize + CONCURRENT_INBOUND_HTLC_FEE_BUFFER as usize, self.funding.get_channel_type()) * 1000;
-		let holder_balance_msat = commitment_data.stats.local_balance_before_fee_msat - htlc_stats.outbound_holding_cell_msat;
-		if holder_balance_msat < buffer_fee_msat  + self.funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 {
+		let stats = self.context.build_commitment_stats(&self.funding, true, true, Some(feerate_per_kw), Some(htlc_stats.on_holder_tx_outbound_holding_cell_htlcs_count as usize + CONCURRENT_INBOUND_HTLC_FEE_BUFFER as usize));
+		let holder_balance_msat = stats.local_balance_before_fee_msat - htlc_stats.outbound_holding_cell_msat;
+		if holder_balance_msat < stats.total_fee_sat * 1000  + self.funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 {
 			//TODO: auto-close after a number of failures?
 			log_debug!(logger, "Cannot afford to send new feerate at {}", feerate_per_kw);
 			return None;
@@ -7954,7 +7950,7 @@ impl<SP: Deref> FundedChannel<SP> where
 			if !self.funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
 				remote_fee_cost_incl_stuck_buffer_msat *= FEE_SPIKE_BUFFER_FEE_INCREASE_MULTIPLE;
 			}
-			let stats = self.context.build_commitment_stats(&self.funding, false, false);
+			let stats = self.context.build_commitment_stats(&self.funding, false, false, None, None);
 			if stats.remote_balance_before_fee_msat.saturating_sub(self.funding.holder_selected_channel_reserve_satoshis * 1000) < remote_fee_cost_incl_stuck_buffer_msat {
 				log_info!(logger, "Attempting to fail HTLC due to fee spike buffer violation in channel {}. Rebalancing is required.", &self.context.channel_id());
 				return Err(LocalHTLCFailureReason::FeeSpikeBuffer);
