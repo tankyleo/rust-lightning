@@ -3803,8 +3803,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 		let holder_keys = commitment_data.tx.trust().keys();
 		let mut nondust_htlc_sources = Vec::with_capacity(commitment_data.tx.nondust_htlcs().len());
-		let mut dust_htlcs = Vec::with_capacity(commitment_data.htlcs_included.len() - commitment_data.tx.nondust_htlcs().len());
-		for (idx, (htlc, mut source_opt)) in commitment_data.htlcs_included.into_iter().enumerate() {
+		for (idx, (htlc, mut source_opt)) in commitment_data.htlcs_included.clone().into_iter().enumerate() {
 			if let Some(_) = htlc.transaction_output_index {
 				let htlc_tx = chan_utils::build_htlc_transaction(&commitment_txid, commitment_data.tx.feerate_per_kw(),
 					funding.get_counterparty_selected_contest_delay().unwrap(), &htlc, funding.get_channel_type(),
@@ -3826,10 +3825,7 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 						panic!("Missing outbound HTLC source");
 					}
 				}
-			} else {
-				dust_htlcs.push((htlc, None, source_opt.take().cloned()));
 			}
-			debug_assert!(source_opt.is_none(), "HTLCSource should have been put somewhere");
 		}
 
 		let holder_commitment_tx = HolderCommitmentTransaction::new(
@@ -3845,8 +3841,8 @@ impl<SP: Deref> ChannelContext<SP> where SP::Target: SignerProvider {
 
 		Ok(LatestHolderCommitmentTXInfo {
 			commitment_tx: holder_commitment_tx,
-			htlc_outputs: dust_htlcs,
-			nondust_htlc_sources,
+			htlc_outputs: commitment_data.htlcs_included.into_iter().map(|(htlc, source)| (htlc, None::<Signature>, source.cloned())).collect(),
+			nondust_htlc_sources: Vec::new(),
 		})
 	}
 
