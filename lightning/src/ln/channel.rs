@@ -450,6 +450,15 @@ impl OutboundHTLCOutput {
 	}
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct IncludedHTLC {
+	pub offered: bool,
+	pub amount_msat: u64,
+	pub cltv_expiry: u32,
+	pub payment_hash: PaymentHash,
+	pub is_dust: bool,
+}
+
 /// See AwaitingRemoteRevoke ChannelState for more info
 #[cfg_attr(test, derive(Clone, Debug, PartialEq))]
 enum HTLCUpdateAwaitingACK {
@@ -4566,7 +4575,8 @@ where
 		let feerate_per_kw = self.get_commitment_feerate(funding, generated_by_local);
 
 		let num_htlcs = self.pending_inbound_htlcs.len() + self.pending_outbound_htlcs.len();
-		let mut htlcs_included: Vec<(HTLCOutputInCommitment, Option<&HTLCSource>)> = Vec::with_capacity(num_htlcs);
+		let mut htlc_source_table: Vec<(HTLCOutputInCommitment, Option<&HTLCSource>)> = Vec::with_capacity(num_htlcs);
+		let mut htlcs_included: Vec<IncludedHTLC> = Vec::with_capacity(num_htlcs);
 		let mut value_to_self_claimed_msat = 0;
 		let mut value_to_remote_claimed_msat = 0;
 
@@ -4583,15 +4593,29 @@ where
 					amount_msat: $htlc.amount_msat,
 					cltv_expiry: $htlc.cltv_expiry,
 					payment_hash: $htlc.payment_hash,
-					transaction_output_index: None
+					transaction_output_index: None,
+				}
+			}
+		}
+
+		macro_rules! get_included_htlc {
+			($htlc: expr, $offered: expr, $is_dust: expr) => {
+				IncludedHTLC {
+					offered: $offered,
+					amount_msat: $htlc.amount_msat,
+					cltv_expiry: $htlc.cltv_expiry,
+					payment_hash: $htlc.payment_hash,
+					is_dust: $is_dust,
 				}
 			}
 		}
 
 		macro_rules! add_htlc_output {
-			($htlc: expr, $outbound: expr, $source: expr) => {
-				let htlc_in_tx = get_htlc_in_commitment!($htlc, $outbound == local);
-				htlcs_included.push((htlc_in_tx, $source));
+			($htlc: expr, $outbound: expr, $source: expr, $is_dust: expr) => {
+				let table_htlc = get_htlc_in_commitment!($htlc, $outbound == local);
+				let included_htlc = get_included_htlc!($htlc, $outbound == local, $is_dust);
+				htlc_source_table.push((table_htlc, $source));
+				htlcs_included.push(included_htlc);
 			}
 		}
 
@@ -4601,7 +4625,8 @@ where
 		for htlc in self.pending_inbound_htlcs.iter() {
 			if htlc.state.included_in_commitment(generated_by_local) {
 				log_trace!(logger, "   ...including inbound {} HTLC {} (hash {}) with value {}", htlc.state, htlc.htlc_id, htlc.payment_hash, htlc.amount_msat);
-				add_htlc_output!(htlc, false, None);
+				let is_dust = htlc.is_dust(local, feerate_per_kw, broadcaster_dust_limit_sat, funding.get_channel_type());
+				add_htlc_output!(htlc, false, None, is_dust);
 			} else {
 				log_trace!(logger, "   ...not including inbound HTLC {} (hash {}) with value {} due to state ({})", htlc.htlc_id, htlc.payment_hash, htlc.amount_msat, htlc.state);
 				if let Some(preimage) = htlc.state.preimage() {
@@ -4617,7 +4642,8 @@ where
 			}
 			if htlc.state.included_in_commitment(generated_by_local) {
 				log_trace!(logger, "   ...including outbound {} HTLC {} (hash {}) with value {}", htlc.state, htlc.htlc_id, htlc.payment_hash, htlc.amount_msat);
-				add_htlc_output!(htlc, true, Some(&htlc.source));
+				let is_dust = htlc.is_dust(local, feerate_per_kw, broadcaster_dust_limit_sat, funding.get_channel_type());
+				add_htlc_output!(htlc, true, Some(&htlc.source), is_dust);
 			} else {
 				log_trace!(logger, "   ...not including outbound HTLC {} (hash {}) with value {} due to state ({})", htlc.htlc_id, htlc.payment_hash, htlc.amount_msat, htlc.state);
 				if htlc.state.preimage().is_some() {
@@ -4639,7 +4665,7 @@ where
 			&funding.channel_transaction_parameters,
 			&self.secp_ctx,
 			value_to_self_msat,
-			htlcs_included.iter().map(|(htlc, _source)| htlc).cloned().collect(),
+			htlcs_included,
 			feerate_per_kw,
 			broadcaster_dust_limit_sat,
 			logger,
@@ -4652,7 +4678,7 @@ where
 		// This brute-force search is O(n^2) over ~1k HTLCs in the worst case. This case is very
 		// rare at the moment.
 		for nondust_htlc in tx.nondust_htlcs() {
-			let htlc = htlcs_included
+			let htlc = htlc_source_table
 				.iter_mut()
 				.filter(|(htlc, _source)| htlc.transaction_output_index.is_none())
 				.find_map(|(htlc, _source)| {
@@ -4668,7 +4694,7 @@ where
 
 		// This places the non-dust HTLC-source pairs first, in the order they appear in the
 		// commitment transaction, followed by the dust HTLC-source pairs.
-		htlcs_included.sort_unstable_by(|(htlc_a, _), (htlc_b, _)| {
+		htlc_source_table.sort_unstable_by(|(htlc_a, _), (htlc_b, _)| {
 			match (htlc_a.transaction_output_index, htlc_b.transaction_output_index) {
 				// `None` is smaller than `Some`, but we want `Some` ordered before `None` in the vector
 				(None, Some(_)) => cmp::Ordering::Greater,
@@ -4680,7 +4706,7 @@ where
 		CommitmentData {
 			tx,
 			stats,
-			htlcs_included,
+			htlcs_included: htlc_source_table,
 			inbound_htlc_preimages,
 			outbound_htlc_preimages,
 		}
