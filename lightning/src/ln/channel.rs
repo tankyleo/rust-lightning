@@ -1130,9 +1130,12 @@ struct CommitmentData<'a> {
 
 /// A struct gathering stats on a commitment transaction, either local or remote.
 struct CommitmentStats {
-	total_fee_sat: u64,                  // the total fee included in the transaction
-	local_balance_before_fee_msat: u64, // local balance before fees and anchors *not* considering dust limits
-	remote_balance_before_fee_msat: u64, // remote balance before fees and anchors *not* considering dust limits
+	/// The total fee included in the commitment transaction
+	total_fee_sat: u64,
+	/// The local balance before fees *not* considering dust limits
+	local_balance_before_fee_msat: u64,
+	/// The remote balance before fees *not* considering dust limits
+	remote_balance_before_fee_msat: u64,
 }
 
 /// Used when calculating whether we or the remote can afford an additional HTLC.
