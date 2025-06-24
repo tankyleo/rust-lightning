@@ -4174,7 +4174,7 @@ where
 		{
 			let remote_commit_tx_fee_msat = if funding.is_outbound() { 0 } else {
 				let htlc_candidate = HTLCCandidate::new(msg.amount_msat, HTLCInitiator::RemoteOffered);
-				self.next_remote_commit_tx_fee_msat(&funding, Some(htlc_candidate), None) // Don't include the extra fee spike buffer HTLC in calculations
+				self.next_remote_commit_tx_fee_msat(funding, Some(htlc_candidate), None) // Don't include the extra fee spike buffer HTLC in calculations
 			};
 			if remote_balance_before_fee_msat.saturating_sub(msg.amount_msat) < remote_commit_tx_fee_msat {
 				return Err(ChannelError::close("Remote HTLC add would not leave enough to pay for fees".to_owned()));
@@ -4187,7 +4187,7 @@ where
 		if funding.is_outbound() {
 			// Check that they won't violate our local required channel reserve by adding this HTLC.
 			let htlc_candidate = HTLCCandidate::new(msg.amount_msat, HTLCInitiator::RemoteOffered);
-			let local_commit_tx_fee_msat = self.next_local_commit_tx_fee_msat(&funding, htlc_candidate, None);
+			let local_commit_tx_fee_msat = self.next_local_commit_tx_fee_msat(funding, htlc_candidate, None);
 			if local_balance_before_fee_msat < funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 + local_commit_tx_fee_msat {
 				return Err(ChannelError::close("Cannot accept HTLC that would put our balance under counterparty-announced channel reserve value".to_owned()));
 			}
@@ -4435,7 +4435,7 @@ where
 			//
 			// A `None` `HTLCCandidate` is used as in this case because we're already accounting for
 			// the incoming HTLC as it has been fully committed by both sides.
-			let mut remote_fee_cost_incl_stuck_buffer_msat = self.next_remote_commit_tx_fee_msat(&funding, None, Some(()));
+			let mut remote_fee_cost_incl_stuck_buffer_msat = self.next_remote_commit_tx_fee_msat(funding, None, Some(()));
 			if !funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
 				remote_fee_cost_incl_stuck_buffer_msat *= FEE_SPIKE_BUFFER_FEE_INCREASE_MULTIPLE;
 			}
@@ -5004,9 +5004,9 @@ where
 			}
 
 			let htlc_above_dust = HTLCCandidate::new(real_dust_limit_timeout_sat * 1000, HTLCInitiator::LocalOffered);
-			let mut max_reserved_commit_tx_fee_msat = context.next_local_commit_tx_fee_msat(&funding, htlc_above_dust, Some(()));
+			let mut max_reserved_commit_tx_fee_msat = context.next_local_commit_tx_fee_msat(funding, htlc_above_dust, Some(()));
 			let htlc_dust = HTLCCandidate::new(real_dust_limit_timeout_sat * 1000 - 1, HTLCInitiator::LocalOffered);
-			let mut min_reserved_commit_tx_fee_msat = context.next_local_commit_tx_fee_msat(&funding, htlc_dust, Some(()));
+			let mut min_reserved_commit_tx_fee_msat = context.next_local_commit_tx_fee_msat(funding, htlc_dust, Some(()));
 			if !funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
 				max_reserved_commit_tx_fee_msat *= FEE_SPIKE_BUFFER_FEE_INCREASE_MULTIPLE;
 				min_reserved_commit_tx_fee_msat *= FEE_SPIKE_BUFFER_FEE_INCREASE_MULTIPLE;
@@ -5035,7 +5035,7 @@ where
 			}
 
 			let htlc_above_dust = HTLCCandidate::new(real_dust_limit_success_sat * 1000, HTLCInitiator::LocalOffered);
-			let max_reserved_commit_tx_fee_msat = context.next_remote_commit_tx_fee_msat(&funding, Some(htlc_above_dust), None);
+			let max_reserved_commit_tx_fee_msat = context.next_remote_commit_tx_fee_msat(funding, Some(htlc_above_dust), None);
 
 			let holder_selected_chan_reserve_msat = funding.holder_selected_channel_reserve_satoshis * 1000;
 			if remote_balance_before_fee_msat < max_reserved_commit_tx_fee_msat + holder_selected_chan_reserve_msat {
