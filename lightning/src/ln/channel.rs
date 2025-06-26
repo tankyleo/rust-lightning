@@ -1117,8 +1117,6 @@ enum HTLCInitiator {
 struct HTLCStats {
 	pending_inbound_htlcs: usize,
 	pending_outbound_htlcs: usize,
-	on_holder_tx_nondust_htlcs: usize,
-	on_counterparty_tx_nondust_htlcs: usize,
 	pending_inbound_htlcs_value_msat: u64,
 	pending_outbound_htlcs_value_msat: u64,
 	on_counterparty_tx_dust_exposure_msat: u64,
@@ -1144,7 +1142,7 @@ struct CommitmentData<'a> {
 #[derive(Debug, PartialEq)]
 pub(crate) struct CommitmentStats {
 	/// The total fee included in the commitment transaction
-	pub total_fee_sat: u64,
+	pub commit_tx_fee_sat: u64,
 	/// The local balance before fees *not* considering dust limits
 	pub local_balance_before_fee_msat: u64,
 	/// The remote balance before fees *not* considering dust limits
@@ -3136,17 +3134,14 @@ where
 		// check if the funder's amount for the initial commitment tx is sufficient
 		// for full fee payment plus a few HTLCs to ensure the channel will be useful.
 		let funders_amount_msat = open_channel_fields.funding_satoshis * 1000 - msg_push_msat;
-		// Subtract any non-zero-value anchors from the local and remote balances
-		let CommitmentStats {
-			total_fee_sat,
-			local_balance_before_fee_msat: _,
-			remote_balance_before_fee_msat,
-		} = SpecTxBuilder {}.build_commitment_stats(false, open_channel_fields.commitment_feerate_sat_per_1000_weight, MIN_AFFORDABLE_HTLC_COUNT, value_to_self_msat, funders_amount_msat, &channel_type);
-		if remote_balance_before_fee_msat / 1000 < total_fee_sat {
-			return Err(ChannelError::close(format!("Funding amount ({} sats) can't even pay fee for initial commitment transaction fee of {} sats.", funders_amount_msat / 1000, total_fee_sat)));
+		let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat(open_channel_fields.commitment_feerate_sat_per_1000_weight, MIN_AFFORDABLE_HTLC_COUNT, &channel_type);
+		// Subtract any non-HTLC outputs from the remote balance
+		let (_, remote_balance_before_fee_msat) = SpecTxBuilder {}.subtract_non_htlc_outputs(false, value_to_self_msat, funders_amount_msat, &channel_type);
+		if remote_balance_before_fee_msat / 1000 < commit_tx_fee_sat {
+			return Err(ChannelError::close(format!("Funding amount ({} sats) can't even pay fee for initial commitment transaction fee of {} sats.", funders_amount_msat / 1000, commit_tx_fee_sat)));
 		}
 
-		let to_remote_satoshis = remote_balance_before_fee_msat / 1000 - total_fee_sat;
+		let to_remote_satoshis = remote_balance_before_fee_msat / 1000 - commit_tx_fee_sat;
 		// While it's reasonable for us to not meet the channel reserve initially (if they don't
 		// want to push much to us), our counterparty should always have more than our reserve.
 		if to_remote_satoshis < holder_selected_channel_reserve_satoshis {
@@ -3415,14 +3410,20 @@ where
 		};
 
 		let value_to_self_msat = channel_value_satoshis * 1000 - push_msat;
-		// Subtract any non-zero-value anchors from the local and remote balances
-		let CommitmentStats {
-			total_fee_sat,
-			local_balance_before_fee_msat,
-			remote_balance_before_fee_msat: _,
-		} = SpecTxBuilder {}.build_commitment_stats(true, commitment_feerate, MIN_AFFORDABLE_HTLC_COUNT, value_to_self_msat, push_msat, &channel_type);
-		if local_balance_before_fee_msat / 1000 < total_fee_sat {
-			return Err(APIError::APIMisuseError{ err: format!("Funding amount ({}) can't even pay fee for initial commitment transaction fee of {}.", value_to_self_msat / 1000, total_fee_sat) });
+		let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat(
+			commitment_feerate,
+			MIN_AFFORDABLE_HTLC_COUNT,
+			&channel_type,
+		);
+		// Subtract any non-HTLC outputs from the local balance
+		let (local_balance_before_fee_msat, _) = SpecTxBuilder {}.subtract_non_htlc_outputs(
+			true,
+			value_to_self_msat,
+			push_msat,
+			&channel_type,
+		);
+		if local_balance_before_fee_msat / 1000 < commit_tx_fee_sat {
+			return Err(APIError::APIMisuseError{ err: format!("Funding amount ({}) can't even pay fee for initial commitment transaction fee of {}.", value_to_self_msat / 1000, commit_tx_fee_sat) });
 		}
 
 		let mut secp_ctx = Secp256k1::new();
@@ -4144,15 +4145,9 @@ where
 		// transaction).
 		let (local_balance_before_fee_msat, remote_balance_before_fee_msat) = {
 			let mut removed_outbound_total_msat = 0;
-			// We don't strictly require this information, but we can cheaply provide this to
-			// the `SpecTxBuilder::build_commitment_stats` call below.
-			let mut removed_nondust_htlc_count = 0;
 			for htlc in self.pending_outbound_htlcs.iter() {
 				if let OutboundHTLCState::AwaitingRemoteRevokeToRemove(OutboundHTLCOutcome::Success(_)) | OutboundHTLCState::AwaitingRemovedRemoteRevoke(OutboundHTLCOutcome::Success(_)) = htlc.state {
 					removed_outbound_total_msat += htlc.amount_msat;
-					if !htlc.is_dust(false, self.get_dust_buffer_feerate(None), self.counterparty_dust_limit_satoshis, funding.get_channel_type()) {
-						removed_nondust_htlc_count += 1;
-					}
 				}
 			}
 			let pending_value_to_self_msat =
@@ -4160,20 +4155,8 @@ where
 			let pending_remote_value_msat =
 				funding.get_value_satoshis() * 1000 - pending_value_to_self_msat;
 
-			// Subtract any non-zero-value anchors from the local and remote balances
-			let stats = SpecTxBuilder {}.build_commitment_stats(
-				funding.is_outbound(),
-				// We don't expect the feerate, and the total nondust htlc count
-				// to influence the local/remote balance before the tx fee,
-				// but the API requires these values to be passed in, so we do our best.
-				self.feerate_per_kw,
-				htlc_stats.on_counterparty_tx_nondust_htlcs - removed_nondust_htlc_count,
-				funding.value_to_self_msat,
-				pending_remote_value_msat,
-				funding.get_channel_type()
-			);
-
-			(stats.local_balance_before_fee_msat, stats.remote_balance_before_fee_msat)
+			// Subtract any non-HTLC outputs from the local and remote balances
+			SpecTxBuilder {}.subtract_non_htlc_outputs(funding.is_outbound(), funding.value_to_self_msat, pending_remote_value_msat, funding.get_channel_type())
 		};
 		if remote_balance_before_fee_msat < msg.amount_msat {
 			return Err(ChannelError::close("Remote HTLC add would overdraw remaining funds".to_owned()));
@@ -4265,7 +4248,7 @@ where
 		if update_fee {
 			debug_assert!(!funding.is_outbound());
 			let counterparty_reserve_we_require_msat = funding.holder_selected_channel_reserve_satoshis * 1000;
-			if commitment_data.stats.remote_balance_before_fee_msat < commitment_data.stats.total_fee_sat * 1000 + counterparty_reserve_we_require_msat {
+			if commitment_data.stats.remote_balance_before_fee_msat < commitment_data.stats.commit_tx_fee_sat * 1000 + counterparty_reserve_we_require_msat {
 				return Err(ChannelError::close("Funding remote cannot afford proposed new fee".to_owned()));
 			}
 		}
@@ -4281,7 +4264,7 @@ where
 						&& info.next_holder_htlc_id == self.next_holder_htlc_id
 						&& info.next_counterparty_htlc_id == self.next_counterparty_htlc_id
 						&& info.feerate == self.feerate_per_kw {
-							assert_eq!(commitment_data.stats.total_fee_sat, info.fee / 1000);
+							assert_eq!(commitment_data.stats.commit_tx_fee_sat, info.fee / 1000);
 						}
 				}
 			}
@@ -4353,8 +4336,8 @@ where
 		let htlc_stats = self.get_pending_htlc_stats(funding, Some(feerate_per_kw), dust_exposure_limiting_feerate);
 		let stats = self.build_commitment_stats(funding, true, true, Some(feerate_per_kw), Some(htlc_stats.on_holder_tx_outbound_holding_cell_htlcs_count as usize + CONCURRENT_INBOUND_HTLC_FEE_BUFFER as usize));
 		let holder_balance_msat = stats.local_balance_before_fee_msat - htlc_stats.outbound_holding_cell_msat;
-		// Note that `stats.total_fee_sat` now accounts for any HTLCs that transition from non-dust to dust under a higher feerate (in the case where HTLC-transactions pay endogenous fees).
-		if holder_balance_msat < stats.total_fee_sat * 1000 + funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 {
+		// Note that `stats.commit_tx_fee_sat` accounts for any HTLCs that transition from non-dust to dust under a higher feerate (in the case where HTLC-transactions pay endogenous fees).
+		if holder_balance_msat < stats.commit_tx_fee_sat * 1000 + funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 {
 			//TODO: auto-close after a number of failures?
 			log_debug!(logger, "Cannot afford to send new feerate at {}", feerate_per_kw);
 			return false;
@@ -4409,15 +4392,9 @@ where
 
 		if !funding.is_outbound() {
 			let mut removed_outbound_total_msat = 0;
-			// We don't strictly require this information, but we can cheaply provide this to
-			// the `SpecTxBuilder::build_commitment_stats` call below.
-			let mut removed_nondust_htlc_count = 0;
 			for htlc in self.pending_outbound_htlcs.iter() {
 				if let OutboundHTLCState::AwaitingRemoteRevokeToRemove(OutboundHTLCOutcome::Success(_)) | OutboundHTLCState::AwaitingRemovedRemoteRevoke(OutboundHTLCOutcome::Success(_)) = htlc.state {
 					removed_outbound_total_msat += htlc.amount_msat;
-					if !htlc.is_dust(false, self.get_dust_buffer_feerate(None), self.counterparty_dust_limit_satoshis, funding.get_channel_type()) {
-						removed_nondust_htlc_count += 1;
-					}
 				}
 			}
 
@@ -4425,18 +4402,13 @@ where
 				funding.value_to_self_msat + htlc_stats.pending_inbound_htlcs_value_msat - removed_outbound_total_msat;
 			let pending_remote_value_msat =
 				funding.get_value_satoshis() * 1000 - pending_value_to_self_msat;
-			// Subtract any non-zero-value anchors from the local and remote balances
-			let remote_balance_before_fee_msat = SpecTxBuilder {}.build_commitment_stats(
+			// Subtract any non-HTLC outputs from the local and remote balances
+			let (_, remote_balance_before_fee_msat) = SpecTxBuilder {}.subtract_non_htlc_outputs(
 				funding.is_outbound(),
-				// We don't expect the feerate, and the total nondust htlc count
-				// to influence the local/remote balance before the tx fee,
-				// but the API requires these values to be passed in, so we do our best.
-				self.feerate_per_kw,
-				htlc_stats.on_counterparty_tx_nondust_htlcs - removed_nondust_htlc_count,
 				pending_value_to_self_msat,
 				pending_remote_value_msat,
 				funding.get_channel_type()
-			).remote_balance_before_fee_msat;
+			);
 
 			// `Some(())` is for the fee spike buffer we keep for the remote. This deviates from
 			// the spec because the fee spike buffer requirement doesn't exist on the receiver's
@@ -4543,14 +4515,16 @@ where
 			broadcaster_max_commitment_tx_output.1 = cmp::max(broadcaster_max_commitment_tx_output.1, value_to_remote_msat);
 		}
 
-		SpecTxBuilder {}.build_commitment_stats(
+		let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat(feerate_per_kw, nondust_htlc_count + fee_buffer_nondust_htlcs.unwrap_or(0), funding.get_channel_type());
+		// Subtract any non-HTLC outputs from the local and remote balances
+		let (local_balance_before_fee_msat, remote_balance_before_fee_msat) = SpecTxBuilder {}.subtract_non_htlc_outputs(
 			funding.is_outbound(),
-			feerate_per_kw,
-			nondust_htlc_count + fee_buffer_nondust_htlcs.unwrap_or(0),
 			value_to_self_msat,
 			value_to_remote_msat,
-			&funding.channel_transaction_parameters.channel_type_features,
-		)
+			funding.get_channel_type(),
+		);
+
+		CommitmentStats { commit_tx_fee_sat, local_balance_before_fee_msat, remote_balance_before_fee_msat }
 	}
 
 	/// Transaction nomenclature is somewhat confusing here as there are many different cases - a
@@ -4762,7 +4736,6 @@ where
 
 		let mut on_counterparty_tx_offered_nondust_htlcs = 0;
 		let mut on_counterparty_tx_accepted_nondust_htlcs = 0;
-		let mut on_holder_tx_nondust_htlcs = 0;
 
 		let mut pending_inbound_htlcs_value_msat = 0;
 
@@ -4778,8 +4751,6 @@ where
 				}
 				if htlc.amount_msat / 1000 < holder_dust_limit_success_sat {
 					on_holder_tx_dust_exposure_msat += htlc.amount_msat;
-				} else {
-					on_holder_tx_nondust_htlcs += 1;
 				}
 			}
 		}
@@ -4800,8 +4771,6 @@ where
 				}
 				if htlc.amount_msat / 1000 < holder_dust_limit_timeout_sat {
 					on_holder_tx_dust_exposure_msat += htlc.amount_msat;
-				} else {
-					on_holder_tx_nondust_htlcs += 1;
 				}
 			}
 
@@ -4819,7 +4788,6 @@ where
 						on_holder_tx_dust_exposure_msat += amount_msat;
 					} else {
 						on_holder_tx_outbound_holding_cell_htlcs_count += 1;
-						on_holder_tx_nondust_htlcs += 1;
 					}
 				}
 			}
@@ -4831,11 +4799,11 @@ where
 			.unwrap_or(self.feerate_per_kw)
 			.checked_sub(dust_exposure_limiting_feerate);
 		let extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat = excess_feerate_opt.map(|excess_feerate| {
+			let extra_htlc_commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat(excess_feerate, on_counterparty_tx_accepted_nondust_htlcs + 1 + on_counterparty_tx_offered_nondust_htlcs, funding.get_channel_type());
 			let extra_htlc_htlc_tx_fees_sat = chan_utils::htlc_tx_fees_sat(excess_feerate, on_counterparty_tx_accepted_nondust_htlcs + 1, on_counterparty_tx_offered_nondust_htlcs, funding.get_channel_type());
-			let extra_htlc_commit_tx_fee_sat = TxBuilder::build_commitment_stats(&SpecTxBuilder {}, funding.is_outbound(), excess_feerate, on_counterparty_tx_accepted_nondust_htlcs + 1 + on_counterparty_tx_offered_nondust_htlcs, 0, 0, funding.get_channel_type()).total_fee_sat;
 
+			let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat(excess_feerate, on_counterparty_tx_accepted_nondust_htlcs + on_counterparty_tx_offered_nondust_htlcs, funding.get_channel_type());
 			let htlc_tx_fees_sat = chan_utils::htlc_tx_fees_sat(excess_feerate, on_counterparty_tx_accepted_nondust_htlcs, on_counterparty_tx_offered_nondust_htlcs, funding.get_channel_type());
-			let commit_tx_fee_sat = TxBuilder::build_commitment_stats(&SpecTxBuilder {}, funding.is_outbound(), excess_feerate, on_counterparty_tx_accepted_nondust_htlcs + on_counterparty_tx_offered_nondust_htlcs, 0, 0, funding.get_channel_type()).total_fee_sat;
 
 			let extra_htlc_dust_exposure = on_counterparty_tx_dust_exposure_msat + (extra_htlc_commit_tx_fee_sat + extra_htlc_htlc_tx_fees_sat) * 1000;
 			on_counterparty_tx_dust_exposure_msat += (commit_tx_fee_sat + htlc_tx_fees_sat) * 1000;
@@ -4845,8 +4813,6 @@ where
 		HTLCStats {
 			pending_inbound_htlcs: self.pending_inbound_htlcs.len(),
 			pending_outbound_htlcs,
-			on_holder_tx_nondust_htlcs,
-			on_counterparty_tx_nondust_htlcs: on_counterparty_tx_offered_nondust_htlcs + on_counterparty_tx_accepted_nondust_htlcs,
 			pending_inbound_htlcs_value_msat,
 			pending_outbound_htlcs_value_msat,
 			on_counterparty_tx_dust_exposure_msat,
@@ -4966,18 +4932,9 @@ where
 		let dust_exposure_limiting_feerate = self.get_dust_exposure_limiting_feerate(&fee_estimator);
 		let htlc_stats = context.get_pending_htlc_stats(funding, None, dust_exposure_limiting_feerate);
 
-		// Subtract any non-zero-value anchors from the local and remote balances
-		let CommitmentStats {
-			total_fee_sat: _,
-			local_balance_before_fee_msat,
-			remote_balance_before_fee_msat,
-		} = SpecTxBuilder {}.build_commitment_stats(
+		// Subtract any non-HTLC outputs from the local and remote balances
+		let (local_balance_before_fee_msat, remote_balance_before_fee_msat) = SpecTxBuilder {}.subtract_non_htlc_outputs(
 			funding.is_outbound(),
-			// We don't expect the feerate, and the total nondust htlc count
-			// to influence the local/remote balance before the tx fee,
-			// but the API requires these values to be passed in, so we do our best.
-			self.feerate_per_kw,
-			htlc_stats.on_holder_tx_nondust_htlcs,
 			funding.value_to_self_msat.saturating_sub(htlc_stats.pending_outbound_htlcs_value_msat),
 			(funding.get_value_satoshis() * 1000).checked_sub(funding.value_to_self_msat).unwrap().saturating_sub(htlc_stats.pending_inbound_htlcs_value_msat),
 			funding.get_channel_type(),
@@ -5126,12 +5083,6 @@ where
 		let context = self;
 		assert!(funding.is_outbound());
 
-		// We calculate the HTLC amount sums because `SpecTxBuilder::build_commitment_stats` further below
-		// requires this information, and it is easy for us to provide it. Nonetheless we don't expect the
-		// next commitment transaction fee to be a function of these balances.
-		let mut local_htlc_total_msat = 0;
-		let mut remote_htlc_total_msat = 0;
-
 		let (htlc_success_dust_limit, htlc_timeout_dust_limit) = if funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
 			(0, 0)
 		} else {
@@ -5145,13 +5096,11 @@ where
 		if fee_spike_buffer_htlc.is_some() { nondust_htlc_count += 1; }
 		match htlc.origin {
 			HTLCInitiator::LocalOffered => {
-				local_htlc_total_msat += htlc.amount_msat;
 				if htlc.amount_msat / 1000 >= real_dust_limit_timeout_sat {
 					nondust_htlc_count += 1;
 				}
 			},
 			HTLCInitiator::RemoteOffered => {
-				remote_htlc_total_msat += htlc.amount_msat;
 				if htlc.amount_msat / 1000 >= real_dust_limit_success_sat {
 					nondust_htlc_count += 1;
 				}
@@ -5161,7 +5110,6 @@ where
 		for htlc in context.pending_inbound_htlcs.iter() {
 			// We include LocalRemoved HTLCs here because we may still need to broadcast a commitment
 			// transaction including this HTLC if it times out before they RAA.
-			remote_htlc_total_msat += htlc.amount_msat;
 			if htlc.amount_msat / 1000 >= real_dust_limit_success_sat {
 				nondust_htlc_count += 1;
 			}
@@ -5172,7 +5120,6 @@ where
 			// transaction won't be generated until they send us their next RAA, which will mean
 			// dropping any HTLCs in this state.
 			if let OutboundHTLCState::LocalAnnounced { .. } | OutboundHTLCState::Committed | OutboundHTLCState::RemoteRemoved { .. } = htlc.state {
-				local_htlc_total_msat += htlc.amount_msat;
 				if htlc.amount_msat / 1000 >= real_dust_limit_timeout_sat {
 					nondust_htlc_count += 1;
 				}
@@ -5183,33 +5130,26 @@ where
 			// Don't include claims/fails that are awaiting ack, because once we get the
 			// ack we're guaranteed to never include them in commitment txs anymore.
 			if let HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = htlc {
-				local_htlc_total_msat += amount_msat;
 				if amount_msat / 1000 >= real_dust_limit_timeout_sat {
 					nondust_htlc_count += 1;
 				}
 			}
 		}
 
-		let res = SpecTxBuilder {}.build_commitment_stats(
-			funding.is_outbound(),
+		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat(
 			context.feerate_per_kw,
 			nondust_htlc_count,
-			funding.value_to_self_msat.saturating_sub(local_htlc_total_msat),
-			(funding.get_value_satoshis() * 1000).checked_sub(funding.value_to_self_msat).unwrap().saturating_sub(remote_htlc_total_msat),
 			funding.get_channel_type(),
-		).total_fee_sat * 1000;
+		) * 1000;
 		#[cfg(any(test, fuzzing))]
 		{
-			let mut fee = res;
+			let mut fee = commit_tx_fee_msat;
 			if fee_spike_buffer_htlc.is_some() {
-				fee = SpecTxBuilder {}.build_commitment_stats(
-					funding.is_outbound(),
+				fee = SpecTxBuilder {}.commit_tx_fee_sat(
 					context.feerate_per_kw,
 					nondust_htlc_count - 1,
-					funding.value_to_self_msat.saturating_sub(local_htlc_total_msat),
-					(funding.get_value_satoshis() * 1000).checked_sub(funding.value_to_self_msat).unwrap().saturating_sub(remote_htlc_total_msat),
 					funding.get_channel_type(),
-				).total_fee_sat * 1000;
+				) * 1000;
 			}
 			let total_pending_htlcs = context.pending_inbound_htlcs.len() + context.pending_outbound_htlcs.len()
 				+ context.holding_cell_htlc_updates.len();
@@ -5228,7 +5168,8 @@ where
 			};
 			*funding.next_local_commitment_tx_fee_info_cached.lock().unwrap() = Some(commitment_tx_info);
 		}
-		res
+
+		commit_tx_fee_msat
 	}
 
 	/// Get the commitment tx fee for the remote's next commitment transaction based on the number of
@@ -5250,12 +5191,6 @@ where
 		let context = self;
 		assert!(!funding.is_outbound());
 
-		// We calculate the HTLC amount sums because `SpecTxBuilder::build_commitment_stats` further below
-		// requires this information, and it is easy for us to provide it. Nonetheless we don't expect the
-		// next commitment transaction fee to be a function of these balances.
-		let mut local_htlc_total_msat = 0;
-		let mut remote_htlc_total_msat = 0;
-
 		let (htlc_success_dust_limit, htlc_timeout_dust_limit) = if funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
 			(0, 0)
 		} else {
@@ -5270,13 +5205,11 @@ where
 		if let Some(htlc) = &htlc {
 			match htlc.origin {
 				HTLCInitiator::LocalOffered => {
-					local_htlc_total_msat += htlc.amount_msat;
 					if htlc.amount_msat / 1000 >= real_dust_limit_success_sat {
 						nondust_htlc_count += 1;
 					}
 				},
 				HTLCInitiator::RemoteOffered => {
-					remote_htlc_total_msat += htlc.amount_msat;
 					if htlc.amount_msat / 1000 >= real_dust_limit_timeout_sat {
 						nondust_htlc_count += 1;
 					}
@@ -5288,7 +5221,6 @@ where
 		// non-dust inbound HTLCs are included (as all states imply it will be included) and only
 		// committed outbound HTLCs, see below.
 		for htlc in context.pending_inbound_htlcs.iter() {
-			remote_htlc_total_msat += htlc.amount_msat;
 			if htlc.amount_msat / 1000 >= real_dust_limit_timeout_sat {
 				nondust_htlc_count += 1;
 			}
@@ -5298,33 +5230,26 @@ where
 			// We only include outbound HTLCs if it will not be included in their next commitment_signed,
 			// i.e. if they've responded to us with an RAA after announcement.
 			if let OutboundHTLCState::Committed | OutboundHTLCState::RemoteRemoved {..} | OutboundHTLCState::LocalAnnounced { .. } = htlc.state {
-				local_htlc_total_msat += htlc.amount_msat;
 				if htlc.amount_msat / 1000 >= real_dust_limit_success_sat {
 					nondust_htlc_count += 1;
 				}
 			}
 		}
 
-		let res = SpecTxBuilder {}.build_commitment_stats(
-			funding.is_outbound(),
+		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat(
 			context.feerate_per_kw,
 			nondust_htlc_count,
-			funding.value_to_self_msat.saturating_sub(local_htlc_total_msat),
-			(funding.get_value_satoshis() * 1000).checked_sub(funding.value_to_self_msat).unwrap().saturating_sub(remote_htlc_total_msat),
 			funding.get_channel_type(),
-		).total_fee_sat * 1000;
+		) * 1000;
 		#[cfg(any(test, fuzzing))]
 		if let Some(htlc) = &htlc {
-			let mut fee = res;
+			let mut fee = commit_tx_fee_msat;
 			if fee_spike_buffer_htlc.is_some() {
-				fee = SpecTxBuilder {}.build_commitment_stats(
-					funding.is_outbound(),
+				fee = SpecTxBuilder {}.commit_tx_fee_sat(
 					context.feerate_per_kw,
 					nondust_htlc_count - 1,
-					funding.value_to_self_msat.saturating_sub(local_htlc_total_msat),
-					(funding.get_value_satoshis() * 1000).checked_sub(funding.value_to_self_msat).unwrap().saturating_sub(remote_htlc_total_msat),
 					funding.get_channel_type(),
-				).total_fee_sat * 1000;
+				) * 1000;
 			}
 			let total_pending_htlcs = context.pending_inbound_htlcs.len() + context.pending_outbound_htlcs.len();
 			let commitment_tx_info = CommitmentTxInfoCached {
@@ -5342,7 +5267,8 @@ where
 			};
 			*funding.next_remote_commitment_tx_fee_info_cached.lock().unwrap() = Some(commitment_tx_info);
 		}
-		res
+
+		commit_tx_fee_msat
 	}
 
 	#[rustfmt::skip]
@@ -10637,7 +10563,7 @@ where
 						&& info.next_holder_htlc_id == self.context.next_holder_htlc_id
 						&& info.next_counterparty_htlc_id == self.context.next_counterparty_htlc_id
 						&& info.feerate == self.context.feerate_per_kw {
-							assert_eq!(commitment_data.stats.total_fee_sat, info.fee);
+							assert_eq!(commitment_data.stats.commit_tx_fee_sat, info.fee);
 						}
 				}
 			}
