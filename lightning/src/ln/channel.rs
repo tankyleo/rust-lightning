@@ -5160,32 +5160,32 @@ where
 		}
 
 		for htlc in context.pending_inbound_htlcs.iter() {
+			// We include LocalRemoved HTLCs here because we may still need to broadcast a commitment
+			// transaction including this HTLC if it times out before they RAA.
 			remote_htlc_total_msat += htlc.amount_msat;
 			if htlc.amount_msat / 1000 >= real_dust_limit_success_sat {
-				// We include LocalRemoved HTLCs here because we may still need to broadcast a commitment
-				// transaction including this HTLC if it times out before they RAA.
 				nondust_htlc_count += 1;
 			}
 		}
 
 		for htlc in context.pending_outbound_htlcs.iter() {
+			// We don't include AwaitingRemoteRevokeToRemove HTLCs because our next commitment
+			// transaction won't be generated until they send us their next RAA, which will mean
+			// dropping any HTLCs in this state.
 			if let OutboundHTLCState::LocalAnnounced { .. } | OutboundHTLCState::Committed | OutboundHTLCState::RemoteRemoved { .. } = htlc.state {
 				local_htlc_total_msat += htlc.amount_msat;
 				if htlc.amount_msat / 1000 >= real_dust_limit_timeout_sat {
-					// We don't include AwaitingRemoteRevokeToRemove HTLCs because our next commitment
-					// transaction won't be generated until they send us their next RAA, which will mean
-					// dropping any HTLCs in this state.
 					nondust_htlc_count += 1;
 				}
 			}
 		}
 
 		for htlc in context.holding_cell_htlc_updates.iter() {
+			// Don't include claims/fails that are awaiting ack, because once we get the
+			// ack we're guaranteed to never include them in commitment txs anymore.
 			if let HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = htlc {
 				local_htlc_total_msat += amount_msat;
 				if amount_msat / 1000 >= real_dust_limit_timeout_sat {
-					// Don't include claims/fails that are awaiting ack, because once we get the
-					// ack we're guaranteed to never include them in commitment txs anymore.
 					nondust_htlc_count += 1;
 				}
 			}
@@ -5296,11 +5296,11 @@ where
 		}
 
 		for htlc in context.pending_outbound_htlcs.iter() {
+			// We only include outbound HTLCs if it will not be included in their next commitment_signed,
+			// i.e. if they've responded to us with an RAA after announcement.
 			if let OutboundHTLCState::Committed | OutboundHTLCState::RemoteRemoved {..} | OutboundHTLCState::LocalAnnounced { .. } = htlc.state {
 				local_htlc_total_msat += htlc.amount_msat;
 				if htlc.amount_msat / 1000 >= real_dust_limit_success_sat {
-					// We only include outbound HTLCs if it will not be included in their next commitment_signed,
-					// i.e. if they've responded to us with an RAA after announcement.
 					nondust_htlc_count += 1;
 				}
 			}
