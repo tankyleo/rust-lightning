@@ -4984,7 +4984,6 @@ where
 			funding.get_channel_type(),
 		);
 
-		// Note that this is now the capacity available after we have subtracted any non-zero-value anchors
 		let outbound_capacity_msat = local_balance_before_fee_msat
 				.saturating_sub(
 					funding.counterparty_selected_channel_reserve_satoshis.unwrap_or(0) * 1000);
@@ -5104,7 +5103,6 @@ where
 
 		#[allow(deprecated)] // TODO: Remove once balance_msat is removed.
 		AvailableBalances {
-			// Note that this is now the capacity available after we have subtracted any non-zero-value anchors
 			inbound_capacity_msat: remote_balance_before_fee_msat.saturating_sub(funding.holder_selected_channel_reserve_satoshis * 1000),
 			outbound_capacity_msat,
 			next_outbound_htlc_limit_msat: available_capacity_msat,
