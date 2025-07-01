@@ -450,15 +450,6 @@ impl OutboundHTLCOutput {
 	}
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct IncludedHTLC {
-	pub offered: bool,
-	pub amount_msat: u64,
-	pub cltv_expiry: u32,
-	pub payment_hash: PaymentHash,
-	pub is_dust: bool,
-}
-
 /// See AwaitingRemoteRevoke ChannelState for more info
 #[cfg_attr(test, derive(Clone, Debug, PartialEq))]
 enum HTLCUpdateAwaitingACK {
@@ -4550,7 +4541,6 @@ where
 
 		let num_htlcs = self.pending_inbound_htlcs.len() + self.pending_outbound_htlcs.len();
 		let mut htlc_source_table: Vec<(HTLCOutputInCommitment, Option<&HTLCSource>)> = Vec::with_capacity(num_htlcs);
-		let mut htlcs_included: Vec<IncludedHTLC> = Vec::with_capacity(num_htlcs);
 		let mut value_to_self_claimed_msat = 0;
 		let mut value_to_remote_claimed_msat = 0;
 
@@ -4572,24 +4562,10 @@ where
 			}
 		}
 
-		macro_rules! get_included_htlc {
-			($htlc: expr, $offered: expr, $is_dust: expr) => {
-				IncludedHTLC {
-					offered: $offered,
-					amount_msat: $htlc.amount_msat,
-					cltv_expiry: $htlc.cltv_expiry,
-					payment_hash: $htlc.payment_hash,
-					is_dust: $is_dust,
-				}
-			}
-		}
-
 		macro_rules! add_htlc_output {
-			($htlc: expr, $outbound: expr, $source: expr, $is_dust: expr) => {
-				let table_htlc = get_htlc_in_commitment!($htlc, $outbound == local);
-				let included_htlc = get_included_htlc!($htlc, $outbound == local, $is_dust);
-				htlc_source_table.push((table_htlc, $source));
-				htlcs_included.push(included_htlc);
+			($htlc: expr, $outbound: expr, $source: expr) => {
+				let htlc = get_htlc_in_commitment!($htlc, $outbound == local);
+				htlc_source_table.push((htlc, $source));
 			}
 		}
 
@@ -4599,8 +4575,7 @@ where
 		for htlc in self.pending_inbound_htlcs.iter() {
 			if htlc.state.included_in_commitment(generated_by_local) {
 				log_trace!(logger, "   ...including inbound {} HTLC {} (hash {}) with value {}", htlc.state, htlc.htlc_id, htlc.payment_hash, htlc.amount_msat);
-				let is_dust = htlc.is_dust(local, feerate_per_kw, broadcaster_dust_limit_sat, funding.get_channel_type());
-				add_htlc_output!(htlc, false, None, is_dust);
+				add_htlc_output!(htlc, false, None);
 			} else {
 				log_trace!(logger, "   ...not including inbound HTLC {} (hash {}) with value {} due to state ({})", htlc.htlc_id, htlc.payment_hash, htlc.amount_msat, htlc.state);
 				if let Some(preimage) = htlc.state.preimage() {
@@ -4616,8 +4591,7 @@ where
 			}
 			if htlc.state.included_in_commitment(generated_by_local) {
 				log_trace!(logger, "   ...including outbound {} HTLC {} (hash {}) with value {}", htlc.state, htlc.htlc_id, htlc.payment_hash, htlc.amount_msat);
-				let is_dust = htlc.is_dust(local, feerate_per_kw, broadcaster_dust_limit_sat, funding.get_channel_type());
-				add_htlc_output!(htlc, true, Some(&htlc.source), is_dust);
+				add_htlc_output!(htlc, true, Some(&htlc.source));
 			} else {
 				log_trace!(logger, "   ...not including outbound HTLC {} (hash {}) with value {} due to state ({})", htlc.htlc_id, htlc.payment_hash, htlc.amount_msat, htlc.state);
 				if htlc.state.preimage().is_some() {
@@ -4639,7 +4613,7 @@ where
 			&funding.channel_transaction_parameters,
 			&self.secp_ctx,
 			value_to_self_msat,
-			htlcs_included,
+			htlc_source_table.iter().map(|(htlc, _source)| htlc).cloned().collect(),
 			feerate_per_kw,
 			broadcaster_dust_limit_sat,
 			logger,

@@ -5,9 +5,10 @@ use core::ops::Deref;
 use bitcoin::secp256k1::{self, PublicKey, Secp256k1};
 
 use crate::ln::chan_utils::{
-	commit_tx_fee_sat, ChannelTransactionParameters, CommitmentTransaction, HTLCOutputInCommitment,
+	commit_tx_fee_sat, htlc_success_tx_weight, htlc_timeout_tx_weight,
+	ChannelTransactionParameters, CommitmentTransaction, HTLCOutputInCommitment,
 };
-use crate::ln::channel::{CommitmentStats, IncludedHTLC, ANCHOR_OUTPUT_VALUE_SATOSHI};
+use crate::ln::channel::{CommitmentStats, ANCHOR_OUTPUT_VALUE_SATOSHI};
 use crate::prelude::*;
 use crate::types::features::ChannelTypeFeatures;
 use crate::util::logger::Logger;
@@ -23,7 +24,7 @@ pub(crate) trait TxBuilder {
 	fn build_commitment_transaction<L: Deref>(
 		&self, local: bool, commitment_number: u64, per_commitment_point: &PublicKey,
 		channel_parameters: &ChannelTransactionParameters, secp_ctx: &Secp256k1<secp256k1::All>,
-		value_to_self_msat: u64, htlcs_in_tx: Vec<IncludedHTLC>, feerate_per_kw: u32,
+		value_to_self_msat: u64, htlcs_in_tx: Vec<HTLCOutputInCommitment>, feerate_per_kw: u32,
 		broadcaster_dust_limit_satoshis: u64, logger: &L,
 	) -> (CommitmentTransaction, CommitmentStats)
 	where
@@ -72,7 +73,7 @@ impl TxBuilder for SpecTxBuilder {
 	fn build_commitment_transaction<L: Deref>(
 		&self, local: bool, commitment_number: u64, per_commitment_point: &PublicKey,
 		channel_parameters: &ChannelTransactionParameters, secp_ctx: &Secp256k1<secp256k1::All>,
-		value_to_self_msat: u64, mut htlcs_in_tx: Vec<IncludedHTLC>, feerate_per_kw: u32,
+		value_to_self_msat: u64, mut htlcs_in_tx: Vec<HTLCOutputInCommitment>, feerate_per_kw: u32,
 		broadcaster_dust_limit_satoshis: u64, logger: &L,
 	) -> (CommitmentTransaction, CommitmentStats)
 	where
@@ -80,6 +81,22 @@ impl TxBuilder for SpecTxBuilder {
 	{
 		let mut local_htlc_total_msat = 0;
 		let mut remote_htlc_total_msat = 0;
+		let channel_type = &channel_parameters.channel_type_features;
+
+		let is_dust = |offered: bool, amount_msat: u64| -> bool {
+			let htlc_tx_fee_sat = if channel_type.supports_anchors_zero_fee_htlc_tx() {
+				0
+			} else {
+				let htlc_tx_weight = if offered {
+					htlc_timeout_tx_weight(channel_type)
+				} else {
+					htlc_success_tx_weight(channel_type)
+				};
+				// As required by the spec, round down
+				feerate_per_kw as u64 * htlc_tx_weight / 1000
+			};
+			amount_msat / 1000 < broadcaster_dust_limit_satoshis + htlc_tx_fee_sat
+		};
 
 		// Trim dust htlcs
 		htlcs_in_tx.retain(|htlc| {
@@ -89,7 +106,7 @@ impl TxBuilder for SpecTxBuilder {
 			} else {
 				remote_htlc_total_msat += htlc.amount_msat;
 			}
-			if htlc.is_dust {
+			if is_dust(htlc.offered, htlc.amount_msat) {
 				log_trace!(
 					logger,
 					"   ...trimming {} HTLC with value {}sat, hash {}, due to dust limit {}",
@@ -182,20 +199,7 @@ impl TxBuilder for SpecTxBuilder {
 			to_broadcaster_value_sat,
 			to_countersignatory_value_sat,
 			feerate_per_kw,
-			htlcs_in_tx
-				.into_iter()
-				.map(|htlc| {
-					// We filtered out all dust HTLCs above
-					debug_assert!(!htlc.is_dust);
-					HTLCOutputInCommitment {
-						offered: htlc.offered,
-						amount_msat: htlc.amount_msat,
-						cltv_expiry: htlc.cltv_expiry,
-						payment_hash: htlc.payment_hash,
-						transaction_output_index: None,
-					}
-				})
-				.collect(),
+			htlcs_in_tx,
 			&directed_parameters,
 			secp_ctx,
 		);
