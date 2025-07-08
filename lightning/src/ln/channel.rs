@@ -1076,7 +1076,6 @@ struct HTLCStats {
 	extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat: Option<u64>,
 	on_holder_tx_dust_exposure_msat: u64,
 	outbound_holding_cell_msat: u64,
-	on_holder_tx_outbound_holding_cell_htlcs_count: u32, // dust HTLCs *non*-included
 }
 
 /// A struct gathering data on a commitment, either local or remote.
@@ -4296,7 +4295,7 @@ where
 		// Before proposing a feerate update, check that we can actually afford the new fee.
 		let dust_exposure_limiting_feerate = self.get_dust_exposure_limiting_feerate(&fee_estimator);
 		let htlc_stats = self.get_pending_htlc_stats(funding, Some(feerate_per_kw), dust_exposure_limiting_feerate);
-		let stats = self.build_commitment_stats(funding, true, true, Some(feerate_per_kw), Some(htlc_stats.on_holder_tx_outbound_holding_cell_htlcs_count as usize + CONCURRENT_INBOUND_HTLC_FEE_BUFFER as usize));
+		let stats = self.build_commitment_stats(funding, true, true, true, Some(feerate_per_kw), Some(CONCURRENT_INBOUND_HTLC_FEE_BUFFER as usize));
 		let holder_balance_msat = stats.local_balance_before_fee_msat - htlc_stats.outbound_holding_cell_msat;
 		// Note that `stats.commit_tx_fee_sat` accounts for any HTLCs that transition from non-dust to dust under a higher feerate (in the case where HTLC-transactions pay endogenous fees).
 		if holder_balance_msat < stats.commit_tx_fee_sat * 1000 + funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 {
@@ -4415,7 +4414,7 @@ where
 	/// commitment transaction. See `build_commitment_transaction` for further docs.
 	#[inline]
 	#[rustfmt::skip]
-	fn build_commitment_stats(&self, funding: &FundingScope, local: bool, generated_by_local: bool, feerate_per_kw: Option<u32>, fee_buffer_nondust_htlcs: Option<usize>) -> CommitmentStats {
+	fn build_commitment_stats(&self, funding: &FundingScope, local: bool, generated_by_local: bool, read_holding_cell_htlcs: bool, feerate_per_kw: Option<u32>, fee_buffer_nondust_htlcs: Option<usize>) -> CommitmentStats {
 		let broadcaster_dust_limit_sat = if local { self.holder_dust_limit_satoshis } else { self.counterparty_dust_limit_satoshis };
 		let mut remote_htlc_total_msat = 0;
 		let mut local_htlc_total_msat = 0;
@@ -4446,6 +4445,15 @@ where
 				}
 			}
 		};
+
+		if read_holding_cell_htlcs {
+			for update in self.holding_cell_htlc_updates.iter() {
+				if let HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = update {
+					htlcs.push(HTLCAmountDirection { offered: local, amount_msat: *amount_msat });
+					local_htlc_total_msat += amount_msat;
+				}
+			}
+		}
 
 		// # Panics
 		//
@@ -4584,7 +4592,7 @@ where
 			broadcaster_dust_limit_sat,
 			logger,
 		);
-		debug_assert_eq!(stats, self.build_commitment_stats(funding, local, generated_by_local, None, None));
+		debug_assert_eq!(stats, self.build_commitment_stats(funding, local, generated_by_local, false, None, None));
 
 		// This populates the HTLC-source table with the indices from the HTLCs in the commitment
 		// transaction.
@@ -4697,7 +4705,6 @@ where
 
 		let mut pending_outbound_htlcs_value_msat = 0;
 		let mut outbound_holding_cell_msat = 0;
-		let mut on_holder_tx_outbound_holding_cell_htlcs_count = 0;
 		let mut pending_outbound_htlcs = self.pending_outbound_htlcs.len();
 		{
 			let counterparty_dust_limit_success_sat = htlc_success_dust_limit + context.counterparty_dust_limit_satoshis;
@@ -4726,8 +4733,6 @@ where
 					}
 					if *amount_msat / 1000 < holder_dust_limit_timeout_sat {
 						on_holder_tx_dust_exposure_msat += amount_msat;
-					} else {
-						on_holder_tx_outbound_holding_cell_htlcs_count += 1;
 					}
 				}
 			}
@@ -4759,7 +4764,6 @@ where
 			extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat,
 			on_holder_tx_dust_exposure_msat,
 			outbound_holding_cell_msat,
-			on_holder_tx_outbound_holding_cell_htlcs_count,
 		}
 	}
 
