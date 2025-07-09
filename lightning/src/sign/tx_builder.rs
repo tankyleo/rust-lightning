@@ -21,7 +21,7 @@ pub(crate) struct HTLCAmountDirection {
 
 pub(crate) trait TxBuilder {
 	fn commit_tx_fee_sat_v2(
-		&self, broadcaster_dust_limit_sat: u64, feerate_per_kw: u32, htlcs: Vec<HTLCAmountDirection>, addl_nondust_htlcs: usize, channel_type: &ChannelTypeFeatures,
+		&self, broadcaster_dust_limit_sat: u64, feerate_per_kw: u32, htlcs: &[HTLCAmountDirection], addl_nondust_htlcs: usize, channel_type: &ChannelTypeFeatures,
 	) -> u64;
 	fn subtract_non_htlc_outputs(
 		&self, is_outbound_from_holder: bool, value_to_self_after_htlcs: u64,
@@ -41,7 +41,7 @@ pub(crate) struct SpecTxBuilder {}
 
 impl TxBuilder for SpecTxBuilder {
 	fn commit_tx_fee_sat_v2(
-		&self, _broadcaster_dust_limit_sat: u64, _feerate_per_kw: u32, _htlcs: Vec<HTLCAmountDirection>, _addl_nondust_htlcs: usize, _channel_type: &ChannelTypeFeatures,
+		&self, _broadcaster_dust_limit_sat: u64, _feerate_per_kw: u32, _htlcs: &[HTLCAmountDirection], _addl_nondust_htlcs: usize, _channel_type: &ChannelTypeFeatures,
 	) -> u64 {
 		todo!();
 	}

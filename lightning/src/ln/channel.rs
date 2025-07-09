@@ -3109,7 +3109,7 @@ where
 		// check if the funder's amount for the initial commitment tx is sufficient
 		// for full fee payment plus a few HTLCs to ensure the channel will be useful.
 		let funders_amount_msat = open_channel_fields.funding_satoshis * 1000 - msg_push_msat;
-		let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat_v2(open_channel_fields.dust_limit_satoshis, open_channel_fields.commitment_feerate_sat_per_1000_weight, Vec::new(), MIN_AFFORDABLE_HTLC_COUNT, &channel_type);
+		let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat_v2(open_channel_fields.dust_limit_satoshis, open_channel_fields.commitment_feerate_sat_per_1000_weight, &[], MIN_AFFORDABLE_HTLC_COUNT, &channel_type);
 		// Subtract any non-HTLC outputs from the remote balance
 		let (_, remote_balance_before_fee_msat) = SpecTxBuilder {}.subtract_non_htlc_outputs(false, value_to_self_msat, funders_amount_msat, &channel_type);
 		if remote_balance_before_fee_msat / 1000 < commit_tx_fee_sat {
@@ -3385,7 +3385,7 @@ where
 		};
 
 		let value_to_self_msat = channel_value_satoshis * 1000 - push_msat;
-		let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat_v2(MIN_CHAN_DUST_LIMIT_SATOSHIS, commitment_feerate, Vec::new(), MIN_AFFORDABLE_HTLC_COUNT, &channel_type);
+		let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat_v2(MIN_CHAN_DUST_LIMIT_SATOSHIS, commitment_feerate, &[], MIN_AFFORDABLE_HTLC_COUNT, &channel_type);
 		// Subtract any non-HTLC outputs from the local balance
 		let (local_balance_before_fee_msat, _) = SpecTxBuilder {}.subtract_non_htlc_outputs(
 			true,
@@ -4480,7 +4480,7 @@ where
 			broadcaster_max_commitment_tx_output.1 = cmp::max(broadcaster_max_commitment_tx_output.1, value_to_remote_msat);
 		}
 
-		let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat_v2(broadcaster_dust_limit_sat, feerate_per_kw, htlcs, fee_buffer_nondust_htlcs.unwrap_or(0), funding.get_channel_type());
+		let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat_v2(broadcaster_dust_limit_sat, feerate_per_kw, &htlcs, fee_buffer_nondust_htlcs.unwrap_or(0), funding.get_channel_type());
 		// Subtract any non-HTLC outputs from the local and remote balances
 		let (local_balance_before_fee_msat, remote_balance_before_fee_msat) = SpecTxBuilder {}.subtract_non_htlc_outputs(
 			funding.is_outbound(),
@@ -4751,10 +4751,10 @@ where
 			.unwrap_or(self.feerate_per_kw)
 			.checked_sub(dust_exposure_limiting_feerate);
 		let extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat = excess_feerate_opt.map(|excess_feerate| {
-			let extra_htlc_commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.counterparty_dust_limit_satoshis, excess_feerate, on_remote_htlcs.clone(), 1, funding.get_channel_type());
+			let extra_htlc_commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.counterparty_dust_limit_satoshis, excess_feerate, &on_remote_htlcs, 1, funding.get_channel_type());
 			let extra_htlc_htlc_tx_fees_sat = chan_utils::htlc_tx_fees_sat(excess_feerate, on_counterparty_tx_accepted_nondust_htlcs + 1, on_counterparty_tx_offered_nondust_htlcs, funding.get_channel_type());
 
-			let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.counterparty_dust_limit_satoshis, excess_feerate, on_remote_htlcs, 0, funding.get_channel_type());
+			let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.counterparty_dust_limit_satoshis, excess_feerate, &on_remote_htlcs, 0, funding.get_channel_type());
 			let htlc_tx_fees_sat = chan_utils::htlc_tx_fees_sat(excess_feerate, on_counterparty_tx_accepted_nondust_htlcs, on_counterparty_tx_offered_nondust_htlcs, funding.get_channel_type());
 
 			let extra_htlc_dust_exposure = on_counterparty_tx_dust_exposure_msat + (extra_htlc_commit_tx_fee_sat + extra_htlc_htlc_tx_fees_sat) * 1000;
@@ -5071,14 +5071,14 @@ where
 		}
 
 		#[cfg(any(test, fuzzing))]
-		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.holder_dust_limit_satoshis, context.feerate_per_kw, htlcs.clone(), fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
+		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.holder_dust_limit_satoshis, context.feerate_per_kw, &htlcs, fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
 		#[cfg(not(any(test, fuzzing)))]
-		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.holder_dust_limit_satoshis, context.feerate_per_kw, htlcs, fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
+		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.holder_dust_limit_satoshis, context.feerate_per_kw, &htlcs, fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
 		#[cfg(any(test, fuzzing))]
 		{
 			let mut fee = commit_tx_fee_msat;
 			if fee_spike_buffer_htlc.is_some() {
-				fee = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.holder_dust_limit_satoshis, context.feerate_per_kw, htlcs, 0, funding.get_channel_type()) * 1000;
+				fee = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.holder_dust_limit_satoshis, context.feerate_per_kw, &htlcs, 0, funding.get_channel_type()) * 1000;
 			}
 			let total_pending_htlcs = context.pending_inbound_htlcs.len() + context.pending_outbound_htlcs.len()
 				+ context.holding_cell_htlc_updates.len();
@@ -5151,14 +5151,14 @@ where
 		}
 
 		#[cfg(any(test, fuzzing))]
-		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.counterparty_dust_limit_satoshis, context.feerate_per_kw, htlcs.clone(), fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
+		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.counterparty_dust_limit_satoshis, context.feerate_per_kw, &htlcs, fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
 		#[cfg(not(any(test, fuzzing)))]
-		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.counterparty_dust_limit_satoshis, context.feerate_per_kw, htlcs, fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
+		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.counterparty_dust_limit_satoshis, context.feerate_per_kw, &htlcs, fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
 		#[cfg(any(test, fuzzing))]
 		if let Some(htlc) = &htlc {
 			let mut fee = commit_tx_fee_msat;
 			if fee_spike_buffer_htlc.is_some() {
-				fee = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.counterparty_dust_limit_satoshis, context.feerate_per_kw, htlcs, 0, funding.get_channel_type()) * 1000;
+				fee = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.counterparty_dust_limit_satoshis, context.feerate_per_kw, &htlcs, 0, funding.get_channel_type()) * 1000;
 			}
 			let total_pending_htlcs = context.pending_inbound_htlcs.len() + context.pending_outbound_htlcs.len();
 			let commitment_tx_info = CommitmentTxInfoCached {
