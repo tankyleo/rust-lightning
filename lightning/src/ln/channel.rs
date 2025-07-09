@@ -4671,6 +4671,8 @@ where
 		let context = self;
 		let uses_0_htlc_fee_anchors = funding.get_channel_type().supports_anchors_zero_fee_htlc_tx();
 
+		let mut on_local_htlcs: Vec<HTLCAmountDirection> = Vec::new();
+
 		let dust_buffer_feerate = context.get_dust_buffer_feerate(outbound_feerate_update);
 		let (htlc_timeout_dust_limit, htlc_success_dust_limit) = if uses_0_htlc_fee_anchors {
 			(0, 0)
@@ -4700,6 +4702,7 @@ where
 				if htlc.amount_msat / 1000 < holder_dust_limit_success_sat {
 					on_holder_tx_dust_exposure_msat += htlc.amount_msat;
 				}
+				on_local_htlcs.push(HTLCAmountDirection { offered: false, amount_msat: htlc.amount_msat });
 			}
 		}
 
@@ -4719,6 +4722,7 @@ where
 				if htlc.amount_msat / 1000 < holder_dust_limit_timeout_sat {
 					on_holder_tx_dust_exposure_msat += htlc.amount_msat;
 				}
+				on_local_htlcs.push(HTLCAmountDirection { offered: true, amount_msat: htlc.amount_msat });
 			}
 
 			for update in context.holding_cell_htlc_updates.iter() {
@@ -4734,9 +4738,12 @@ where
 					if *amount_msat / 1000 < holder_dust_limit_timeout_sat {
 						on_holder_tx_dust_exposure_msat += amount_msat;
 					}
+					on_local_htlcs.push(HTLCAmountDirection { offered: true, amount_msat: *amount_msat });
 				}
 			}
 		}
+		
+		let on_remote_htlcs: Vec<_> = on_local_htlcs.iter().map(|HTLCAmountDirection { offered, amount_msat }| HTLCAmountDirection { offered: !offered, amount_msat: *amount_msat }).collect();
 
 		// Include any mining "excess" fees in the dust calculation
 		let excess_feerate_opt = outbound_feerate_update
@@ -4744,10 +4751,10 @@ where
 			.unwrap_or(self.feerate_per_kw)
 			.checked_sub(dust_exposure_limiting_feerate);
 		let extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat = excess_feerate_opt.map(|excess_feerate| {
-			let extra_htlc_commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat(excess_feerate, on_counterparty_tx_accepted_nondust_htlcs + 1 + on_counterparty_tx_offered_nondust_htlcs, funding.get_channel_type());
+			let extra_htlc_commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.counterparty_dust_limit_satoshis, excess_feerate, on_remote_htlcs.clone(), 1, funding.get_channel_type());
 			let extra_htlc_htlc_tx_fees_sat = chan_utils::htlc_tx_fees_sat(excess_feerate, on_counterparty_tx_accepted_nondust_htlcs + 1, on_counterparty_tx_offered_nondust_htlcs, funding.get_channel_type());
 
-			let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat(excess_feerate, on_counterparty_tx_accepted_nondust_htlcs + on_counterparty_tx_offered_nondust_htlcs, funding.get_channel_type());
+			let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.counterparty_dust_limit_satoshis, excess_feerate, on_remote_htlcs, 0, funding.get_channel_type());
 			let htlc_tx_fees_sat = chan_utils::htlc_tx_fees_sat(excess_feerate, on_counterparty_tx_accepted_nondust_htlcs, on_counterparty_tx_offered_nondust_htlcs, funding.get_channel_type());
 
 			let extra_htlc_dust_exposure = on_counterparty_tx_dust_exposure_msat + (extra_htlc_commit_tx_fee_sat + extra_htlc_htlc_tx_fees_sat) * 1000;
