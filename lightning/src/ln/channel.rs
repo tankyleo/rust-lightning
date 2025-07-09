@@ -4472,7 +4472,7 @@ where
 			broadcaster_max_commitment_tx_output.1 = cmp::max(broadcaster_max_commitment_tx_output.1, value_to_remote_msat);
 		}
 
-		let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat_v2(feerate_per_kw, htlcs, fee_buffer_nondust_htlcs.unwrap_or(0), funding.get_channel_type());
+		let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat_v2(broadcaster_dust_limit_sat, feerate_per_kw, htlcs, fee_buffer_nondust_htlcs.unwrap_or(0), funding.get_channel_type());
 		// Subtract any non-HTLC outputs from the local and remote balances
 		let (local_balance_before_fee_msat, remote_balance_before_fee_msat) = SpecTxBuilder {}.subtract_non_htlc_outputs(
 			funding.is_outbound(),
@@ -5060,14 +5060,14 @@ where
 		}
 
 		#[cfg(any(test, fuzzing))]
-		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.feerate_per_kw, htlcs.clone(), fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
+		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.holder_dust_limit_satoshis, context.feerate_per_kw, htlcs.clone(), fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
 		#[cfg(not(any(test, fuzzing)))]
-		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.feerate_per_kw, htlcs, fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
+		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.holder_dust_limit_satoshis, context.feerate_per_kw, htlcs, fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
 		#[cfg(any(test, fuzzing))]
 		{
 			let mut fee = commit_tx_fee_msat;
 			if fee_spike_buffer_htlc.is_some() {
-				fee = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.feerate_per_kw, htlcs, 0, funding.get_channel_type()) * 1000;
+				fee = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.holder_dust_limit_satoshis, context.feerate_per_kw, htlcs, 0, funding.get_channel_type()) * 1000;
 			}
 			let total_pending_htlcs = context.pending_inbound_htlcs.len() + context.pending_outbound_htlcs.len()
 				+ context.holding_cell_htlc_updates.len();
@@ -5140,14 +5140,14 @@ where
 		}
 
 		#[cfg(any(test, fuzzing))]
-		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.feerate_per_kw, htlcs.clone(), fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
+		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.counterparty_dust_limit_satoshis, context.feerate_per_kw, htlcs.clone(), fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
 		#[cfg(not(any(test, fuzzing)))]
-		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.feerate_per_kw, htlcs, fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
+		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.counterparty_dust_limit_satoshis, context.feerate_per_kw, htlcs, fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
 		#[cfg(any(test, fuzzing))]
 		if let Some(htlc) = &htlc {
 			let mut fee = commit_tx_fee_msat;
 			if fee_spike_buffer_htlc.is_some() {
-				fee = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.feerate_per_kw, htlcs, 0, funding.get_channel_type()) * 1000;
+				fee = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.counterparty_dust_limit_satoshis, context.feerate_per_kw, htlcs, 0, funding.get_channel_type()) * 1000;
 			}
 			let total_pending_htlcs = context.pending_inbound_htlcs.len() + context.pending_outbound_htlcs.len();
 			let commitment_tx_info = CommitmentTxInfoCached {
