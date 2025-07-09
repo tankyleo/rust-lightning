@@ -13,17 +13,27 @@ use crate::prelude::*;
 use crate::types::features::ChannelTypeFeatures;
 use crate::util::logger::Logger;
 
+pub(crate) struct HTLCAmountDirection {
+	pub offered: bool,
+	pub amount_msat: u64,
+}
+
 pub(crate) trait TxBuilder {
 	fn htlc_success_timeout_dust_limits(
 		&self, feerate_per_kw: u32, broadcaster_dust_limit_sat: u64,
 		channel_type: &ChannelTypeFeatures,
 	) -> (u64, u64);
+	fn is_dust(
+		&self, htlc: &HTLCAmountDirection, feerate_per_kw: u32, broadcaster_dust_limit_sat: u64,
+		channel_type: &ChannelTypeFeatures,
+	) -> bool;
 	fn commit_tx_fee_sat(
-		&self, feerate_per_kw: u32, nondust_htlc_count: usize, channel_type: &ChannelTypeFeatures,
+		&self, broadcaster_dust_limit_sat: u64, feerate_per_kw: u32, htlcs: &[HTLCAmountDirection],
+		addl_nondust_htlcs: usize, channel_type: &ChannelTypeFeatures,
 	) -> u64;
 	fn htlc_txs_endogenous_fees_sat(
-		&self, feerate_per_kw: u32, num_accepted_htlcs: usize, num_offered_htlcs: usize,
-		channel_type_features: &ChannelTypeFeatures,
+		&self, broadcaster_dust_limit_sat: u64, feerate_per_kw: u32, htlcs: &[HTLCAmountDirection],
+		addl_accepted_nondust_htlcs: usize, channel_type: &ChannelTypeFeatures,
 	) -> u64;
 	fn subtract_non_htlc_outputs(
 		&self, is_outbound_from_holder: bool, value_to_self_after_htlcs: u64,
@@ -60,15 +70,67 @@ impl TxBuilder for SpecTxBuilder {
 			broadcaster_dust_limit_sat + htlc_timeout_dust_limit,
 		)
 	}
+	fn is_dust(
+		&self, htlc: &HTLCAmountDirection, feerate_per_kw: u32, broadcaster_dust_limit_sat: u64,
+		channel_type: &ChannelTypeFeatures,
+	) -> bool {
+		let (dust_limit_success_sat, dust_limit_timeout_sat) = self
+			.htlc_success_timeout_dust_limits(
+				feerate_per_kw,
+				broadcaster_dust_limit_sat,
+				channel_type,
+			);
+
+		htlc.amount_msat / 1000
+			< if htlc.offered { dust_limit_timeout_sat } else { dust_limit_success_sat }
+	}
 	fn commit_tx_fee_sat(
-		&self, feerate_per_kw: u32, nondust_htlc_count: usize, channel_type: &ChannelTypeFeatures,
+		&self, broadcaster_dust_limit_sat: u64, feerate_per_kw: u32, htlcs: &[HTLCAmountDirection],
+		addl_nondust_htlcs: usize, channel_type: &ChannelTypeFeatures,
 	) -> u64 {
-		commit_tx_fee_sat(feerate_per_kw, nondust_htlc_count, channel_type)
+		let (dust_limit_success_sat, dust_limit_timeout_sat) = self
+			.htlc_success_timeout_dust_limits(
+				feerate_per_kw,
+				broadcaster_dust_limit_sat,
+				channel_type,
+			);
+
+		let is_dust = |offered: bool, amount_msat: u64| -> bool {
+			amount_msat / 1000
+				< if offered { dust_limit_timeout_sat } else { dust_limit_success_sat }
+		};
+
+		let nondust_htlc_count =
+			htlcs.iter().filter(|htlc| !is_dust(htlc.offered, htlc.amount_msat)).count();
+
+		commit_tx_fee_sat(feerate_per_kw, nondust_htlc_count + addl_nondust_htlcs, channel_type)
 	}
 	fn htlc_txs_endogenous_fees_sat(
-		&self, feerate_per_kw: u32, num_accepted_htlcs: usize, num_offered_htlcs: usize,
-		channel_type: &ChannelTypeFeatures,
+		&self, broadcaster_dust_limit_sat: u64, feerate_per_kw: u32, htlcs: &[HTLCAmountDirection],
+		addl_accepted_nondust_htlcs: usize, channel_type: &ChannelTypeFeatures,
 	) -> u64 {
+		let (dust_limit_success_sat, dust_limit_timeout_sat) = self
+			.htlc_success_timeout_dust_limits(
+				feerate_per_kw,
+				broadcaster_dust_limit_sat,
+				channel_type,
+			);
+
+		let is_dust = |offered: bool, amount_msat: u64| -> bool {
+			amount_msat / 1000
+				< if offered { dust_limit_timeout_sat } else { dust_limit_success_sat }
+		};
+
+		let num_offered_htlcs = htlcs
+			.iter()
+			.filter(|htlc| htlc.offered && !is_dust(htlc.offered, htlc.amount_msat))
+			.count();
+
+		let num_accepted_htlcs = htlcs
+			.iter()
+			.filter(|htlc| !htlc.offered && !is_dust(htlc.offered, htlc.amount_msat))
+			.count() + addl_accepted_nondust_htlcs;
+
 		let htlc_tx_fees_sat = if !channel_type.supports_anchors_zero_fee_htlc_tx() {
 			num_accepted_htlcs as u64 * htlc_success_tx_weight(channel_type) * feerate_per_kw as u64
 				/ 1000 + num_offered_htlcs as u64
@@ -150,7 +212,7 @@ impl TxBuilder for SpecTxBuilder {
 		// The value going to each party MUST be 0 or positive, even if all HTLCs pending in the
 		// commitment clear by failure.
 
-		let commit_tx_fee_sat = self.commit_tx_fee_sat(feerate_per_kw, htlcs_in_tx.len(), &channel_parameters.channel_type_features);
+		let commit_tx_fee_sat = commit_tx_fee_sat(feerate_per_kw, htlcs_in_tx.len(), &channel_parameters.channel_type_features);
 		let value_to_self_after_htlcs_msat = value_to_self_msat.checked_sub(local_htlc_total_msat).unwrap();
 		let value_to_remote_after_htlcs_msat =
 			(channel_parameters.channel_value_satoshis * 1000).checked_sub(value_to_self_msat).unwrap().checked_sub(remote_htlc_total_msat).unwrap();
