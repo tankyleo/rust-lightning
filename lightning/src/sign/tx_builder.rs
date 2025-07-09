@@ -13,7 +13,16 @@ use crate::prelude::*;
 use crate::types::features::ChannelTypeFeatures;
 use crate::util::logger::Logger;
 
+#[derive(Debug, Clone)]
+pub(crate) struct HTLCAmountDirection {
+	pub offered: bool,
+	pub amount_msat: u64,
+}
+
 pub(crate) trait TxBuilder {
+	fn commit_tx_fee_sat_v2(
+		&self, feerate_per_kw: u32, htlcs: Vec<HTLCAmountDirection>, addl_nondust_htlcs: usize, channel_type: &ChannelTypeFeatures,
+	) -> u64;
 	fn commit_tx_fee_sat(
 		&self, feerate_per_kw: u32, nondust_htlc_count: usize, channel_type: &ChannelTypeFeatures,
 	) -> u64;
@@ -34,6 +43,11 @@ pub(crate) trait TxBuilder {
 pub(crate) struct SpecTxBuilder {}
 
 impl TxBuilder for SpecTxBuilder {
+	fn commit_tx_fee_sat_v2(
+		&self, _feerate_per_kw: u32, _htlcs: Vec<HTLCAmountDirection>, _addl_nondust_htlcs: usize, _channel_type: &ChannelTypeFeatures,
+	) -> u64 {
+		todo!();
+	}
 	fn commit_tx_fee_sat(
 		&self, feerate_per_kw: u32, nondust_htlc_count: usize, channel_type: &ChannelTypeFeatures,
 	) -> u64 {

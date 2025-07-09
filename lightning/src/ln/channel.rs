@@ -70,7 +70,7 @@ use crate::ln::script::{self, ShutdownScript};
 use crate::ln::types::ChannelId;
 use crate::routing::gossip::NodeId;
 use crate::sign::ecdsa::EcdsaChannelSigner;
-use crate::sign::tx_builder::{SpecTxBuilder, TxBuilder};
+use crate::sign::tx_builder::{HTLCAmountDirection, SpecTxBuilder, TxBuilder};
 use crate::sign::{ChannelSigner, EntropySource, NodeSigner, Recipient, SignerProvider};
 use crate::types::features::{ChannelTypeFeatures, InitFeatures};
 use crate::types::payment::{PaymentHash, PaymentPreimage};
@@ -5068,49 +5068,26 @@ where
 	) -> u64 {
 		let context = self;
 		assert!(funding.is_outbound());
+		let mut htlcs: Vec<HTLCAmountDirection> = Vec::new();
 
-		let (htlc_success_dust_limit, htlc_timeout_dust_limit) = if funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
-			(0, 0)
-		} else {
-			(context.feerate_per_kw as u64 * htlc_success_tx_weight(funding.get_channel_type()) / 1000,
-				context.feerate_per_kw as u64 * htlc_timeout_tx_weight(funding.get_channel_type()) / 1000)
-		};
-		let real_dust_limit_success_sat = htlc_success_dust_limit + context.holder_dust_limit_satoshis;
-		let real_dust_limit_timeout_sat = htlc_timeout_dust_limit + context.holder_dust_limit_satoshis;
-
-		let mut addl_htlcs = 0;
-		if fee_spike_buffer_htlc.is_some() { addl_htlcs += 1; }
 		match htlc.origin {
 			HTLCInitiator::LocalOffered => {
-				if htlc.amount_msat / 1000 >= real_dust_limit_timeout_sat {
-					addl_htlcs += 1;
-				}
+				htlcs.push(HTLCAmountDirection { offered: true, amount_msat: htlc.amount_msat });
 			},
 			HTLCInitiator::RemoteOffered => {
-				if htlc.amount_msat / 1000 >= real_dust_limit_success_sat {
-					addl_htlcs += 1;
-				}
+				htlcs.push(HTLCAmountDirection { offered: false, amount_msat: htlc.amount_msat });
 			}
 		}
 
-		let mut included_htlcs = 0;
 		for ref htlc in context.pending_inbound_htlcs.iter() {
-			if htlc.amount_msat / 1000 < real_dust_limit_success_sat {
-				continue
-			}
-			// We include LocalRemoved HTLCs here because we may still need to broadcast a commitment
-			// transaction including this HTLC if it times out before they RAA.
-			included_htlcs += 1;
+			htlcs.push(HTLCAmountDirection { offered: false, amount_msat: htlc.amount_msat });
 		}
 
 		for ref htlc in context.pending_outbound_htlcs.iter() {
-			if htlc.amount_msat / 1000 < real_dust_limit_timeout_sat {
-				continue
-			}
 			match htlc.state {
-				OutboundHTLCState::LocalAnnounced {..} => included_htlcs += 1,
-				OutboundHTLCState::Committed => included_htlcs += 1,
-				OutboundHTLCState::RemoteRemoved {..} => included_htlcs += 1,
+				OutboundHTLCState::LocalAnnounced { .. } | OutboundHTLCState::Committed | OutboundHTLCState::RemoteRemoved { .. }=> {
+					htlcs.push(HTLCAmountDirection { offered: true, amount_msat: htlc.amount_msat });
+				}
 				// We don't include AwaitingRemoteRevokeToRemove HTLCs because our next commitment
 				// transaction won't be generated until they send us their next RAA, which will mean
 				// dropping any HTLCs in this state.
@@ -5121,23 +5098,22 @@ where
 		for htlc in context.holding_cell_htlc_updates.iter() {
 			match htlc {
 				&HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } => {
-					if amount_msat / 1000 < real_dust_limit_timeout_sat {
-						continue
-					}
-					included_htlcs += 1
+					htlcs.push(HTLCAmountDirection { offered: true, amount_msat });
 				},
 				_ => {}, // Don't include claims/fails that are awaiting ack, because once we get the
 				         // ack we're guaranteed to never include them in commitment txs anymore.
 			}
 		}
 
-		let num_htlcs = included_htlcs + addl_htlcs;
-		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat(context.feerate_per_kw, num_htlcs, funding.get_channel_type()) * 1000;
+		#[cfg(any(test, fuzzing))]
+		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.feerate_per_kw, htlcs.clone(), fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
+		#[cfg(not(any(test, fuzzing)))]
+		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.feerate_per_kw, htlcs, fee_spike_buffer_htlc.map(|_| 1).unwrap_or(0), funding.get_channel_type()) * 1000;
 		#[cfg(any(test, fuzzing))]
 		{
 			let mut fee = commit_tx_fee_msat;
 			if fee_spike_buffer_htlc.is_some() {
-				fee = SpecTxBuilder {}.commit_tx_fee_sat(context.feerate_per_kw, num_htlcs - 1, funding.get_channel_type()) * 1000;
+				fee = SpecTxBuilder {}.commit_tx_fee_sat_v2(context.feerate_per_kw, htlcs, 0, funding.get_channel_type()) * 1000;
 			}
 			let total_pending_htlcs = context.pending_inbound_htlcs.len() + context.pending_outbound_htlcs.len()
 				+ context.holding_cell_htlc_updates.len();
