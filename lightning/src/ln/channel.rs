@@ -1066,8 +1066,6 @@ enum HTLCInitiator {
 
 /// Current counts of various HTLCs, useful for calculating current balances available exactly.
 struct HTLCStats {
-	pending_outbound_htlcs: usize,
-	pending_outbound_htlcs_value_msat: u64,
 	on_counterparty_tx_dust_exposure_msat: u64,
 	// If the counterparty sets a feerate on the channel in excess of our dust_exposure_limiting_feerate,
 	// this will be set to the dust exposure that would result from us adding an additional nondust outbound
@@ -4667,6 +4665,25 @@ where
 			.sum()
 	}
 
+	fn pending_outbound_htlcs(&self) -> usize {
+		let outbound_holding_cell_htlcs = self.holding_cell_htlc_updates
+			.iter()
+			.filter(|htlc| {
+				if let HTLCUpdateAwaitingACK::AddHTLC { .. } = htlc {
+					true
+				} else {
+					false
+				}
+			})
+			.count();
+		outbound_holding_cell_htlcs + self.pending_outbound_htlcs.len()
+	}
+
+	fn pending_outbound_htlcs_value_msat(&self) -> u64 {
+		let outbound_holding_cell_msat = self.outbound_holding_cell_msat();
+		outbound_holding_cell_msat + self.pending_outbound_htlcs.iter().map(|htlc| htlc.amount_msat).sum::<u64>()
+	}
+
 	/// Returns a HTLCStats about pending htlcs
 	#[rustfmt::skip]
 	fn get_pending_htlc_stats(
@@ -4685,18 +4702,13 @@ where
 			}
 		}
 
-		let mut pending_outbound_htlcs_value_msat = 0;
-		let mut pending_outbound_htlcs = self.pending_outbound_htlcs.len();
 		{
 			for htlc in context.pending_outbound_htlcs.iter() {
-				pending_outbound_htlcs_value_msat += htlc.amount_msat;
 				on_local_htlcs.push(HTLCAmountDirection { offered: true, amount_msat: htlc.amount_msat });
 			}
 
 			for update in context.holding_cell_htlc_updates.iter() {
 				if let &HTLCUpdateAwaitingACK::AddHTLC { ref amount_msat, .. } = update {
-					pending_outbound_htlcs += 1;
-					pending_outbound_htlcs_value_msat += amount_msat;
 					on_local_htlcs.push(HTLCAmountDirection { offered: true, amount_msat: *amount_msat });
 				}
 			}
@@ -4738,8 +4750,6 @@ where
 		});
 
 		HTLCStats {
-			pending_outbound_htlcs,
-			pending_outbound_htlcs_value_msat,
 			on_counterparty_tx_dust_exposure_msat,
 			extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat,
 			on_holder_tx_dust_exposure_msat,
@@ -4854,12 +4864,15 @@ where
 		let dust_buffer_feerate = context.get_dust_buffer_feerate(None);
 		let counterparty_max_htlc_value_in_flight_msat = context.counterparty_max_htlc_value_in_flight_msat;
 		let counterparty_max_accepted_htlcs = context.counterparty_max_accepted_htlcs;
+		let pending_outbound_htlcs_value_msat = self.pending_outbound_htlcs_value_msat();
+		let pending_inbound_htlcs_value_msat = self.pending_inbound_htlcs_value_msat();
+		let pending_outbound_htlcs = self.pending_outbound_htlcs();
 
 		// Subtract any non-HTLC outputs from the local and remote balances
 		let (local_balance_before_fee_msat, remote_balance_before_fee_msat) = SpecTxBuilder {}.subtract_non_htlc_outputs(
 			funding.is_outbound(),
-			funding.value_to_self_msat.saturating_sub(htlc_stats.pending_outbound_htlcs_value_msat),
-			(funding.get_value_satoshis() * 1000).checked_sub(funding.value_to_self_msat).unwrap().saturating_sub(self.pending_inbound_htlcs_value_msat()),
+			funding.value_to_self_msat.saturating_sub(pending_outbound_htlcs_value_msat),
+			(funding.get_value_satoshis() * 1000).checked_sub(funding.value_to_self_msat).unwrap().saturating_sub(pending_inbound_htlcs_value_msat),
 			funding.get_channel_type(),
 		);
 
@@ -4957,9 +4970,9 @@ where
 		}
 
 		available_capacity_msat = cmp::min(available_capacity_msat,
-			counterparty_max_htlc_value_in_flight_msat - htlc_stats.pending_outbound_htlcs_value_msat);
+			counterparty_max_htlc_value_in_flight_msat - pending_outbound_htlcs_value_msat);
 
-		if htlc_stats.pending_outbound_htlcs + 1 > counterparty_max_accepted_htlcs as usize {
+		if pending_outbound_htlcs + 1 > counterparty_max_accepted_htlcs as usize {
 			available_capacity_msat = 0;
 		}
 
