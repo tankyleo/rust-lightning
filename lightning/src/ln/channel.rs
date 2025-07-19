@@ -4718,35 +4718,11 @@ where
 
 		let on_holder_tx_dust_exposure_msat = SpecTxBuilder {}.on_holder_tx_dust_exposure_msat(dust_buffer_feerate, context.holder_dust_limit_satoshis, funding.get_channel_type(), &on_local_htlcs);
 
-		let mut on_counterparty_tx_dust_exposure_msat: u64 = on_remote_htlcs.iter().filter_map(|htlc| {
-			(SpecTxBuilder {}).is_dust(htlc, dust_buffer_feerate, context.counterparty_dust_limit_satoshis, funding.get_channel_type()).then_some(htlc.amount_msat)
-		}).sum();
-
-		// Include any mining "excess" fees in the dust calculation
 		let current_feerate = outbound_feerate_update
-			.or(self.pending_update_fee.map(|(fee, _)| fee))
-			.unwrap_or(self.feerate_per_kw);
-		let extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat = (current_feerate > dust_exposure_limiting_feerate).then(|| {
-			let limiting_commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat(context.counterparty_dust_limit_satoshis, dust_exposure_limiting_feerate, &on_remote_htlcs, 0, funding.get_channel_type());
-			let current_commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat(context.counterparty_dust_limit_satoshis, current_feerate, &on_remote_htlcs, 0, funding.get_channel_type());
-			let commit_tx_fee_sat = current_commit_tx_fee_sat.saturating_sub(limiting_commit_tx_fee_sat);
-
-			let limiting_htlc_tx_fees_sat = SpecTxBuilder {}.htlc_txs_endogenous_fees_sat(context.counterparty_dust_limit_satoshis, dust_exposure_limiting_feerate, &on_remote_htlcs, 0, funding.get_channel_type());
-			let current_htlc_tx_fees_sat = SpecTxBuilder {}.htlc_txs_endogenous_fees_sat(context.counterparty_dust_limit_satoshis, current_feerate, &on_remote_htlcs, 0, funding.get_channel_type());
-			let htlc_tx_fees_sat = current_htlc_tx_fees_sat.saturating_sub(limiting_htlc_tx_fees_sat);
-
-			let limiting_commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat(context.counterparty_dust_limit_satoshis, dust_exposure_limiting_feerate, &on_remote_htlcs, 1, funding.get_channel_type());
-			let current_commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat(context.counterparty_dust_limit_satoshis, current_feerate, &on_remote_htlcs, 1, funding.get_channel_type());
-			let extra_htlc_commit_tx_fee_sat = current_commit_tx_fee_sat.saturating_sub(limiting_commit_tx_fee_sat);
-
-			let limiting_htlc_tx_fees_sat = SpecTxBuilder {}.htlc_txs_endogenous_fees_sat(context.counterparty_dust_limit_satoshis, dust_exposure_limiting_feerate, &on_remote_htlcs, 1, funding.get_channel_type());
-			let current_htlc_tx_fees_sat = SpecTxBuilder {}.htlc_txs_endogenous_fees_sat(context.counterparty_dust_limit_satoshis, current_feerate, &on_remote_htlcs, 1, funding.get_channel_type());
-			let extra_htlc_htlc_tx_fees_sat = current_htlc_tx_fees_sat.saturating_sub(limiting_htlc_tx_fees_sat);
-
-			let extra_htlc_dust_exposure = on_counterparty_tx_dust_exposure_msat + (extra_htlc_commit_tx_fee_sat + extra_htlc_htlc_tx_fees_sat) * 1000;
-			on_counterparty_tx_dust_exposure_msat += (commit_tx_fee_sat + htlc_tx_fees_sat) * 1000;
-			extra_htlc_dust_exposure
-		});
+				.or(self.pending_update_fee.map(|(fee, _)| fee))
+				.unwrap_or(self.feerate_per_kw);
+		let (on_counterparty_tx_dust_exposure_msat, extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat) =
+			SpecTxBuilder {}.on_counterparty_tx_dust_exposure_msat(dust_exposure_limiting_feerate, current_feerate, dust_buffer_feerate, context.counterparty_dust_limit_satoshis, funding.get_channel_type(), &on_remote_htlcs);
 
 		HTLCStats {
 			on_counterparty_tx_dust_exposure_msat,

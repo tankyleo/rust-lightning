@@ -54,6 +54,17 @@ use core::ops::Deref;
 #[allow(unused_imports)]
 use crate::prelude::*;
 
+#[rustfmt::skip]
+pub(crate) fn htlc_tx_fees_sat(feerate_per_kw: u32, num_accepted_htlcs: usize, num_offered_htlcs: usize, channel_type_features: &ChannelTypeFeatures) -> u64 {
+	let htlc_tx_fees_sat = if !channel_type_features.supports_anchors_zero_fee_htlc_tx() {
+		num_accepted_htlcs as u64 * htlc_success_tx_weight(channel_type_features) * feerate_per_kw as u64 / 1000
+	  + num_offered_htlcs as u64 * htlc_timeout_tx_weight(channel_type_features) * feerate_per_kw as u64 / 1000
+	} else {
+		0
+	};
+	htlc_tx_fees_sat
+}
+
 /// Maximum number of in-flight HTLCs in each direction allowed by the lightning protocol.
 ///
 /// 483 for non-zero-fee-commitment channels and 114 for zero-fee-commitment channels.
