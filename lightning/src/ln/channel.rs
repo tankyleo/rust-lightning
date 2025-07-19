@@ -1074,7 +1074,6 @@ struct HTLCStats {
 	// htlc on the counterparty's commitment transaction.
 	extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat: Option<u64>,
 	on_holder_tx_dust_exposure_msat: u64,
-	outbound_holding_cell_msat: u64,
 }
 
 /// A struct gathering data on a commitment, either local or remote.
@@ -4291,7 +4290,7 @@ where
 		let dust_exposure_limiting_feerate = self.get_dust_exposure_limiting_feerate(&fee_estimator);
 		let htlc_stats = self.get_pending_htlc_stats(funding, Some(feerate_per_kw), dust_exposure_limiting_feerate);
 		let stats = self.build_commitment_stats(funding, true, true, true, Some(feerate_per_kw), Some(CONCURRENT_INBOUND_HTLC_FEE_BUFFER as usize));
-		let holder_balance_msat = stats.local_balance_before_fee_msat - htlc_stats.outbound_holding_cell_msat;
+		let holder_balance_msat = stats.local_balance_before_fee_msat - self.outbound_holding_cell_msat();
 		// Note that `stats.commit_tx_fee_sat` accounts for any HTLCs that transition from non-dust to dust under a higher feerate (in the case where HTLC-transactions pay endogenous fees).
 		if holder_balance_msat < stats.commit_tx_fee_sat * 1000 + funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 {
 			//TODO: auto-close after a number of failures?
@@ -4655,6 +4654,19 @@ where
 		self.pending_inbound_htlcs.iter().map(|htlc| htlc.amount_msat).sum()
 	}
 
+	fn outbound_holding_cell_msat(&self) -> u64 {
+		self.holding_cell_htlc_updates
+			.iter()
+			.filter_map(|htlc| {
+				if let HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = htlc {
+					Some(amount_msat)
+				} else {
+					None
+				}
+			})
+			.sum()
+	}
+
 	/// Returns a HTLCStats about pending htlcs
 	#[rustfmt::skip]
 	fn get_pending_htlc_stats(
@@ -4674,7 +4686,6 @@ where
 		}
 
 		let mut pending_outbound_htlcs_value_msat = 0;
-		let mut outbound_holding_cell_msat = 0;
 		let mut pending_outbound_htlcs = self.pending_outbound_htlcs.len();
 		{
 			for htlc in context.pending_outbound_htlcs.iter() {
@@ -4686,7 +4697,6 @@ where
 				if let &HTLCUpdateAwaitingACK::AddHTLC { ref amount_msat, .. } = update {
 					pending_outbound_htlcs += 1;
 					pending_outbound_htlcs_value_msat += amount_msat;
-					outbound_holding_cell_msat += amount_msat;
 					on_local_htlcs.push(HTLCAmountDirection { offered: true, amount_msat: *amount_msat });
 				}
 			}
@@ -4733,7 +4743,6 @@ where
 			on_counterparty_tx_dust_exposure_msat,
 			extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat,
 			on_holder_tx_dust_exposure_msat,
-			outbound_holding_cell_msat,
 		}
 	}
 
