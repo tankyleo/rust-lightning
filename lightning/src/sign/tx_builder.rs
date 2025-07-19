@@ -19,6 +19,10 @@ pub(crate) struct HTLCAmountDirection {
 }
 
 pub(crate) trait TxBuilder {
+	fn on_holder_tx_dust_exposure_msat(
+		&self, dust_buffer_feerate: u32, holder_dust_limit_satoshis: u64,
+		channel_type: &ChannelTypeFeatures, htlcs: &[HTLCAmountDirection],
+	) -> u64;
 	fn htlc_success_timeout_dust_limits(
 		&self, feerate_per_kw: u32, broadcaster_dust_limit_sat: u64,
 		channel_type: &ChannelTypeFeatures,
@@ -52,6 +56,18 @@ pub(crate) trait TxBuilder {
 pub(crate) struct SpecTxBuilder {}
 
 impl TxBuilder for SpecTxBuilder {
+	fn on_holder_tx_dust_exposure_msat(
+		&self, dust_buffer_feerate: u32, holder_dust_limit_satoshis: u64,
+		channel_type: &ChannelTypeFeatures, htlcs: &[HTLCAmountDirection],
+	) -> u64 {
+		htlcs
+			.iter()
+			.filter_map(|htlc| {
+				self.is_dust(htlc, dust_buffer_feerate, holder_dust_limit_satoshis, channel_type)
+					.then_some(htlc.amount_msat)
+			})
+			.sum()
+	}
 	fn htlc_success_timeout_dust_limits(
 		&self, feerate_per_kw: u32, broadcaster_dust_limit_sat: u64,
 		channel_type: &ChannelTypeFeatures,

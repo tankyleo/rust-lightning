@@ -4666,22 +4666,26 @@ where
 	}
 
 	fn pending_outbound_htlcs(&self) -> usize {
-		let outbound_holding_cell_htlcs = self.holding_cell_htlc_updates
+		let outbound_holding_cell_htlcs = self
+			.holding_cell_htlc_updates
 			.iter()
-			.filter(|htlc| {
-				if let HTLCUpdateAwaitingACK::AddHTLC { .. } = htlc {
-					true
-				} else {
-					false
-				}
-			})
+			.filter(
+				|htlc| {
+					if let HTLCUpdateAwaitingACK::AddHTLC { .. } = htlc {
+						true
+					} else {
+						false
+					}
+				},
+			)
 			.count();
 		outbound_holding_cell_htlcs + self.pending_outbound_htlcs.len()
 	}
 
 	fn pending_outbound_htlcs_value_msat(&self) -> u64 {
 		let outbound_holding_cell_msat = self.outbound_holding_cell_msat();
-		outbound_holding_cell_msat + self.pending_outbound_htlcs.iter().map(|htlc| htlc.amount_msat).sum::<u64>()
+		outbound_holding_cell_msat
+			+ self.pending_outbound_htlcs.iter().map(|htlc| htlc.amount_msat).sum::<u64>()
 	}
 
 	/// Returns a HTLCStats about pending htlcs
@@ -4696,29 +4700,24 @@ where
 
 		let dust_buffer_feerate = context.get_dust_buffer_feerate(outbound_feerate_update);
 
-		{
-			for htlc in context.pending_inbound_htlcs.iter() {
-				on_local_htlcs.push(HTLCAmountDirection { offered: false, amount_msat: htlc.amount_msat });
-			}
+		for htlc in context.pending_inbound_htlcs.iter() {
+			on_local_htlcs.push(HTLCAmountDirection { offered: false, amount_msat: htlc.amount_msat });
 		}
 
-		{
-			for htlc in context.pending_outbound_htlcs.iter() {
-				on_local_htlcs.push(HTLCAmountDirection { offered: true, amount_msat: htlc.amount_msat });
-			}
+		for htlc in context.pending_outbound_htlcs.iter() {
+			on_local_htlcs.push(HTLCAmountDirection { offered: true, amount_msat: htlc.amount_msat });
+		}
 
-			for update in context.holding_cell_htlc_updates.iter() {
-				if let &HTLCUpdateAwaitingACK::AddHTLC { ref amount_msat, .. } = update {
-					on_local_htlcs.push(HTLCAmountDirection { offered: true, amount_msat: *amount_msat });
-				}
+		for update in context.holding_cell_htlc_updates.iter() {
+			if let &HTLCUpdateAwaitingACK::AddHTLC { ref amount_msat, .. } = update {
+				on_local_htlcs.push(HTLCAmountDirection { offered: true, amount_msat: *amount_msat });
 			}
 		}
 
 		let on_remote_htlcs: Vec<_> = on_local_htlcs.iter().map(|HTLCAmountDirection { offered, amount_msat }| HTLCAmountDirection { offered: !offered, amount_msat: *amount_msat }).collect();
 
-		let on_holder_tx_dust_exposure_msat: u64 = on_local_htlcs.iter().filter_map(|htlc| {
-			(SpecTxBuilder {}).is_dust(htlc, dust_buffer_feerate, context.holder_dust_limit_satoshis, funding.get_channel_type()).then_some(htlc.amount_msat)
-		}).sum();
+		let on_holder_tx_dust_exposure_msat = SpecTxBuilder {}.on_holder_tx_dust_exposure_msat(dust_buffer_feerate, context.holder_dust_limit_satoshis, funding.get_channel_type(), &on_local_htlcs);
+
 		let mut on_counterparty_tx_dust_exposure_msat: u64 = on_remote_htlcs.iter().filter_map(|htlc| {
 			(SpecTxBuilder {}).is_dust(htlc, dust_buffer_feerate, context.counterparty_dust_limit_satoshis, funding.get_channel_type()).then_some(htlc.amount_msat)
 		}).sum();
