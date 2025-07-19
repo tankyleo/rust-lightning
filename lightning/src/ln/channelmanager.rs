@@ -6235,9 +6235,7 @@ where
 				// Process the HTLC on the incoming channel.
 				match self.do_funded_channel_callback(incoming_scid, |chan: &mut FundedChannel<SP>| {
 					let logger = WithChannelContext::from(&self.logger, &chan.context, Some(update_add_htlc.payment_hash));
-					chan.can_accept_incoming_htlc(
-						update_add_htlc, &self.fee_estimator, &logger,
-					)
+					chan.can_accept_incoming_htlc(&self.fee_estimator, &logger)
 				}) {
 					Some(Ok(_)) => {},
 					Some(Err(reason)) => {

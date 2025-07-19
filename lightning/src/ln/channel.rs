@@ -4312,8 +4312,7 @@ where
 
 	#[rustfmt::skip]
 	fn can_accept_incoming_htlc<L: Deref>(
-		&self, funding: &FundingScope, msg: &msgs::UpdateAddHTLC,
-		dust_exposure_limiting_feerate: u32, logger: &L,
+		&self, funding: &FundingScope, dust_exposure_limiting_feerate: u32, logger: &L,
 	) -> Result<(), LocalHTLCFailureReason>
 	where
 		L::Target: Logger,
@@ -4327,14 +4326,11 @@ where
 				on_counterparty_tx_dust_htlc_exposure_msat, max_dust_htlc_exposure_msat);
 			return Err(LocalHTLCFailureReason::DustLimitCounterparty)
 		}
-		let dust_buffer_feerate = self.get_dust_buffer_feerate(None);
-		if (SpecTxBuilder {}).is_dust(&HTLCAmountDirection { offered: false, amount_msat: msg.amount_msat, }, dust_buffer_feerate, self.holder_dust_limit_satoshis, funding.get_channel_type()) {
-			let on_holder_tx_dust_htlc_exposure_msat = htlc_stats.on_holder_tx_dust_exposure_msat;
-			if on_holder_tx_dust_htlc_exposure_msat > max_dust_htlc_exposure_msat {
-				log_info!(logger, "Cannot accept value that would put our exposure to dust HTLCs at {} over the limit {} on holder commitment tx",
-					on_holder_tx_dust_htlc_exposure_msat, max_dust_htlc_exposure_msat);
-				return Err(LocalHTLCFailureReason::DustLimitHolder)
-			}
+		let on_holder_tx_dust_htlc_exposure_msat = htlc_stats.on_holder_tx_dust_exposure_msat;
+		if on_holder_tx_dust_htlc_exposure_msat > max_dust_htlc_exposure_msat {
+			log_info!(logger, "Cannot accept value that would put our exposure to dust HTLCs at {} over the limit {} on holder commitment tx",
+				on_holder_tx_dust_htlc_exposure_msat, max_dust_htlc_exposure_msat);
+			return Err(LocalHTLCFailureReason::DustLimitHolder)
 		}
 
 		if !funding.is_outbound() {
@@ -9079,7 +9075,7 @@ where
 	/// this function determines whether to fail the HTLC, or forward / claim it.
 	#[rustfmt::skip]
 	pub fn can_accept_incoming_htlc<F: Deref, L: Deref>(
-		&self, msg: &msgs::UpdateAddHTLC, fee_estimator: &LowerBoundedFeeEstimator<F>, logger: L
+		&self, fee_estimator: &LowerBoundedFeeEstimator<F>, logger: L
 	) -> Result<(), LocalHTLCFailureReason>
 	where
 		F::Target: FeeEstimator,
@@ -9093,7 +9089,7 @@ where
 
 		core::iter::once(&self.funding)
 			.chain(self.pending_funding.iter())
-			.try_for_each(|funding| self.context.can_accept_incoming_htlc(funding, msg, dust_exposure_limiting_feerate, &logger))
+			.try_for_each(|funding| self.context.can_accept_incoming_htlc(funding, dust_exposure_limiting_feerate, &logger))
 	}
 
 	pub fn get_cur_holder_commitment_transaction_number(&self) -> u64 {
