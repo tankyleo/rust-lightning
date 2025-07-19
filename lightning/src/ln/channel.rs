@@ -1066,9 +1066,7 @@ enum HTLCInitiator {
 
 /// Current counts of various HTLCs, useful for calculating current balances available exactly.
 struct HTLCStats {
-	pending_inbound_htlcs: usize,
 	pending_outbound_htlcs: usize,
-	pending_inbound_htlcs_value_msat: u64,
 	pending_outbound_htlcs_value_msat: u64,
 	on_counterparty_tx_dust_exposure_msat: u64,
 	// If the counterparty sets a feerate on the channel in excess of our dust_exposure_limiting_feerate,
@@ -4090,23 +4088,19 @@ where
 	}
 
 	#[rustfmt::skip]
-	fn validate_update_add_htlc<F: Deref>(
+	fn validate_update_add_htlc(
 		&self, funding: &FundingScope, msg: &msgs::UpdateAddHTLC,
-		fee_estimator: &LowerBoundedFeeEstimator<F>,
 	) -> Result<(), ChannelError>
-	where
-		F::Target: FeeEstimator,
 	{
 		if msg.amount_msat > funding.get_value_satoshis() * 1000 {
 			return Err(ChannelError::close("Remote side tried to send more than the total value of the channel".to_owned()));
 		}
 
-		let dust_exposure_limiting_feerate = self.get_dust_exposure_limiting_feerate(&fee_estimator);
-		let htlc_stats = self.get_pending_htlc_stats(funding, None, dust_exposure_limiting_feerate);
-		if htlc_stats.pending_inbound_htlcs + 1 > self.holder_max_accepted_htlcs as usize {
+		let pending_inbound_htlcs_value_msat = self.pending_inbound_htlcs_value_msat();
+		if self.pending_inbound_htlcs.len() + 1 > self.holder_max_accepted_htlcs as usize {
 			return Err(ChannelError::close(format!("Remote tried to push more than our max accepted HTLCs ({})", self.holder_max_accepted_htlcs)));
 		}
-		if htlc_stats.pending_inbound_htlcs_value_msat + msg.amount_msat > self.holder_max_htlc_value_in_flight_msat {
+		if self.pending_inbound_htlcs_value_msat() + msg.amount_msat > self.holder_max_htlc_value_in_flight_msat {
 			return Err(ChannelError::close(format!("Remote HTLC add would put them over our max HTLC value ({})", self.holder_max_htlc_value_in_flight_msat)));
 		}
 
@@ -4130,7 +4124,7 @@ where
 				}
 			}
 			let pending_value_to_self_msat =
-				funding.value_to_self_msat + htlc_stats.pending_inbound_htlcs_value_msat - removed_outbound_total_msat;
+				funding.value_to_self_msat + pending_inbound_htlcs_value_msat - removed_outbound_total_msat;
 			let pending_remote_value_msat =
 				funding.get_value_satoshis() * 1000 - pending_value_to_self_msat;
 
@@ -4355,7 +4349,7 @@ where
 			}
 
 			let pending_value_to_self_msat =
-				funding.value_to_self_msat + htlc_stats.pending_inbound_htlcs_value_msat - removed_outbound_total_msat;
+				funding.value_to_self_msat + self.pending_inbound_htlcs_value_msat() - removed_outbound_total_msat;
 			let pending_remote_value_msat =
 				funding.get_value_satoshis() * 1000 - pending_value_to_self_msat;
 			// Subtract any non-HTLC outputs from the local and remote balances
@@ -4657,6 +4651,10 @@ where
 		self.counterparty_forwarding_info.clone()
 	}
 
+	fn pending_inbound_htlcs_value_msat(&self) -> u64 {
+		self.pending_inbound_htlcs.iter().map(|htlc| htlc.amount_msat).sum()
+	}
+
 	/// Returns a HTLCStats about pending htlcs
 	#[rustfmt::skip]
 	fn get_pending_htlc_stats(
@@ -4669,11 +4667,8 @@ where
 
 		let dust_buffer_feerate = context.get_dust_buffer_feerate(outbound_feerate_update);
 
-		let mut pending_inbound_htlcs_value_msat = 0;
-
 		{
 			for htlc in context.pending_inbound_htlcs.iter() {
-				pending_inbound_htlcs_value_msat += htlc.amount_msat;
 				on_local_htlcs.push(HTLCAmountDirection { offered: false, amount_msat: htlc.amount_msat });
 			}
 		}
@@ -4733,9 +4728,7 @@ where
 		});
 
 		HTLCStats {
-			pending_inbound_htlcs: self.pending_inbound_htlcs.len(),
 			pending_outbound_htlcs,
-			pending_inbound_htlcs_value_msat,
 			pending_outbound_htlcs_value_msat,
 			on_counterparty_tx_dust_exposure_msat,
 			extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat,
@@ -4857,7 +4850,7 @@ where
 		let (local_balance_before_fee_msat, remote_balance_before_fee_msat) = SpecTxBuilder {}.subtract_non_htlc_outputs(
 			funding.is_outbound(),
 			funding.value_to_self_msat.saturating_sub(htlc_stats.pending_outbound_htlcs_value_msat),
-			(funding.get_value_satoshis() * 1000).checked_sub(funding.value_to_self_msat).unwrap().saturating_sub(htlc_stats.pending_inbound_htlcs_value_msat),
+			(funding.get_value_satoshis() * 1000).checked_sub(funding.value_to_self_msat).unwrap().saturating_sub(self.pending_inbound_htlcs_value_msat()),
 			funding.get_channel_type(),
 		);
 
@@ -6409,9 +6402,7 @@ where
 	}
 
 	#[rustfmt::skip]
-	pub fn update_add_htlc<F: Deref>(
-		&mut self, msg: &msgs::UpdateAddHTLC, fee_estimator: &LowerBoundedFeeEstimator<F>,
-	) -> Result<(), ChannelError> where F::Target: FeeEstimator {
+	pub fn update_add_htlc(&mut self, msg: &msgs::UpdateAddHTLC) -> Result<(), ChannelError> {
 		if self.context.channel_state.is_remote_stfu_sent() || self.context.channel_state.is_quiescent() {
 			return Err(ChannelError::WarnAndDisconnect("Got add HTLC message while quiescent".to_owned()));
 		}
@@ -6440,7 +6431,7 @@ where
 
 		core::iter::once(&self.funding)
 			.chain(self.pending_funding.iter())
-			.try_for_each(|funding| self.context.validate_update_add_htlc(funding, msg, fee_estimator))?;
+			.try_for_each(|funding| self.context.validate_update_add_htlc(funding, msg))?;
 
 		// Now update local state:
 		self.context.next_counterparty_htlc_id += 1;
