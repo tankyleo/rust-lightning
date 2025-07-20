@@ -13,6 +13,7 @@ use crate::prelude::*;
 use crate::types::features::ChannelTypeFeatures;
 use crate::util::logger::Logger;
 
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct HTLCAmountDirection {
 	pub offered: bool,
 	pub amount_msat: u64,
@@ -132,6 +133,7 @@ impl TxBuilder for SpecTxBuilder {
 		&self, broadcaster_dust_limit_sat: u64, feerate_per_kw: u32, htlcs: &[HTLCAmountDirection],
 		addl_nondust_htlcs: usize, channel_type: &ChannelTypeFeatures,
 	) -> u64 {
+		println!("{:#?}", htlcs);
 		let (dust_limit_success_sat, dust_limit_timeout_sat) = self
 			.htlc_success_timeout_dust_limits(
 				feerate_per_kw,
