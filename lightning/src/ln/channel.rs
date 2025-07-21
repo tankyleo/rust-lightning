@@ -70,7 +70,7 @@ use crate::ln::script::{self, ShutdownScript};
 use crate::ln::types::ChannelId;
 use crate::routing::gossip::NodeId;
 use crate::sign::ecdsa::EcdsaChannelSigner;
-use crate::sign::tx_builder::{SpecTxBuilder, TxBuilder};
+use crate::sign::tx_builder::{HTLCAmountDirection, HTLCAmountHeading, SpecTxBuilder, TxBuilder, TxBuilderError};
 use crate::sign::{ChannelSigner, EntropySource, NodeSigner, Recipient, SignerProvider};
 use crate::types::features::{ChannelTypeFeatures, InitFeatures};
 use crate::types::payment::{PaymentHash, PaymentPreimage};
@@ -1113,7 +1113,6 @@ struct HTLCStats {
 	extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat: Option<u64>,
 	on_holder_tx_dust_exposure_msat: u64,
 	outbound_holding_cell_msat: u64,
-	on_holder_tx_outbound_holding_cell_htlcs_count: u32, // dust HTLCs *non*-included
 }
 
 /// A struct gathering data on a commitment, either local or remote.
@@ -4202,15 +4201,26 @@ where
 		let dust_exposure_limiting_feerate = self.get_dust_exposure_limiting_feerate(
 			&fee_estimator, funding.get_channel_type(),
 		);
-		let htlc_stats = self.get_pending_htlc_stats(funding, None, dust_exposure_limiting_feerate);
-		let max_dust_htlc_exposure_msat = self.get_max_dust_htlc_exposure_msat(dust_exposure_limiting_feerate);
-		if htlc_stats.on_holder_tx_dust_exposure_msat > max_dust_htlc_exposure_msat {
-			return Err(ChannelError::close(format!("Peer sent update_fee with a feerate ({}) which may over-expose us to dust-in-flight on our own transactions (totaling {} msat)",
-				msg.feerate_per_kw, htlc_stats.on_holder_tx_dust_exposure_msat)));
-		}
-		if htlc_stats.on_counterparty_tx_dust_exposure_msat > max_dust_htlc_exposure_msat {
-			return Err(ChannelError::close(format!("Peer sent update_fee with a feerate ({}) which may over-expose us to dust-in-flight on our counterparty's transactions (totaling {} msat)",
-				msg.feerate_per_kw, htlc_stats.on_counterparty_tx_dust_exposure_msat)));
+		let ret = self.check_exposure(None, dust_exposure_limiting_feerate, funding.get_channel_type());
+		match ret {
+			Err(TxBuilderError::DustExposure {
+				max: _,
+				holder: Some(holder),
+				..
+			}) => {
+				return Err(ChannelError::close(format!("Peer sent update_fee with a feerate ({}) which may over-expose us to dust-in-flight on our own transactions (totaling {} msat)",
+					msg.feerate_per_kw, holder)));
+			}
+			Err(TxBuilderError::DustExposure {
+				max: _,
+				counterparty: Some(counterparty),
+				..
+			}) => {
+				return Err(ChannelError::close(format!("Peer sent update_fee with a feerate ({}) which may over-expose us to dust-in-flight on our counterparty's transactions (totaling {} msat)",
+					msg.feerate_per_kw, counterparty)));
+			}
+			// We ignore any other errors for now...
+			_ => (),
 		}
 		Ok(())
 	}
@@ -4322,7 +4332,7 @@ where
 			&fee_estimator, funding.get_channel_type(),
 		);
 		let htlc_stats = self.get_pending_htlc_stats(funding, Some(feerate_per_kw), dust_exposure_limiting_feerate);
-		let stats = self.build_commitment_stats(funding, true, true, Some(feerate_per_kw), Some(htlc_stats.on_holder_tx_outbound_holding_cell_htlcs_count as usize + CONCURRENT_INBOUND_HTLC_FEE_BUFFER as usize));
+		let stats = self.build_commitment_stats(funding, true, true, Some(feerate_per_kw), Some(CONCURRENT_INBOUND_HTLC_FEE_BUFFER as usize));
 		let holder_balance_msat = stats.local_balance_before_fee_msat - htlc_stats.outbound_holding_cell_msat;
 		// Note that `stats.commit_tx_fee_sat` accounts for any HTLCs that transition from non-dust to dust under a higher feerate (in the case where HTLC-transactions pay endogenous fees).
 		if holder_balance_msat < stats.commit_tx_fee_sat * 1000 + funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 {
@@ -4332,12 +4342,8 @@ where
 		}
 
 		// Note, we evaluate pending htlc "preemptive" trimmed-to-dust threshold at the proposed `feerate_per_kw`.
-		let max_dust_htlc_exposure_msat = self.get_max_dust_htlc_exposure_msat(dust_exposure_limiting_feerate);
-		if htlc_stats.on_holder_tx_dust_exposure_msat > max_dust_htlc_exposure_msat {
-			log_debug!(logger, "Cannot afford to send new feerate at {} without infringing max dust htlc exposure", feerate_per_kw);
-			return false;
-		}
-		if htlc_stats.on_counterparty_tx_dust_exposure_msat > max_dust_htlc_exposure_msat {
+		let ret = self.check_exposure(Some(feerate_per_kw), dust_exposure_limiting_feerate, funding.get_channel_type());
+		if let Err(_) = ret {
 			log_debug!(logger, "Cannot afford to send new feerate at {} without infringing max dust htlc exposure", feerate_per_kw);
 			return false;
 		}
@@ -4353,29 +4359,34 @@ where
 	where
 		L::Target: Logger,
 	{
-		let htlc_stats = self.get_pending_htlc_stats(funding, None, dust_exposure_limiting_feerate);
-		let max_dust_htlc_exposure_msat = self.get_max_dust_htlc_exposure_msat(dust_exposure_limiting_feerate);
-		let on_counterparty_tx_dust_htlc_exposure_msat = htlc_stats.on_counterparty_tx_dust_exposure_msat;
-		if on_counterparty_tx_dust_htlc_exposure_msat > max_dust_htlc_exposure_msat {
-			// Note that the total dust exposure includes both the dust HTLCs and the excess mining fees of the counterparty commitment transaction
-			log_info!(logger, "Cannot accept value that would put our total dust exposure at {} over the limit {} on counterparty commitment tx",
-				on_counterparty_tx_dust_htlc_exposure_msat, max_dust_htlc_exposure_msat);
-			return Err(LocalHTLCFailureReason::DustLimitCounterparty)
-		}
-		let dust_buffer_feerate = self.get_dust_buffer_feerate(None);
-		let (htlc_success_tx_fee_sat, _) = second_stage_tx_fees_sat(
-			&funding.get_channel_type(), dust_buffer_feerate,
-		);
-		let exposure_dust_limit_success_sats = htlc_success_tx_fee_sat + self.holder_dust_limit_satoshis;
-		if msg.amount_msat / 1000 < exposure_dust_limit_success_sats {
-			let on_holder_tx_dust_htlc_exposure_msat = htlc_stats.on_holder_tx_dust_exposure_msat;
-			if on_holder_tx_dust_htlc_exposure_msat > max_dust_htlc_exposure_msat {
+		let ret = self.check_exposure(None, dust_exposure_limiting_feerate, funding.get_channel_type());
+		match ret {
+			Err(TxBuilderError::DustExposure {
+				max,
+				counterparty: Some(counterparty),
+				..
+			}) => {
+				// Note that the total dust exposure includes both the dust HTLCs and the excess mining fees of the counterparty commitment transaction
+				log_info!(logger, "Cannot accept value that would put our total dust exposure at {} over the limit {} on counterparty commitment tx",
+					counterparty, max);
+				return Err(LocalHTLCFailureReason::DustLimitCounterparty)
+			}
+			Err(TxBuilderError::DustExposure {
+				max,
+				holder: Some(holder),
+				..
+			}) => {
+				// Note: We now always check holder dust exposure, whereas we previously would only
+				// do it if the incoming HTLC was dust on our own commitment transaction
 				log_info!(logger, "Cannot accept value that would put our exposure to dust HTLCs at {} over the limit {} on holder commitment tx",
-					on_holder_tx_dust_htlc_exposure_msat, max_dust_htlc_exposure_msat);
+					holder, max);
 				return Err(LocalHTLCFailureReason::DustLimitHolder)
 			}
+			// We ignore any other errors for now...
+			_ => (),
 		}
 
+		let htlc_stats = self.get_pending_htlc_stats(funding, None, dust_exposure_limiting_feerate);
 		if !funding.is_outbound() {
 			let removed_outbound_total_msat: u64 = self.pending_outbound_htlcs
 				.iter()
@@ -4461,6 +4472,7 @@ where
 
 		let feerate_per_kw = feerate_per_kw.unwrap_or_else(|| self.get_commitment_feerate(funding, generated_by_local));
 
+		let mut htlcs: Vec<HTLCAmountDirection> = Vec::with_capacity(self.pending_inbound_htlcs.len() + self.pending_outbound_htlcs.len() + self.holding_cell_htlc_updates.len());
 		for htlc in self.pending_inbound_htlcs.iter() {
 			if htlc.state.included_in_commitment(generated_by_local) {
 				if !htlc.is_dust(local, feerate_per_kw, broadcaster_dust_limit_sat, funding.get_channel_type()) {
@@ -4486,6 +4498,16 @@ where
 				}
 			}
 		};
+
+		// This is only true in `can_send_update_fee` when we check whether we can afford the new feerate
+		if local && generated_by_local {
+			for update in self.holding_cell_htlc_updates.iter() {
+				if let &HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = update {
+					htlcs.push(HTLCAmountDirection { offered: local, amount_msat });
+					local_htlc_total_msat += amount_msat;
+				}
+			}
+		}
 
 		// # Panics
 		//
@@ -4694,6 +4716,54 @@ where
 		self.counterparty_forwarding_info.clone()
 	}
 
+	pub fn get_pending_htlcs(&self) -> Vec<HTLCAmountHeading> {
+		let mut pending_htlcs: Vec<HTLCAmountHeading> = Vec::with_capacity(
+			self.pending_inbound_htlcs.len()
+				+ self.pending_outbound_htlcs.len()
+				+ self.holding_cell_htlc_updates.len(),
+		);
+
+		for htlc in self.pending_inbound_htlcs.iter() {
+			pending_htlcs
+				.push(HTLCAmountHeading { outbound: false, amount_msat: htlc.amount_msat });
+		}
+
+		for htlc in self.pending_outbound_htlcs.iter() {
+			pending_htlcs
+				.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat });
+		}
+
+		for update in self.holding_cell_htlc_updates.iter() {
+			if let &HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = update {
+				pending_htlcs.push(HTLCAmountHeading { outbound: true, amount_msat });
+			}
+		}
+		pending_htlcs
+	}
+
+	fn check_exposure(
+		&self, outbound_feerate_update: Option<u32>, dust_exposure_limiting_feerate: Option<u32>,
+		channel_type: &ChannelTypeFeatures,
+	) -> Result<(), TxBuilderError> {
+		let max_dust_htlc_exposure_msat =
+			self.get_max_dust_htlc_exposure_msat(dust_exposure_limiting_feerate);
+		let htlc_list = self.get_pending_htlcs();
+		let dust_buffer_feerate = self.get_dust_buffer_feerate(outbound_feerate_update);
+
+		let current_feerate = outbound_feerate_update
+				.or(self.pending_update_fee.map(|(fee, _)| fee))
+				.unwrap_or(self.feerate_per_kw);
+		let excess_feerate_opt = current_feerate.checked_sub(dust_exposure_limiting_feerate.unwrap_or(0));
+
+		// Dust exposure is only decoupled from feerate for zero fee commitment channels.
+		if channel_type.supports_anchor_zero_fee_commitments() {
+			debug_assert!(dust_exposure_limiting_feerate.is_none());
+			debug_assert_eq!(excess_feerate_opt, Some(0));
+		}
+
+		SpecTxBuilder {}.check_exposure(&htlc_list, dust_buffer_feerate, excess_feerate_opt, max_dust_htlc_exposure_msat, channel_type, self.holder_dust_limit_satoshis, self.counterparty_dust_limit_satoshis)
+	}
+
 	/// Returns a HTLCStats about pending htlcs
 	#[rustfmt::skip]
 	fn get_pending_htlc_stats(
@@ -4733,7 +4803,6 @@ where
 
 		let mut pending_outbound_htlcs_value_msat = 0;
 		let mut outbound_holding_cell_msat = 0;
-		let mut on_holder_tx_outbound_holding_cell_htlcs_count = 0;
 		let mut pending_outbound_htlcs = self.pending_outbound_htlcs.len();
 		{
 			let counterparty_dust_limit_success_sat = htlc_success_tx_fee_sat + context.counterparty_dust_limit_satoshis;
@@ -4762,8 +4831,6 @@ where
 					}
 					if *amount_msat / 1000 < holder_dust_limit_timeout_sat {
 						on_holder_tx_dust_exposure_msat += amount_msat;
-					} else {
-						on_holder_tx_outbound_holding_cell_htlcs_count += 1;
 					}
 				}
 			}
@@ -4803,7 +4870,6 @@ where
 			extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat,
 			on_holder_tx_dust_exposure_msat,
 			outbound_holding_cell_msat,
-			on_holder_tx_outbound_holding_cell_htlcs_count,
 		}
 	}
 
