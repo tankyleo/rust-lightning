@@ -13700,6 +13700,7 @@ mod tests {
 	use crate::util::test_utils::{
 		self, OnGetShutdownScriptpubkey, TestFeeEstimator, TestKeysInterface, TestLogger,
 	};
+	use crate::sync::Arc;
 	use bitcoin::amount::Amount;
 	use bitcoin::constants::ChainHash;
 	use bitcoin::hashes::sha256::Hash as Sha256;
@@ -13744,7 +13745,7 @@ mod tests {
 	}
 
 	struct Keys {
-		signer: InMemorySigner,
+		signer: InMemorySigner<Arc<TestLogger>>,
 	}
 
 	impl EntropySource for Keys {
@@ -13754,9 +13755,9 @@ mod tests {
 	}
 
 	impl SignerProvider for Keys {
-		type EcdsaSigner = InMemorySigner;
+		type EcdsaSigner = InMemorySigner<Arc<TestLogger>>;
 		#[cfg(taproot)]
-		type TaprootSigner = InMemorySigner;
+		type TaprootSigner = InMemorySigner<Arc<TestLogger>>;
 
 		fn generate_channel_keys_id(&self, _inbound: bool, _user_channel_id: u128) -> [u8; 32] {
 			self.signer.channel_keys_id()

@@ -60,6 +60,7 @@ use crate::types::payment::PaymentPreimage;
 use crate::util::async_poll::AsyncResult;
 use crate::util::ser::{ReadableArgs, Writeable};
 use crate::util::transaction_utils;
+use crate::util::logger::Logger;
 
 use crate::crypto::chacha20::ChaCha20;
 use crate::prelude::*;
@@ -961,8 +962,8 @@ pub trait OutputSpender {
 #[cfg(taproot)]
 #[doc(hidden)]
 #[deprecated(note = "Remove once taproot cfg is removed")]
-pub type DynSignerProvider =
-	dyn SignerProvider<EcdsaSigner = InMemorySigner, TaprootSigner = InMemorySigner>;
+pub type DynSignerProvider<L> =
+	dyn SignerProvider<EcdsaSigner = InMemorySigner<L>, TaprootSigner = InMemorySigner<L>>;
 
 /// A dynamic [`SignerProvider`] temporarily needed for doc tests.
 ///
@@ -970,7 +971,7 @@ pub type DynSignerProvider =
 #[cfg(not(taproot))]
 #[doc(hidden)]
 #[deprecated(note = "Remove once taproot cfg is removed")]
-pub type DynSignerProvider = dyn SignerProvider<EcdsaSigner = InMemorySigner>;
+pub type DynSignerProvider<L> = dyn SignerProvider<EcdsaSigner = InMemorySigner<L>>;
 
 /// A trait that can return signer instances for individual channels.
 pub trait SignerProvider {
@@ -1117,7 +1118,7 @@ pub fn compute_funding_key_tweak(
 ///
 /// This implementation performs no policy checks and is insufficient by itself as
 /// a secure external signer.
-pub struct InMemorySigner {
+pub struct InMemorySigner<L: Deref> where L::Target: Logger {
 	/// Holder secret key in the 2-of-2 multisig script of a channel. This key also backs the
 	/// holder's anchor output in a commitment transaction, if one is present.
 	funding_key: sealed::MaybeTweakedSecretKey,
@@ -1137,9 +1138,12 @@ pub struct InMemorySigner {
 	channel_keys_id: [u8; 32],
 	/// A source of random bytes.
 	entropy_source: RandomBytes,
+	/// A logger
+	#[allow(dead_code)]
+	logger: L,
 }
 
-impl PartialEq for InMemorySigner {
+impl<L: Deref> PartialEq for InMemorySigner<L> where L::Target: Logger {
 	fn eq(&self, other: &Self) -> bool {
 		self.funding_key == other.funding_key
 			&& self.revocation_base_key == other.revocation_base_key
@@ -1152,7 +1156,7 @@ impl PartialEq for InMemorySigner {
 	}
 }
 
-impl Clone for InMemorySigner {
+impl<L: Deref + Clone> Clone for InMemorySigner<L> where L::Target: Logger {
 	fn clone(&self) -> Self {
 		Self {
 			funding_key: self.funding_key.clone(),
@@ -1164,18 +1168,19 @@ impl Clone for InMemorySigner {
 			holder_channel_pubkeys: self.holder_channel_pubkeys.clone(),
 			channel_keys_id: self.channel_keys_id,
 			entropy_source: RandomBytes::new(self.get_secure_random_bytes()),
+			logger: self.logger.clone(),
 		}
 	}
 }
 
-impl InMemorySigner {
+impl<L: Deref> InMemorySigner<L> where L::Target: Logger {
 	/// Creates a new [`InMemorySigner`].
 	pub fn new<C: Signing>(
 		secp_ctx: &Secp256k1<C>, funding_key: SecretKey, revocation_base_key: SecretKey,
 		payment_key: SecretKey, delayed_payment_base_key: SecretKey, htlc_base_key: SecretKey,
-		commitment_seed: [u8; 32], channel_keys_id: [u8; 32], rand_bytes_unique_start: [u8; 32],
-	) -> InMemorySigner {
-		let holder_channel_pubkeys = InMemorySigner::make_holder_keys(
+		commitment_seed: [u8; 32], channel_keys_id: [u8; 32], rand_bytes_unique_start: [u8; 32], logger: L,
+	) -> InMemorySigner<L> {
+		let holder_channel_pubkeys = InMemorySigner::<L>::make_holder_keys(
 			secp_ctx,
 			&funding_key,
 			&revocation_base_key,
@@ -1193,6 +1198,7 @@ impl InMemorySigner {
 			holder_channel_pubkeys,
 			channel_keys_id,
 			entropy_source: RandomBytes::new(rand_bytes_unique_start),
+			logger,
 		}
 	}
 
@@ -1364,13 +1370,13 @@ impl InMemorySigner {
 	}
 }
 
-impl EntropySource for InMemorySigner {
+impl<L: Deref> EntropySource for InMemorySigner<L> where L::Target: Logger {
 	fn get_secure_random_bytes(&self) -> [u8; 32] {
 		self.entropy_source.get_secure_random_bytes()
 	}
 }
 
-impl ChannelSigner for InMemorySigner {
+impl<L: Deref> ChannelSigner for InMemorySigner<L> where L::Target: Logger {
 	fn get_per_commitment_point(
 		&self, idx: u64, secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<PublicKey, ()> {
@@ -1414,7 +1420,7 @@ impl ChannelSigner for InMemorySigner {
 const MISSING_PARAMS_ERR: &'static str =
 	"ChannelTransactionParameters must be populated before signing operations";
 
-impl EcdsaChannelSigner for InMemorySigner {
+impl<L: Deref> EcdsaChannelSigner for InMemorySigner<L> where L::Target: Logger {
 	fn sign_counterparty_commitment(
 		&self, channel_parameters: &ChannelTransactionParameters,
 		commitment_tx: &CommitmentTransaction, _inbound_htlc_preimages: Vec<PaymentPreimage>,
@@ -1769,7 +1775,7 @@ impl EcdsaChannelSigner for InMemorySigner {
 
 #[cfg(taproot)]
 #[allow(unused)]
-impl TaprootChannelSigner for InMemorySigner {
+impl<L: Deref> TaprootChannelSigner for InMemorySigner<L> where L::Target: Logger {
 	fn generate_local_nonce_pair(
 		&self, commitment_number: u64, secp_ctx: &Secp256k1<All>,
 	) -> PublicNonce {
@@ -1839,7 +1845,7 @@ impl TaprootChannelSigner for InMemorySigner {
 ///
 /// Note that switching between this struct and [`PhantomKeysManager`] will invalidate any
 /// previously issued invoices and attempts to pay previous invoices will fail.
-pub struct KeysManager {
+pub struct KeysManager<L: Clone + Deref> where L::Target: Logger {
 	secp_ctx: Secp256k1<secp256k1::All>,
 	node_secret: SecretKey,
 	node_id: PublicKey,
@@ -1859,9 +1865,10 @@ pub struct KeysManager {
 	seed: [u8; 32],
 	starting_time_secs: u64,
 	starting_time_nanos: u32,
+	logger: L,
 }
 
-impl KeysManager {
+impl<L: Clone + Deref> KeysManager<L> where L::Target: Logger {
 	/// Constructs a [`KeysManager`] from a 32-byte seed. If the seed is in some way biased (e.g.,
 	/// your CSRNG is busted) this may panic (but more importantly, you will possibly lose funds).
 	/// `starting_time` isn't strictly required to actually be a time, but it must absolutely,
@@ -1879,7 +1886,7 @@ impl KeysManager {
 	/// for any channel, and some on-chain during-closing funds.
 	///
 	/// [`ChannelMonitor`]: crate::chain::channelmonitor::ChannelMonitor
-	pub fn new(seed: &[u8; 32], starting_time_secs: u64, starting_time_nanos: u32) -> Self {
+	pub fn new(seed: &[u8; 32], starting_time_secs: u64, starting_time_nanos: u32, logger: L) -> Self {
 		// Constants for key derivation path indices used in this function.
 		const NODE_SECRET_INDEX: ChildNumber = ChildNumber::Hardened { index: 0 };
 		const DESTINATION_SCRIPT_INDEX: ChildNumber = ChildNumber::Hardened { index: 1 };
@@ -1963,6 +1970,8 @@ impl KeysManager {
 					seed: *seed,
 					starting_time_secs,
 					starting_time_nanos,
+
+					logger,
 				};
 				let secp_seed = res.get_secure_random_bytes();
 				res.secp_ctx.seeded_randomize(&secp_seed);
@@ -1978,7 +1987,7 @@ impl KeysManager {
 	}
 
 	/// Derive an old [`EcdsaChannelSigner`] containing per-channel secrets based on a key derivation parameters.
-	pub fn derive_channel_keys(&self, params: &[u8; 32]) -> InMemorySigner {
+	pub fn derive_channel_keys(&self, params: &[u8; 32]) -> InMemorySigner<L> {
 		let chan_id = u64::from_be_bytes(params[0..8].try_into().unwrap());
 		let mut unique_start = Sha256::engine();
 		unique_start.input(params);
@@ -2032,6 +2041,7 @@ impl KeysManager {
 			commitment_seed,
 			params.clone(),
 			prng_seed,
+			self.logger.clone(),
 		)
 	}
 
@@ -2046,7 +2056,7 @@ impl KeysManager {
 	pub fn sign_spendable_outputs_psbt<C: Signing>(
 		&self, descriptors: &[&SpendableOutputDescriptor], mut psbt: Psbt, secp_ctx: &Secp256k1<C>,
 	) -> Result<Psbt, ()> {
-		let mut keys_cache: Option<(InMemorySigner, [u8; 32])> = None;
+		let mut keys_cache: Option<(InMemorySigner<L>, [u8; 32])> = None;
 		for outp in descriptors {
 			let get_input_idx = |outpoint: &OutPoint| {
 				psbt.unsigned_tx
@@ -2146,13 +2156,13 @@ impl KeysManager {
 	}
 }
 
-impl EntropySource for KeysManager {
+impl<L: Clone + Deref> EntropySource for KeysManager<L> where L::Target: Logger {
 	fn get_secure_random_bytes(&self) -> [u8; 32] {
 		self.entropy_source.get_secure_random_bytes()
 	}
 }
 
-impl NodeSigner for KeysManager {
+impl<L: Clone + Deref> NodeSigner for KeysManager<L> where L::Target: Logger {
 	fn get_node_id(&self, recipient: Recipient) -> Result<PublicKey, ()> {
 		match recipient {
 			Recipient::Node => Ok(self.node_id.clone()),
@@ -2211,7 +2221,7 @@ impl NodeSigner for KeysManager {
 	}
 }
 
-impl OutputSpender for KeysManager {
+impl<L: Clone + Deref> OutputSpender for KeysManager<L> where L::Target: Logger {
 	/// Creates a [`Transaction`] which spends the given descriptors to the given outputs, plus an
 	/// output to the given change destination (if sufficient change value remains).
 	///
@@ -2250,10 +2260,10 @@ impl OutputSpender for KeysManager {
 	}
 }
 
-impl SignerProvider for KeysManager {
-	type EcdsaSigner = InMemorySigner;
+impl<L: Clone + Deref> SignerProvider for KeysManager<L> where L::Target: Logger {
+	type EcdsaSigner = InMemorySigner<L>;
 	#[cfg(taproot)]
-	type TaprootSigner = InMemorySigner;
+	type TaprootSigner = InMemorySigner<L>;
 
 	fn generate_channel_keys_id(&self, _inbound: bool, user_channel_id: u128) -> [u8; 32] {
 		let child_idx = self.channel_child_index.fetch_add(1, Ordering::AcqRel);
@@ -2305,23 +2315,23 @@ impl SignerProvider for KeysManager {
 //
 /// Switching between this struct and [`KeysManager`] will invalidate any previously issued
 /// invoices and attempts to pay previous invoices will fail.
-pub struct PhantomKeysManager {
+pub struct PhantomKeysManager<L: Clone + Deref> where L::Target: Logger {
 	#[cfg(test)]
-	pub(crate) inner: KeysManager,
+	pub(crate) inner: KeysManager<L>,
 	#[cfg(not(test))]
-	inner: KeysManager,
+	inner: KeysManager<L>,
 	inbound_payment_key: ExpandedKey,
 	phantom_secret: SecretKey,
 	phantom_node_id: PublicKey,
 }
 
-impl EntropySource for PhantomKeysManager {
+impl<L: Clone + Deref> EntropySource for PhantomKeysManager<L> where L::Target: Logger {
 	fn get_secure_random_bytes(&self) -> [u8; 32] {
 		self.inner.get_secure_random_bytes()
 	}
 }
 
-impl NodeSigner for PhantomKeysManager {
+impl<L: Clone + Deref> NodeSigner for PhantomKeysManager<L> where L::Target: Logger {
 	fn get_node_id(&self, recipient: Recipient) -> Result<PublicKey, ()> {
 		match recipient {
 			Recipient::Node => self.inner.get_node_id(Recipient::Node),
@@ -2376,7 +2386,7 @@ impl NodeSigner for PhantomKeysManager {
 	}
 }
 
-impl OutputSpender for PhantomKeysManager {
+impl<L: Clone + Deref> OutputSpender for PhantomKeysManager<L> where L::Target: Logger {
 	/// See [`OutputSpender::spend_spendable_outputs`] and [`KeysManager::spend_spendable_outputs`]
 	/// for documentation on this method.
 	fn spend_spendable_outputs(
@@ -2395,10 +2405,10 @@ impl OutputSpender for PhantomKeysManager {
 	}
 }
 
-impl SignerProvider for PhantomKeysManager {
-	type EcdsaSigner = InMemorySigner;
+impl<L: Clone + Deref> SignerProvider for PhantomKeysManager<L> where L::Target: Logger {
+	type EcdsaSigner = InMemorySigner<L>;
 	#[cfg(taproot)]
-	type TaprootSigner = InMemorySigner;
+	type TaprootSigner = InMemorySigner<L>;
 
 	fn generate_channel_keys_id(&self, inbound: bool, user_channel_id: u128) -> [u8; 32] {
 		self.inner.generate_channel_keys_id(inbound, user_channel_id)
@@ -2417,7 +2427,7 @@ impl SignerProvider for PhantomKeysManager {
 	}
 }
 
-impl PhantomKeysManager {
+impl<L: Clone + Deref> PhantomKeysManager<L> where L::Target: Logger {
 	/// Constructs a [`PhantomKeysManager`] given a 32-byte seed and an additional `cross_node_seed`
 	/// that is shared across all nodes that intend to participate in [phantom node payments]
 	/// together.
@@ -2431,9 +2441,9 @@ impl PhantomKeysManager {
 	/// [phantom node payments]: PhantomKeysManager
 	pub fn new(
 		seed: &[u8; 32], starting_time_secs: u64, starting_time_nanos: u32,
-		cross_node_seed: &[u8; 32],
+		cross_node_seed: &[u8; 32], logger: L,
 	) -> Self {
-		let inner = KeysManager::new(seed, starting_time_secs, starting_time_nanos);
+		let inner = KeysManager::new(seed, starting_time_secs, starting_time_nanos, logger);
 		let (inbound_key, phantom_key) = hkdf_extract_expand_twice(
 			b"LDK Inbound and Phantom Payment Key Expansion",
 			cross_node_seed,
@@ -2449,7 +2459,7 @@ impl PhantomKeysManager {
 	}
 
 	/// See [`KeysManager::derive_channel_keys`] for documentation on this method.
-	pub fn derive_channel_keys(&self, params: &[u8; 32]) -> InMemorySigner {
+	pub fn derive_channel_keys(&self, params: &[u8; 32]) -> InMemorySigner<L> {
 		self.inner.derive_channel_keys(params)
 	}
 
