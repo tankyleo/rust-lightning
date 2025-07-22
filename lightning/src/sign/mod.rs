@@ -60,6 +60,7 @@ use crate::types::payment::PaymentPreimage;
 use crate::util::async_poll::AsyncResult;
 use crate::util::ser::{ReadableArgs, Writeable};
 use crate::util::transaction_utils;
+use crate::util::logger::Logger;
 
 use crate::crypto::chacha20::ChaCha20;
 use crate::prelude::*;
@@ -1899,7 +1900,7 @@ impl TaprootChannelSigner for InMemorySigner {
 ///
 /// Note that switching between this struct and [`PhantomKeysManager`] will invalidate any
 /// previously issued invoices and attempts to pay previous invoices will fail.
-pub struct KeysManager {
+pub struct KeysManager<L: Deref> where L::Target: Logger {
 	secp_ctx: Secp256k1<secp256k1::All>,
 	node_secret: SecretKey,
 	node_id: PublicKey,
@@ -1919,9 +1920,10 @@ pub struct KeysManager {
 	seed: [u8; 32],
 	starting_time_secs: u64,
 	starting_time_nanos: u32,
+	logger: L,
 }
 
-impl KeysManager {
+impl<L: Deref> KeysManager<L> where L::Target: Logger {
 	/// Constructs a [`KeysManager`] from a 32-byte seed. If the seed is in some way biased (e.g.,
 	/// your CSRNG is busted) this may panic (but more importantly, you will possibly lose funds).
 	/// `starting_time` isn't strictly required to actually be a time, but it must absolutely,
@@ -1939,7 +1941,7 @@ impl KeysManager {
 	/// for any channel, and some on-chain during-closing funds.
 	///
 	/// [`ChannelMonitor`]: crate::chain::channelmonitor::ChannelMonitor
-	pub fn new(seed: &[u8; 32], starting_time_secs: u64, starting_time_nanos: u32) -> Self {
+	pub fn new(seed: &[u8; 32], starting_time_secs: u64, starting_time_nanos: u32, logger: L) -> Self {
 		// Constants for key derivation path indices used in this function.
 		const NODE_SECRET_INDEX: ChildNumber = ChildNumber::Hardened { index: 0 };
 		const DESTINATION_SCRIPT_INDEX: ChildNumber = ChildNumber::Hardened { index: 1 };
@@ -2023,6 +2025,8 @@ impl KeysManager {
 					seed: *seed,
 					starting_time_secs,
 					starting_time_nanos,
+
+					logger,
 				};
 				let secp_seed = res.get_secure_random_bytes();
 				res.secp_ctx.seeded_randomize(&secp_seed);
@@ -2206,13 +2210,13 @@ impl KeysManager {
 	}
 }
 
-impl EntropySource for KeysManager {
+impl<L: Deref> EntropySource for KeysManager<L> where L::Target: Logger {
 	fn get_secure_random_bytes(&self) -> [u8; 32] {
 		self.entropy_source.get_secure_random_bytes()
 	}
 }
 
-impl NodeSigner for KeysManager {
+impl<L: Deref> NodeSigner for KeysManager<L> where L::Target: Logger {
 	fn get_node_id(&self, recipient: Recipient) -> Result<PublicKey, ()> {
 		match recipient {
 			Recipient::Node => Ok(self.node_id.clone()),
@@ -2271,7 +2275,7 @@ impl NodeSigner for KeysManager {
 	}
 }
 
-impl OutputSpender for KeysManager {
+impl<L: Deref> OutputSpender for KeysManager<L> where L::Target: Logger {
 	/// Creates a [`Transaction`] which spends the given descriptors to the given outputs, plus an
 	/// output to the given change destination (if sufficient change value remains).
 	///
@@ -2310,7 +2314,7 @@ impl OutputSpender for KeysManager {
 	}
 }
 
-impl SignerProvider for KeysManager {
+impl<L: Deref> SignerProvider for KeysManager<L> where L::Target: Logger {
 	type EcdsaSigner = InMemorySigner;
 	#[cfg(taproot)]
 	type TaprootSigner = InMemorySigner;
@@ -2365,23 +2369,23 @@ impl SignerProvider for KeysManager {
 //
 /// Switching between this struct and [`KeysManager`] will invalidate any previously issued
 /// invoices and attempts to pay previous invoices will fail.
-pub struct PhantomKeysManager {
+pub struct PhantomKeysManager<L: Deref> where L::Target: Logger {
 	#[cfg(test)]
 	pub(crate) inner: KeysManager,
 	#[cfg(not(test))]
-	inner: KeysManager,
+	inner: KeysManager<L>,
 	inbound_payment_key: ExpandedKey,
 	phantom_secret: SecretKey,
 	phantom_node_id: PublicKey,
 }
 
-impl EntropySource for PhantomKeysManager {
+impl<L: Deref> EntropySource for PhantomKeysManager<L> where L::Target: Logger {
 	fn get_secure_random_bytes(&self) -> [u8; 32] {
 		self.inner.get_secure_random_bytes()
 	}
 }
 
-impl NodeSigner for PhantomKeysManager {
+impl<L: Deref> NodeSigner for PhantomKeysManager<L> where L::Target: Logger {
 	fn get_node_id(&self, recipient: Recipient) -> Result<PublicKey, ()> {
 		match recipient {
 			Recipient::Node => self.inner.get_node_id(Recipient::Node),
@@ -2436,7 +2440,7 @@ impl NodeSigner for PhantomKeysManager {
 	}
 }
 
-impl OutputSpender for PhantomKeysManager {
+impl<L: Deref> OutputSpender for PhantomKeysManager<L> where L::Target: Logger {
 	/// See [`OutputSpender::spend_spendable_outputs`] and [`KeysManager::spend_spendable_outputs`]
 	/// for documentation on this method.
 	fn spend_spendable_outputs(
@@ -2455,7 +2459,7 @@ impl OutputSpender for PhantomKeysManager {
 	}
 }
 
-impl SignerProvider for PhantomKeysManager {
+impl<L: Deref> SignerProvider for PhantomKeysManager<L> where L::Target: Logger {
 	type EcdsaSigner = InMemorySigner;
 	#[cfg(taproot)]
 	type TaprootSigner = InMemorySigner;
@@ -2477,7 +2481,7 @@ impl SignerProvider for PhantomKeysManager {
 	}
 }
 
-impl PhantomKeysManager {
+impl<L: Deref> PhantomKeysManager<L> where L::Target: Logger {
 	/// Constructs a [`PhantomKeysManager`] given a 32-byte seed and an additional `cross_node_seed`
 	/// that is shared across all nodes that intend to participate in [phantom node payments]
 	/// together.
@@ -2491,9 +2495,9 @@ impl PhantomKeysManager {
 	/// [phantom node payments]: PhantomKeysManager
 	pub fn new(
 		seed: &[u8; 32], starting_time_secs: u64, starting_time_nanos: u32,
-		cross_node_seed: &[u8; 32],
+		cross_node_seed: &[u8; 32], logger: L,
 	) -> Self {
-		let inner = KeysManager::new(seed, starting_time_secs, starting_time_nanos);
+		let inner = KeysManager::new(seed, starting_time_secs, starting_time_nanos, logger);
 		let (inbound_key, phantom_key) = hkdf_extract_expand_twice(
 			b"LDK Inbound and Phantom Payment Key Expansion",
 			cross_node_seed,

@@ -1554,21 +1554,21 @@ struct PendingInboundPayment {
 pub type SimpleArcChannelManager<M, T, F, L> = ChannelManager<
 	Arc<M>,
 	Arc<T>,
-	Arc<KeysManager>,
-	Arc<KeysManager>,
-	Arc<KeysManager>,
+	Arc<KeysManager<L>>,
+	Arc<KeysManager<L>>,
+	Arc<KeysManager<L>>,
 	Arc<F>,
 	Arc<
 		DefaultRouter<
 			Arc<NetworkGraph<Arc<L>>>,
 			Arc<L>,
-			Arc<KeysManager>,
+			Arc<KeysManager<L>>,
 			Arc<RwLock<ProbabilisticScorer<Arc<NetworkGraph<Arc<L>>>, Arc<L>>>>,
 			ProbabilisticScoringFeeParameters,
 			ProbabilisticScorer<Arc<NetworkGraph<Arc<L>>>, Arc<L>>,
 		>,
 	>,
-	Arc<DefaultMessageRouter<Arc<NetworkGraph<Arc<L>>>, Arc<L>, Arc<KeysManager>>>,
+	Arc<DefaultMessageRouter<Arc<NetworkGraph<Arc<L>>>, Arc<L>, Arc<KeysManager<L>>>>,
 	Arc<L>,
 >;
 
@@ -1587,19 +1587,19 @@ pub type SimpleArcChannelManager<M, T, F, L> = ChannelManager<
 pub type SimpleRefChannelManager<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, M, T, F, L> = ChannelManager<
 	&'a M,
 	&'b T,
-	&'c KeysManager,
-	&'c KeysManager,
-	&'c KeysManager,
+	&'c KeysManager<L>,
+	&'c KeysManager<L>,
+	&'c KeysManager<L>,
 	&'d F,
 	&'e DefaultRouter<
 		&'f NetworkGraph<&'g L>,
 		&'g L,
-		&'c KeysManager,
+		&'c KeysManager<L>,
 		&'h RwLock<ProbabilisticScorer<&'f NetworkGraph<&'g L>, &'g L>>,
 		ProbabilisticScoringFeeParameters,
 		ProbabilisticScorer<&'f NetworkGraph<&'g L>, &'g L>,
 	>,
-	&'i DefaultMessageRouter<&'f NetworkGraph<&'g L>, &'g L, &'c KeysManager>,
+	&'i DefaultMessageRouter<&'f NetworkGraph<&'g L>, &'g L, &'c KeysManager<L>>,
 	&'g L,
 >;
 
