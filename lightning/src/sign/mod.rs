@@ -23,6 +23,7 @@ use bitcoin::sighash;
 use bitcoin::sighash::EcdsaSighashType;
 use bitcoin::transaction::Version;
 use bitcoin::transaction::{Transaction, TxIn, TxOut};
+use bitcoin::consensus::encode;
 
 use bitcoin::hashes::sha256::Hash as Sha256;
 use bitcoin::hashes::sha256d::Hash as Sha256dHash;
@@ -768,7 +769,7 @@ pub trait ChannelSigner {
 		&self, channel_parameters: &ChannelTransactionParameters,
 		holder_tx: &HolderCommitmentTransaction, outbound_htlc_preimages: Vec<PaymentPreimage>,
 		secp_ctx: &Secp256k1<secp256k1::All>,
-	) -> Result<(), ()>;
+	) -> Result<(), String>;
 
 	/// Validate the counterparty's revocation.
 	///
@@ -1396,7 +1397,9 @@ impl<L: Deref> ChannelSigner for InMemorySigner<L> where L::Target: Logger {
 		&self, channel_parameters: &ChannelTransactionParameters,
 		holder_tx: &HolderCommitmentTransaction, _outbound_htlc_preimages: Vec<PaymentPreimage>,
 		secp_ctx: &secp256k1::Secp256k1<secp256k1::All>,
-	) -> Result<(), ()> {
+	) -> Result<(), String> {
+		let logger = &self.logger;
+
 		let counterparty_funding_pubkey =
 			&channel_parameters.counterparty_pubkeys().as_ref().unwrap().funding_pubkey;
 		let funding_script = channel_parameters.make_funding_redeemscript();
@@ -1405,55 +1408,33 @@ impl<L: Deref> ChannelSigner for InMemorySigner<L> where L::Target: Logger {
 		let bitcoin_tx = trusted_tx.built_transaction();
 		let sighash = bitcoin_tx.get_sighash_all(&funding_script, channel_value_satoshis);
 
+		log_trace!(logger, "Checking commitment tx signature {} by key {} against tx {} (sighash {}) with redeemscript {}",
+		log_bytes!(holder_tx.counterparty_sig.serialize_compact()[..]),
+		log_bytes!(counterparty_funding_pubkey.serialize()), encode::serialize_hex(&bitcoin_tx.transaction),
+		log_bytes!(sighash[..]), encode::serialize_hex(&funding_script));
+
 		secp_ctx
 			.verify_ecdsa(&sighash, &holder_tx.counterparty_sig, counterparty_funding_pubkey)
-			.map_err(|_| ())?;
-
-		let holder_keys = trusted_tx.keys();
+			.map_err(|_| String::from("Invalid commitment tx signature from peer"))?;
 
 		if holder_tx.nondust_htlcs().len() != holder_tx.counterparty_htlc_sigs.len() {
-			return Err(());
+			return Err(format!("Got wrong number of HTLC signatures ({}) from remote. It must be {}", holder_tx.counterparty_htlc_sigs.len(), holder_tx.nondust_htlcs().len()));
 		}
-		for (htlc, sig) in
-			holder_tx.nondust_htlcs().iter().zip(holder_tx.counterparty_htlc_sigs.iter())
-		{
-			let htlc_tx = chan_utils::build_htlc_transaction(
-				&bitcoin_tx.txid,
-				holder_tx.feerate_per_kw(),
-				channel_parameters.as_holder_broadcastable().contest_delay(),
-				&htlc,
-				&channel_parameters.channel_type_features,
-				&holder_keys.broadcaster_delayed_payment_key,
-				&holder_keys.revocation_key,
-			);
-			let htlc_redeemscript = chan_utils::get_htlc_redeemscript(
-				&htlc,
-				&channel_parameters.channel_type_features,
-				&holder_keys,
-			);
-			let htlc_sighashtype =
-				if channel_parameters.channel_type_features.supports_anchors_zero_fee_htlc_tx() {
-					EcdsaSighashType::SinglePlusAnyoneCanPay
-				} else {
-					EcdsaSighashType::All
-				};
-			let htlc_sighash = hash_to_message!(
-				&sighash::SighashCache::new(&htlc_tx)
-					.p2wsh_signature_hash(
-						0,
-						&htlc_redeemscript,
-						htlc.to_bitcoin_amount(),
-						htlc_sighashtype
-					)
-					.unwrap()[..]
-			);
-			secp_ctx
-				.verify_ecdsa(
-					&htlc_sighash,
-					&sig,
-					&holder_keys.countersignatory_htlc_key.to_public_key(),
-				)
-				.map_err(|_| ())?;
+
+		let holder_keys = trusted_tx.keys();
+		for (htlc, counterparty_sig) in holder_tx.nondust_htlcs().iter().zip(holder_tx.counterparty_htlc_sigs.iter()) {
+			assert!(htlc.transaction_output_index.is_some());
+			let htlc_tx = chan_utils::build_htlc_transaction(&bitcoin_tx.txid, holder_tx.feerate_per_kw(),
+				channel_parameters.as_holder_broadcastable().contest_delay(), &htlc, &channel_parameters.channel_type_features,
+				&holder_keys.broadcaster_delayed_payment_key, &holder_keys.revocation_key);
+			let htlc_redeemscript = chan_utils::get_htlc_redeemscript(&htlc, &channel_parameters.channel_type_features, &holder_keys);
+			let htlc_sighashtype = if channel_parameters.channel_type_features.supports_anchors_zero_fee_htlc_tx() { EcdsaSighashType::SinglePlusAnyoneCanPay } else { EcdsaSighashType::All };
+			let htlc_sighash = hash_to_message!(&sighash::SighashCache::new(&htlc_tx).p2wsh_signature_hash(0, &htlc_redeemscript, htlc.to_bitcoin_amount(), htlc_sighashtype).unwrap()[..]);
+			log_trace!(logger, "Checking HTLC tx signature {} by key {} against tx {} (sighash {}) with redeemscript {}.",
+				log_bytes!(counterparty_sig.serialize_compact()[..]), log_bytes!(holder_keys.countersignatory_htlc_key.to_public_key().serialize()),
+				encode::serialize_hex(&htlc_tx), log_bytes!(htlc_sighash[..]), encode::serialize_hex(&htlc_redeemscript));
+			secp_ctx.verify_ecdsa(&htlc_sighash, &counterparty_sig, &holder_keys.countersignatory_htlc_key.to_public_key())
+				.map_err(|_| "Invalid HTLC tx signature from peer")?;
 		}
 		Ok(())
 	}
