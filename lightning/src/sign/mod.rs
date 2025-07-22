@@ -1157,8 +1157,7 @@ impl<L: Deref> PartialEq for InMemorySigner<L> where L::Target: Logger {
 	}
 }
 
-/*
-impl<L: Deref> Clone for InMemorySigner<L> where L::Target: Logger {
+impl<L: Deref + Clone> Clone for InMemorySigner<L> where L::Target: Logger {
 	fn clone(&self) -> Self {
 		Self {
 			funding_key: self.funding_key.clone(),
@@ -1170,11 +1169,10 @@ impl<L: Deref> Clone for InMemorySigner<L> where L::Target: Logger {
 			holder_channel_pubkeys: self.holder_channel_pubkeys.clone(),
 			channel_keys_id: self.channel_keys_id,
 			entropy_source: RandomBytes::new(self.get_secure_random_bytes()),
-			logger: &self.logger,
+			logger: self.logger.clone(),
 		}
 	}
 }
-*/
 
 impl<L: Deref> InMemorySigner<L> where L::Target: Logger {
 	/// Creates a new [`InMemorySigner`].
@@ -2359,7 +2357,7 @@ impl<L: Clone + Deref> SignerProvider for KeysManager<L> where L::Target: Logger
 /// invoices and attempts to pay previous invoices will fail.
 pub struct PhantomKeysManager<L: Clone + Deref> where L::Target: Logger {
 	#[cfg(test)]
-	pub(crate) inner: KeysManager,
+	pub(crate) inner: KeysManager<L>,
 	#[cfg(not(test))]
 	inner: KeysManager<L>,
 	inbound_payment_key: ExpandedKey,

@@ -1270,6 +1270,7 @@ mod tests {
 	use crate::sign::{ChannelDerivationParameters, HTLCDescriptor, InMemorySigner};
 	use crate::types::payment::{PaymentHash, PaymentPreimage};
 	use crate::util::test_utils::{TestBroadcaster, TestFeeEstimator, TestLogger};
+	use crate::sync::Arc;
 
 	use super::OnchainTxHandler;
 
@@ -1290,6 +1291,7 @@ mod tests {
 			[41; 32],
 			[0; 32],
 			[0; 32],
+			Arc::new(TestLogger::new()),
 		);
 		let counterparty_pubkeys = ChannelPublicKeys {
 			funding_pubkey: PublicKey::from_secret_key(

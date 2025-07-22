@@ -194,7 +194,7 @@ impl ChannelSigner for TestChannelSigner {
 		&self, channel_parameters: &ChannelTransactionParameters,
 		holder_tx: &HolderCommitmentTransaction, outbound_htlc_preimages: Vec<PaymentPreimage>,
 		secp_ctx: &Secp256k1<secp256k1::All>,
-	) -> Result<(), ()> {
+	) -> Result<(), String> {
 		let mut state = self.state.lock().unwrap();
 		let idx = holder_tx.commitment_number();
 		if !self.disable_all_state_policy_checks {

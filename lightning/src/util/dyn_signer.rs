@@ -3,6 +3,7 @@
 use crate::prelude::*;
 
 use core::any::Any;
+use core::ops::Deref;
 
 use crate::ln::chan_utils::{
 	ChannelPublicKeys, ChannelTransactionParameters, ClosingTransaction, CommitmentTransaction,
@@ -20,6 +21,8 @@ use crate::sign::{EntropySource, HTLCDescriptor, OutputSpender, PhantomKeysManag
 use crate::sign::{
 	NodeSigner, PeerStorageKey, Recipient, SignerProvider, SpendableOutputDescriptor,
 };
+use crate::util::logger::Logger;
+use crate::util::test_utils::TestLogger;
 use bitcoin;
 use bitcoin::absolute::LockTime;
 use bitcoin::secp256k1::All;
@@ -30,6 +33,8 @@ use musig2::types::{PartialSignature, PublicNonce};
 use secp256k1::ecdsa::RecoverableSignature;
 use secp256k1::{ecdh::SharedSecret, ecdsa::Signature, PublicKey, Scalar, Secp256k1, SecretKey};
 use types::payment::PaymentPreimage;
+
+use std::sync::Arc;
 
 #[cfg(not(taproot))]
 /// A super-trait for all the traits that a dyn signer backing implements
@@ -176,7 +181,7 @@ delegate!(DynSigner, ChannelSigner,
 		holder_tx: &HolderCommitmentTransaction,
 		preimages: Vec<PaymentPreimage>,
 		secp_ctx: &Secp256k1<All>
-	) -> Result<(), ()>,
+	) -> Result<(), String>,
 	fn pubkeys(,
 		splice_parent_funding_txid: Option<Txid>, secp_ctx: &Secp256k1<secp256k1::All>
 	) -> ChannelPublicKeys,
@@ -184,9 +189,9 @@ delegate!(DynSigner, ChannelSigner,
 	fn validate_counterparty_revocation(, idx: u64, secret: &SecretKey) -> Result<(), ()>
 );
 
-impl DynSignerTrait for InMemorySigner {}
+impl DynSignerTrait for InMemorySigner<Arc<TestLogger>> {}
 
-impl InnerSign for InMemorySigner {
+impl InnerSign for InMemorySigner<Arc<TestLogger>> {
 	fn box_clone(&self) -> Box<dyn InnerSign> {
 		Box::new(self.clone())
 	}
@@ -266,12 +271,12 @@ pub trait DynKeysInterfaceTrait:
 
 /// A dyn wrapper for PhantomKeysManager
 pub struct DynPhantomKeysInterface {
-	inner: Box<PhantomKeysManager>,
+	inner: Box<PhantomKeysManager<Arc<TestLogger>>>,
 }
 
 impl DynPhantomKeysInterface {
 	/// Create a new DynPhantomKeysInterface
-	pub fn new(inner: PhantomKeysManager) -> Self {
+	pub fn new(inner: PhantomKeysManager<Arc<TestLogger>>) -> Self {
 		DynPhantomKeysInterface { inner: Box::new(inner) }
 	}
 }

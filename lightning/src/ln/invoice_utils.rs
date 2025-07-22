@@ -635,7 +635,8 @@ mod test {
 	use crate::types::payment::{PaymentHash, PaymentPreimage};
 	use crate::util::config::UserConfig;
 	use crate::util::dyn_signer::{DynKeysInterface, DynPhantomKeysInterface};
-	use crate::util::test_utils;
+	use crate::util::test_utils::{self, TestLogger};
+	use crate::sync::Arc;
 	use bitcoin::hashes::sha256::Hash as Sha256;
 	use bitcoin::hashes::{sha256, Hash};
 	use bitcoin::network::Network;
@@ -1211,7 +1212,8 @@ mod test {
 
 	fn make_dyn_keys_interface(seed: &[u8; 32]) -> DynKeysInterface {
 		let cross_node_seed = [44u8; 32];
-		let inner = PhantomKeysManager::new(&seed, 43, 44, &cross_node_seed);
+		let logger = Arc::new(TestLogger::new());
+		let inner = PhantomKeysManager::new(&seed, 43, 44, &cross_node_seed, logger);
 		let dyn_inner = DynPhantomKeysInterface::new(inner);
 		DynKeysInterface::new(Box::new(dyn_inner))
 	}

@@ -1010,6 +1010,7 @@ mod tests {
 	use crate::types::features::ChannelTypeFeatures;
 	use crate::util::ser::Readable;
 	use crate::util::test_utils::{TestBroadcaster, TestLogger};
+	use crate::sync::Arc;
 
 	use bitcoin::hashes::Hash;
 	use bitcoin::hex::FromHex;
@@ -1102,9 +1103,9 @@ mod tests {
 				),
 			]),
 		};
-		let signer = KeysManager::new(&[42; 32], 42, 42);
-		let logger = TestLogger::new();
-		let handler = BumpTransactionEventHandlerSync::new(&broadcaster, &source, &signer, &logger);
+		let logger = Arc::new(TestLogger::new());
+		let signer = KeysManager::new(&[42; 32], 42, 42, logger.clone());
+		let handler = BumpTransactionEventHandlerSync::new(&broadcaster, &source, &signer, logger.clone());
 
 		let mut transaction_parameters = ChannelTransactionParameters::test_dummy(42_000_000);
 		transaction_parameters.channel_type_features =
