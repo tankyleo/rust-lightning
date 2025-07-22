@@ -226,8 +226,8 @@ where
 /// # }
 /// # let seed = [42u8; 32];
 /// # let time = Duration::from_secs(123456);
-/// # let keys_manager = KeysManager::new(&seed, time.as_secs(), time.subsec_nanos());
 /// # let logger = Arc::new(FakeLogger {});
+/// # let keys_manager = KeysManager::new(&seed, time.as_secs(), time.subsec_nanos(), Arc::clone(&logger));
 /// # let node_secret = SecretKey::from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
 /// # let secp_ctx = Secp256k1::new();
 /// # let hop_node_id1 = PublicKey::from_secret_key(&secp_ctx, &node_secret);
@@ -2282,11 +2282,11 @@ where
 #[cfg(not(c_bindings))]
 #[cfg(feature = "dnssec")]
 pub type SimpleArcOnionMessenger<M, T, F, L> = OnionMessenger<
-	Arc<KeysManager>,
-	Arc<KeysManager>,
+	Arc<KeysManager<L>>,
+	Arc<KeysManager<L>>,
 	Arc<L>,
 	Arc<SimpleArcChannelManager<M, T, F, L>>,
-	Arc<DefaultMessageRouter<Arc<NetworkGraph<Arc<L>>>, Arc<L>, Arc<KeysManager>>>,
+	Arc<DefaultMessageRouter<Arc<NetworkGraph<Arc<L>>>, Arc<L>, Arc<KeysManager<L>>>>,
 	Arc<SimpleArcChannelManager<M, T, F, L>>,
 	Arc<SimpleArcChannelManager<M, T, F, L>>,
 	Arc<SimpleArcChannelManager<M, T, F, L>>,
@@ -2303,11 +2303,11 @@ pub type SimpleArcOnionMessenger<M, T, F, L> = OnionMessenger<
 #[cfg(not(c_bindings))]
 #[cfg(not(feature = "dnssec"))]
 pub type SimpleArcOnionMessenger<M, T, F, L> = OnionMessenger<
-	Arc<KeysManager>,
-	Arc<KeysManager>,
+	Arc<KeysManager<L>>,
+	Arc<KeysManager<L>>,
 	Arc<L>,
 	Arc<SimpleArcChannelManager<M, T, F, L>>,
-	Arc<DefaultMessageRouter<Arc<NetworkGraph<Arc<L>>>, Arc<L>, Arc<KeysManager>>>,
+	Arc<DefaultMessageRouter<Arc<NetworkGraph<Arc<L>>>, Arc<L>, Arc<KeysManager<L>>>>,
 	Arc<SimpleArcChannelManager<M, T, F, L>>,
 	Arc<SimpleArcChannelManager<M, T, F, L>>,
 	IgnoringMessageHandler,
@@ -2325,11 +2325,11 @@ pub type SimpleArcOnionMessenger<M, T, F, L> = OnionMessenger<
 #[cfg(feature = "dnssec")]
 pub type SimpleRefOnionMessenger<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, 'j, M, T, F, L> =
 	OnionMessenger<
-		&'a KeysManager,
-		&'a KeysManager,
+		&'a KeysManager<L>,
+		&'a KeysManager<L>,
 		&'b L,
 		&'j SimpleRefChannelManager<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, M, T, F, L>,
-		&'i DefaultMessageRouter<&'g NetworkGraph<&'b L>, &'b L, &'a KeysManager>,
+		&'i DefaultMessageRouter<&'g NetworkGraph<&'b L>, &'b L, &'a KeysManager<L>>,
 		&'j SimpleRefChannelManager<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, M, T, F, L>,
 		&'j SimpleRefChannelManager<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, M, T, F, L>,
 		&'j SimpleRefChannelManager<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, M, T, F, L>,
@@ -2347,11 +2347,11 @@ pub type SimpleRefOnionMessenger<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, 'j, M, T, F
 #[cfg(not(feature = "dnssec"))]
 pub type SimpleRefOnionMessenger<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, 'j, M, T, F, L> =
 	OnionMessenger<
-		&'a KeysManager,
-		&'a KeysManager,
+		&'a KeysManager<L>,
+		&'a KeysManager<L>,
 		&'b L,
 		&'j SimpleRefChannelManager<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, M, T, F, L>,
-		&'i DefaultMessageRouter<&'g NetworkGraph<&'b L>, &'b L, &'a KeysManager>,
+		&'i DefaultMessageRouter<&'g NetworkGraph<&'b L>, &'b L, &'a KeysManager<L>>,
 		&'j SimpleRefChannelManager<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, M, T, F, L>,
 		&'j SimpleRefChannelManager<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, M, T, F, L>,
 		IgnoringMessageHandler,

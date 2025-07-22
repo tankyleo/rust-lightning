@@ -632,10 +632,11 @@ mod test {
 	use crate::ln::msgs::{BaseMessageHandler, ChannelMessageHandler, MessageSendEvent};
 	use crate::routing::router::{PaymentParameters, RouteParameters};
 	use crate::sign::PhantomKeysManager;
+	use crate::sync::Arc;
 	use crate::types::payment::{PaymentHash, PaymentPreimage};
 	use crate::util::config::UserConfig;
 	use crate::util::dyn_signer::{DynKeysInterface, DynPhantomKeysInterface};
-	use crate::util::test_utils;
+	use crate::util::test_utils::{self, TestLogger};
 	use bitcoin::hashes::sha256::Hash as Sha256;
 	use bitcoin::hashes::{sha256, Hash};
 	use bitcoin::network::Network;
@@ -1209,9 +1210,9 @@ mod test {
 		do_test_multi_node_receive(false);
 	}
 
-	fn make_dyn_keys_interface(seed: &[u8; 32]) -> DynKeysInterface {
+	fn make_dyn_keys_interface(seed: &[u8; 32], logger: Arc<TestLogger>) -> DynKeysInterface {
 		let cross_node_seed = [44u8; 32];
-		let inner = PhantomKeysManager::new(&seed, 43, 44, &cross_node_seed);
+		let inner = PhantomKeysManager::new(&seed, 43, 44, &cross_node_seed, logger);
 		let dyn_inner = DynPhantomKeysInterface::new(inner);
 		DynKeysInterface::new(Box::new(dyn_inner))
 	}
@@ -1223,8 +1224,9 @@ mod test {
 		let mut chanmon_cfgs = create_chanmon_cfgs(3);
 		let seed_1 = [42u8; 32];
 		let seed_2 = [43u8; 32];
-		chanmon_cfgs[1].keys_manager.backing = make_dyn_keys_interface(&seed_1);
-		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_2);
+		let logger = Arc::new(TestLogger::new());
+		chanmon_cfgs[1].keys_manager.backing = make_dyn_keys_interface(&seed_1, Arc::clone(&logger));
+		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_2, Arc::clone(&logger));
 		let node_cfgs = create_node_cfgs(3, &chanmon_cfgs);
 		let node_chanmgrs = create_node_chanmgrs(3, &node_cfgs, &[None, None, None]);
 		let nodes = create_network(3, &node_cfgs, &node_chanmgrs);
@@ -1365,8 +1367,9 @@ mod test {
 		let mut chanmon_cfgs = create_chanmon_cfgs(3);
 		let seed_1 = [42u8; 32];
 		let seed_2 = [43u8; 32];
-		chanmon_cfgs[1].keys_manager.backing = make_dyn_keys_interface(&seed_1);
-		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_2);
+		let logger = Arc::new(TestLogger::new());
+		chanmon_cfgs[1].keys_manager.backing = make_dyn_keys_interface(&seed_1, Arc::clone(&logger));
+		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_2, Arc::clone(&logger));
 		let node_cfgs = create_node_cfgs(3, &chanmon_cfgs);
 		let node_chanmgrs = create_node_chanmgrs(3, &node_cfgs, &[None, None, None]);
 		let nodes = create_network(3, &node_cfgs, &node_chanmgrs);
@@ -1515,8 +1518,9 @@ mod test {
 		let mut chanmon_cfgs = create_chanmon_cfgs(3);
 		let seed_1 = [42u8; 32];
 		let seed_2 = [43u8; 32];
-		chanmon_cfgs[1].keys_manager.backing = make_dyn_keys_interface(&seed_1);
-		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_2);
+		let logger = Arc::new(TestLogger::new());
+		chanmon_cfgs[1].keys_manager.backing = make_dyn_keys_interface(&seed_1, Arc::clone(&logger));
+		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_2, Arc::clone(&logger));
 		let node_cfgs = create_node_cfgs(3, &chanmon_cfgs);
 		let node_chanmgrs = create_node_chanmgrs(3, &node_cfgs, &[None, None, None]);
 		let nodes = create_network(3, &node_cfgs, &node_chanmgrs);
@@ -1545,8 +1549,9 @@ mod test {
 		let mut chanmon_cfgs = create_chanmon_cfgs(4);
 		let seed_1 = [42u8; 32];
 		let seed_2 = [43u8; 32];
-		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_1);
-		chanmon_cfgs[3].keys_manager.backing = make_dyn_keys_interface(&seed_2);
+		let logger = Arc::new(TestLogger::new());
+		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_1, Arc::clone(&logger));
+		chanmon_cfgs[3].keys_manager.backing = make_dyn_keys_interface(&seed_2, Arc::clone(&logger));
 		let node_cfgs = create_node_cfgs(4, &chanmon_cfgs);
 		let node_chanmgrs = create_node_chanmgrs(4, &node_cfgs, &[None, None, None, None]);
 		let nodes = create_network(4, &node_cfgs, &node_chanmgrs);
@@ -1577,8 +1582,9 @@ mod test {
 		let mut chanmon_cfgs = create_chanmon_cfgs(4);
 		let seed_1 = [42u8; 32];
 		let seed_2 = [43u8; 32];
-		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_1);
-		chanmon_cfgs[3].keys_manager.backing = make_dyn_keys_interface(&seed_2);
+		let logger = Arc::new(TestLogger::new());
+		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_1, Arc::clone(&logger));
+		chanmon_cfgs[3].keys_manager.backing = make_dyn_keys_interface(&seed_2, Arc::clone(&logger));
 		let node_cfgs = create_node_cfgs(4, &chanmon_cfgs);
 		let node_chanmgrs = create_node_chanmgrs(4, &node_cfgs, &[None, None, None, None]);
 		let nodes = create_network(4, &node_cfgs, &node_chanmgrs);
@@ -1647,8 +1653,9 @@ mod test {
 		let mut chanmon_cfgs = create_chanmon_cfgs(3);
 		let seed_1 = [42u8; 32];
 		let seed_2 = [43u8; 32];
-		chanmon_cfgs[1].keys_manager.backing = make_dyn_keys_interface(&seed_1);
-		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_2);
+		let logger = Arc::new(TestLogger::new());
+		chanmon_cfgs[1].keys_manager.backing = make_dyn_keys_interface(&seed_1, Arc::clone(&logger));
+		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_2, Arc::clone(&logger));
 		let node_cfgs = create_node_cfgs(3, &chanmon_cfgs);
 		let node_chanmgrs = create_node_chanmgrs(3, &node_cfgs, &[None, None, None]);
 		let nodes = create_network(3, &node_cfgs, &node_chanmgrs);
@@ -1679,8 +1686,9 @@ mod test {
 		let mut chanmon_cfgs = create_chanmon_cfgs(4);
 		let seed_1 = [42u8; 32];
 		let seed_2 = [43u8; 32];
-		chanmon_cfgs[1].keys_manager.backing = make_dyn_keys_interface(&seed_1);
-		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_2);
+		let logger = Arc::new(TestLogger::new());
+		chanmon_cfgs[1].keys_manager.backing = make_dyn_keys_interface(&seed_1, Arc::clone(&logger));
+		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_2, Arc::clone(&logger));
 		let node_cfgs = create_node_cfgs(4, &chanmon_cfgs);
 		let node_chanmgrs = create_node_chanmgrs(4, &node_cfgs, &[None, None, None, None]);
 		let nodes = create_network(4, &node_cfgs, &node_chanmgrs);
@@ -1713,8 +1721,9 @@ mod test {
 		let mut chanmon_cfgs = create_chanmon_cfgs(3);
 		let seed_1 = [42u8; 32];
 		let seed_2 = [43u8; 32];
-		chanmon_cfgs[1].keys_manager.backing = make_dyn_keys_interface(&seed_1);
-		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_2);
+		let logger = Arc::new(TestLogger::new());
+		chanmon_cfgs[1].keys_manager.backing = make_dyn_keys_interface(&seed_1, Arc::clone(&logger));
+		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_2, Arc::clone(&logger));
 		let node_cfgs = create_node_cfgs(3, &chanmon_cfgs);
 		let node_chanmgrs = create_node_chanmgrs(3, &node_cfgs, &[None, None, None]);
 		let nodes = create_network(3, &node_cfgs, &node_chanmgrs);
@@ -1746,8 +1755,9 @@ mod test {
 		let mut chanmon_cfgs = create_chanmon_cfgs(4);
 		let seed_1 = [42u8; 32];
 		let seed_2 = [43u8; 32];
-		chanmon_cfgs[1].keys_manager.backing = make_dyn_keys_interface(&seed_1);
-		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_2);
+		let logger = Arc::new(TestLogger::new());
+		chanmon_cfgs[1].keys_manager.backing = make_dyn_keys_interface(&seed_1, Arc::clone(&logger));
+		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_2, Arc::clone(&logger));
 		let node_cfgs = create_node_cfgs(4, &chanmon_cfgs);
 		let node_chanmgrs = create_node_chanmgrs(4, &node_cfgs, &[None, None, None, None]);
 		let nodes = create_network(4, &node_cfgs, &node_chanmgrs);
@@ -1820,10 +1830,11 @@ mod test {
 		let seed_2 = [43 as u8; 32];
 		let seed_3 = [44 as u8; 32];
 		let seed_4 = [45 as u8; 32];
-		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_1);
-		chanmon_cfgs[3].keys_manager.backing = make_dyn_keys_interface(&seed_2);
-		chanmon_cfgs[4].keys_manager.backing = make_dyn_keys_interface(&seed_3);
-		chanmon_cfgs[4].keys_manager.backing = make_dyn_keys_interface(&seed_4);
+		let logger = Arc::new(TestLogger::new());
+		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_1, Arc::clone(&logger));
+		chanmon_cfgs[3].keys_manager.backing = make_dyn_keys_interface(&seed_2, Arc::clone(&logger));
+		chanmon_cfgs[4].keys_manager.backing = make_dyn_keys_interface(&seed_3, Arc::clone(&logger));
+		chanmon_cfgs[4].keys_manager.backing = make_dyn_keys_interface(&seed_4, Arc::clone(&logger));
 		let node_cfgs = create_node_cfgs(6, &chanmon_cfgs);
 		let node_chanmgrs =
 			create_node_chanmgrs(6, &node_cfgs, &[None, None, None, None, None, None]);
@@ -1877,8 +1888,9 @@ mod test {
 		let mut chanmon_cfgs = create_chanmon_cfgs(5);
 		let seed_1 = [42 as u8; 32];
 		let seed_2 = [43 as u8; 32];
-		chanmon_cfgs[1].keys_manager.backing = make_dyn_keys_interface(&seed_1);
-		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_2);
+		let logger = Arc::new(TestLogger::new());
+		chanmon_cfgs[1].keys_manager.backing = make_dyn_keys_interface(&seed_1, Arc::clone(&logger));
+		chanmon_cfgs[2].keys_manager.backing = make_dyn_keys_interface(&seed_2, Arc::clone(&logger));
 		let node_cfgs = create_node_cfgs(5, &chanmon_cfgs);
 		let node_chanmgrs = create_node_chanmgrs(5, &node_cfgs, &[None, None, None, None, None]);
 		let nodes = create_network(5, &node_cfgs, &node_chanmgrs);

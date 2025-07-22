@@ -1289,6 +1289,7 @@ mod tests {
 	#[rustfmt::skip]
 	fn test_broadcast_height() {
 		let secp_ctx = Secp256k1::new();
+		let logger = TestLogger::new();
 		let signer = InMemorySigner::new(
 			&secp_ctx,
 			SecretKey::from_slice(&[41; 32]).unwrap(),
@@ -1299,6 +1300,7 @@ mod tests {
 			[41; 32],
 			[0; 32],
 			[0; 32],
+			&logger,
 		);
 		let counterparty_pubkeys = ChannelPublicKeys {
 			funding_pubkey: PublicKey::from_secret_key(

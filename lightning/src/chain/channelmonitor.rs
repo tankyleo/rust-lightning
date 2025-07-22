@@ -6277,6 +6277,7 @@ mod tests {
 			[41; 32],
 			[0; 32],
 			[0; 32],
+			Arc::clone(&logger),
 		);
 
 		let counterparty_pubkeys = ChannelPublicKeys {
@@ -6539,6 +6540,7 @@ mod tests {
 			[41; 32],
 			[0; 32],
 			[0; 32],
+			Arc::clone(&logger),
 		);
 
 		let counterparty_pubkeys = ChannelPublicKeys {

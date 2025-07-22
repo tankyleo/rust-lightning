@@ -1737,7 +1737,13 @@ impl TestSignerFactory for DefaultSignerFactory {
 	fn make_signer(
 		&self, seed: &[u8; 32], now: Duration,
 	) -> Box<dyn DynKeysInterfaceTrait<EcdsaSigner = DynSigner>> {
-		let phantom = sign::PhantomKeysManager::new(seed, now.as_secs(), now.subsec_nanos(), seed);
+		let phantom = sign::PhantomKeysManager::new(
+			seed,
+			now.as_secs(),
+			now.subsec_nanos(),
+			seed,
+			Arc::new(TestLogger::new()),
+		);
 		let dphantom = DynPhantomKeysInterface::new(phantom);
 		let backing = Box::new(dphantom) as Box<dyn DynKeysInterfaceTrait<EcdsaSigner = DynSigner>>;
 		backing

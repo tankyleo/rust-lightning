@@ -13742,20 +13742,20 @@ mod tests {
 		);
 	}
 
-	struct Keys {
-		signer: InMemorySigner,
+	struct Keys<'a> {
+		signer: InMemorySigner<&'a TestLogger>,
 	}
 
-	impl EntropySource for Keys {
+	impl EntropySource for Keys<'_> {
 		fn get_secure_random_bytes(&self) -> [u8; 32] {
 			[0; 32]
 		}
 	}
 
-	impl SignerProvider for Keys {
-		type EcdsaSigner = InMemorySigner;
+	impl<'a> SignerProvider for Keys<'a> {
+		type EcdsaSigner = InMemorySigner<&'a TestLogger>;
 		#[cfg(taproot)]
-		type TaprootSigner = InMemorySigner;
+		type TaprootSigner = InMemorySigner<&'a TestLogger>;
 
 		fn generate_channel_keys_id(&self, _inbound: bool, _user_channel_id: u128) -> [u8; 32] {
 			self.signer.channel_keys_id()

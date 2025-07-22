@@ -1547,21 +1547,21 @@ struct PendingInboundPayment {
 pub type SimpleArcChannelManager<M, T, F, L> = ChannelManager<
 	Arc<M>,
 	Arc<T>,
-	Arc<KeysManager>,
-	Arc<KeysManager>,
-	Arc<KeysManager>,
+	Arc<KeysManager<L>>,
+	Arc<KeysManager<L>>,
+	Arc<KeysManager<L>>,
 	Arc<F>,
 	Arc<
 		DefaultRouter<
 			Arc<NetworkGraph<Arc<L>>>,
 			Arc<L>,
-			Arc<KeysManager>,
+			Arc<KeysManager<L>>,
 			Arc<RwLock<ProbabilisticScorer<Arc<NetworkGraph<Arc<L>>>, Arc<L>>>>,
 			ProbabilisticScoringFeeParameters,
 			ProbabilisticScorer<Arc<NetworkGraph<Arc<L>>>, Arc<L>>,
 		>,
 	>,
-	Arc<DefaultMessageRouter<Arc<NetworkGraph<Arc<L>>>, Arc<L>, Arc<KeysManager>>>,
+	Arc<DefaultMessageRouter<Arc<NetworkGraph<Arc<L>>>, Arc<L>, Arc<KeysManager<L>>>>,
 	Arc<L>,
 >;
 
@@ -1580,19 +1580,19 @@ pub type SimpleArcChannelManager<M, T, F, L> = ChannelManager<
 pub type SimpleRefChannelManager<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, M, T, F, L> = ChannelManager<
 	&'a M,
 	&'b T,
-	&'c KeysManager,
-	&'c KeysManager,
-	&'c KeysManager,
+	&'c KeysManager<L>,
+	&'c KeysManager<L>,
+	&'c KeysManager<L>,
 	&'d F,
 	&'e DefaultRouter<
 		&'f NetworkGraph<&'g L>,
 		&'g L,
-		&'c KeysManager,
+		&'c KeysManager<L>,
 		&'h RwLock<ProbabilisticScorer<&'f NetworkGraph<&'g L>, &'g L>>,
 		ProbabilisticScoringFeeParameters,
 		ProbabilisticScorer<&'f NetworkGraph<&'g L>, &'g L>,
 	>,
-	&'i DefaultMessageRouter<&'f NetworkGraph<&'g L>, &'g L, &'c KeysManager>,
+	&'i DefaultMessageRouter<&'f NetworkGraph<&'g L>, &'g L, &'c KeysManager<L>>,
 	&'g L,
 >;
 
@@ -1762,7 +1762,7 @@ where
 /// use lightning::util::config::UserConfig;
 /// use lightning::util::ser::ReadableArgs;
 ///
-/// # fn read_channel_monitors() -> Vec<ChannelMonitor<lightning::sign::InMemorySigner>> { vec![] }
+/// # fn read_channel_monitors<'a, L: lightning::util::logger::Logger>() -> Vec<ChannelMonitor<lightning::sign::InMemorySigner<&'a L>>> { vec![] }
 /// # fn example<
 /// #     'a,
 /// #     L: lightning::util::logger::Logger,
@@ -1773,14 +1773,14 @@ where
 /// #     R: lightning::io::Read,
 /// # >(
 /// #     fee_estimator: &dyn lightning::chain::chaininterface::FeeEstimator,
-/// #     chain_monitor: &dyn lightning::chain::Watch<lightning::sign::InMemorySigner>,
+/// #     chain_monitor: &dyn lightning::chain::Watch<lightning::sign::InMemorySigner<&'a L>>,
 /// #     tx_broadcaster: &dyn lightning::chain::chaininterface::BroadcasterInterface,
 /// #     router: &lightning::routing::router::DefaultRouter<&NetworkGraph<&'a L>, &'a L, &ES, &S, SP, SL>,
 /// #     message_router: &lightning::onion_message::messenger::DefaultMessageRouter<&NetworkGraph<&'a L>, &'a L, &ES>,
 /// #     logger: &L,
 /// #     entropy_source: &ES,
 /// #     node_signer: &dyn lightning::sign::NodeSigner,
-/// #     signer_provider: &lightning::sign::DynSignerProvider,
+/// #     signer_provider: &lightning::sign::DynSignerProvider<&'a L>,
 /// #     best_block: lightning::chain::BestBlock,
 /// #     current_timestamp: u32,
 /// #     mut reader: R,
