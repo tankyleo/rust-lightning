@@ -28,6 +28,7 @@ use crate::util::config::UserConfig;
 use crate::util::errors::APIError;
 use crate::util::test_utils;
 use crate::util::test_utils::OnGetShutdownScriptpubkey;
+use crate::sync::Arc;
 
 use bitcoin::amount::Amount;
 use bitcoin::locktime::absolute::LockTime;
@@ -392,9 +393,9 @@ fn updates_shutdown_wait() {
 	let node_c_id = nodes[2].node.get_our_node_id();
 	let chan_1 = create_announced_chan_between_nodes(&nodes, 0, 1);
 	let chan_2 = create_announced_chan_between_nodes(&nodes, 1, 2);
-	let logger = test_utils::TestLogger::new();
+	let logger = Arc::new(test_utils::TestLogger::new());
 	let scorer = test_utils::TestScorer::new();
-	let keys_manager = test_utils::TestKeysInterface::new(&[0u8; 32], Network::Testnet);
+	let keys_manager = test_utils::TestKeysInterface::new(&[0u8; 32], Network::Testnet, Arc::clone(&logger));
 	let random_seed_bytes = keys_manager.get_secure_random_bytes();
 
 	let (payment_preimage_0, payment_hash_0, ..) =
@@ -420,7 +421,7 @@ fn updates_shutdown_wait() {
 		&route_params,
 		&nodes[0].network_graph.read_only(),
 		None,
-		&logger,
+		Arc::clone(&logger),
 		&scorer,
 		&Default::default(),
 		&random_seed_bytes,
@@ -435,7 +436,7 @@ fn updates_shutdown_wait() {
 		&route_params,
 		&nodes[1].network_graph.read_only(),
 		None,
-		&logger,
+		Arc::clone(&logger),
 		&scorer,
 		&Default::default(),
 		&random_seed_bytes,

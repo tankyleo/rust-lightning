@@ -298,7 +298,7 @@ fn create_nodes_using_cfgs(cfgs: Vec<MessengerCfg>) -> Vec<MessengerNode> {
 			cfg.secret_override.unwrap_or(SecretKey::from_slice(&[(i + 1) as u8; 32]).unwrap());
 		let logger = Arc::new(TestLogger::with_id(format!("node {}", i)));
 		let seed = [i as u8; 32];
-		let entropy_source = Arc::new(TestKeysInterface::new(&seed, Network::Testnet));
+		let entropy_source = Arc::new(TestKeysInterface::new(&seed, Network::Testnet, Arc::clone(&logger)));
 		let node_signer = Arc::new(TestNodeSigner::new(secret_key));
 
 		let node_id_lookup = Arc::new(EmptyNodeIdLookUp {});

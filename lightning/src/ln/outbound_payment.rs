@@ -2809,12 +2809,12 @@ mod tests {
 	#[rustfmt::skip]
 	fn do_fails_paying_after_expiration(on_retry: bool) {
 		let outbound_payments = OutboundPayments::new(new_hash_map());
-		let logger = test_utils::TestLogger::new();
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, &logger));
+		let logger = Arc::new(test_utils::TestLogger::new());
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
-		let router = test_utils::TestRouter::new(network_graph, &logger, &scorer);
+		let router = test_utils::TestRouter::new(network_graph, Arc::clone(&logger), &scorer);
 		let secp_ctx = Secp256k1::new();
-		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet);
+		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet, Arc::clone(&logger));
 
 		let past_expiry_time = std::time::SystemTime::UNIX_EPOCH.elapsed().unwrap().as_secs() - 2;
 		let payment_params = PaymentParameters::from_node_id(
@@ -2830,7 +2830,7 @@ mod tests {
 				&&keys_manager, 0, None).unwrap();
 			outbound_payments.find_route_and_send_payment(
 				PaymentHash([0; 32]), PaymentId([0; 32]), expired_route_params, &&router, vec![],
-				&|| InFlightHtlcs::new(), &&keys_manager, &&keys_manager, 0, &&logger, &pending_events,
+				&|| InFlightHtlcs::new(), &&keys_manager, &&keys_manager, 0, &logger, &pending_events,
 				&|_| Ok(()));
 			let events = pending_events.lock().unwrap();
 			assert_eq!(events.len(), 1);
@@ -2841,7 +2841,7 @@ mod tests {
 			let err = outbound_payments.send_payment(
 				PaymentHash([0; 32]), RecipientOnionFields::spontaneous_empty(), PaymentId([0; 32]),
 				Retry::Attempts(0), expired_route_params, &&router, vec![], || InFlightHtlcs::new(),
-				&&keys_manager, &&keys_manager, 0, &&logger, &pending_events, |_| Ok(())).unwrap_err();
+				&&keys_manager, &&keys_manager, 0, &logger, &pending_events, |_| Ok(())).unwrap_err();
 			if let RetryableSendFailure::PaymentExpired = err { } else { panic!("Unexpected error"); }
 		}
 	}
@@ -2854,12 +2854,12 @@ mod tests {
 	#[rustfmt::skip]
 	fn do_find_route_error(on_retry: bool) {
 		let outbound_payments = OutboundPayments::new(new_hash_map());
-		let logger = test_utils::TestLogger::new();
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, &logger));
+		let logger = Arc::new(test_utils::TestLogger::new());
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
-		let router = test_utils::TestRouter::new(network_graph, &logger, &scorer);
+		let router = test_utils::TestRouter::new(network_graph, Arc::clone(&logger), &scorer);
 		let secp_ctx = Secp256k1::new();
-		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet);
+		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet, Arc::clone(&logger));
 
 		let payment_params = PaymentParameters::from_node_id(
 			PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap()), 0);
@@ -2874,7 +2874,7 @@ mod tests {
 				&&keys_manager, 0, None).unwrap();
 			outbound_payments.find_route_and_send_payment(
 				PaymentHash([0; 32]), PaymentId([0; 32]), route_params, &&router, vec![],
-				&|| InFlightHtlcs::new(), &&keys_manager, &&keys_manager, 0, &&logger, &pending_events,
+				&|| InFlightHtlcs::new(), &&keys_manager, &&keys_manager, 0, &logger, &pending_events,
 				&|_| Ok(()));
 			let events = pending_events.lock().unwrap();
 			assert_eq!(events.len(), 1);
@@ -2883,7 +2883,7 @@ mod tests {
 			let err = outbound_payments.send_payment(
 				PaymentHash([0; 32]), RecipientOnionFields::spontaneous_empty(), PaymentId([0; 32]),
 				Retry::Attempts(0), route_params, &&router, vec![], || InFlightHtlcs::new(),
-				&&keys_manager, &&keys_manager, 0, &&logger, &pending_events, |_| Ok(())).unwrap_err();
+				&&keys_manager, &&keys_manager, 0, &logger, &pending_events, |_| Ok(())).unwrap_err();
 			if let RetryableSendFailure::RouteNotFound = err {
 			} else { panic!("Unexpected error"); }
 		}
@@ -2893,12 +2893,12 @@ mod tests {
 	#[rustfmt::skip]
 	fn initial_send_payment_path_failed_evs() {
 		let outbound_payments = OutboundPayments::new(new_hash_map());
-		let logger = test_utils::TestLogger::new();
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, &logger));
+		let logger = Arc::new(test_utils::TestLogger::new());
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
-		let router = test_utils::TestRouter::new(network_graph, &logger, &scorer);
+		let router = test_utils::TestRouter::new(network_graph, Arc::clone(&logger), &scorer);
 		let secp_ctx = Secp256k1::new();
-		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet);
+		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet, Arc::clone(&logger));
 
 		let sender_pk = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
 		let receiver_pk = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[43; 32]).unwrap());
@@ -2932,7 +2932,7 @@ mod tests {
 		outbound_payments.send_payment(
 			PaymentHash([0; 32]), RecipientOnionFields::spontaneous_empty(), PaymentId([0; 32]),
 			Retry::Attempts(0), route_params.clone(), &&router, vec![], || InFlightHtlcs::new(),
-			&&keys_manager, &&keys_manager, 0, &&logger, &pending_events,
+			&&keys_manager, &&keys_manager, 0, &logger, &pending_events,
 			|_| Err(APIError::ChannelUnavailable { err: "test".to_owned() })).unwrap();
 		let mut events = pending_events.lock().unwrap();
 		assert_eq!(events.len(), 2);
@@ -2950,7 +2950,7 @@ mod tests {
 		outbound_payments.send_payment(
 			PaymentHash([0; 32]), RecipientOnionFields::spontaneous_empty(), PaymentId([0; 32]),
 			Retry::Attempts(0), route_params.clone(), &&router, vec![], || InFlightHtlcs::new(),
-			&&keys_manager, &&keys_manager, 0, &&logger, &pending_events,
+			&&keys_manager, &&keys_manager, 0, &logger, &pending_events,
 			|_| Err(APIError::MonitorUpdateInProgress)).unwrap();
 		assert_eq!(pending_events.lock().unwrap().len(), 0);
 
@@ -2958,7 +2958,7 @@ mod tests {
 		outbound_payments.send_payment(
 			PaymentHash([0; 32]), RecipientOnionFields::spontaneous_empty(), PaymentId([1; 32]),
 			Retry::Attempts(0), route_params.clone(), &&router, vec![], || InFlightHtlcs::new(),
-			&&keys_manager, &&keys_manager, 0, &&logger, &pending_events,
+			&&keys_manager, &&keys_manager, 0, &logger, &pending_events,
 			|_| Err(APIError::APIMisuseError { err: "test".to_owned() })).unwrap();
 		let events = pending_events.lock().unwrap();
 		assert_eq!(events.len(), 2);
@@ -3114,12 +3114,12 @@ mod tests {
 	#[test]
 	#[rustfmt::skip]
 	fn fails_sending_payment_for_expired_bolt12_invoice() {
-		let logger = test_utils::TestLogger::new();
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, &logger));
+		let logger = Arc::new(test_utils::TestLogger::new());
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
-		let router = test_utils::TestRouter::new(network_graph, &logger, &scorer);
+		let router = test_utils::TestRouter::new(network_graph, Arc::clone(&logger), &scorer);
 		let secp_ctx = Secp256k1::new();
-		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet);
+		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet, Arc::clone(&logger));
 		let expanded_key = ExpandedKey::new([42; 32]);
 		let nonce = Nonce([0; 16]);
 
@@ -3149,7 +3149,7 @@ mod tests {
 			outbound_payments.send_payment_for_bolt12_invoice(
 				&invoice, payment_id, &&router, vec![], Bolt12InvoiceFeatures::empty(),
 				|| InFlightHtlcs::new(), &&keys_manager, &&keys_manager, &EmptyNodeIdLookUp {},
-				&secp_ctx, 0, &&logger, &pending_events, |_| panic!()
+				&secp_ctx, 0, &logger, &pending_events, |_| panic!()
 			),
 			Err(Bolt12PaymentError::SendingFailed(RetryableSendFailure::PaymentExpired)),
 		);
@@ -3169,12 +3169,12 @@ mod tests {
 	#[test]
 	#[rustfmt::skip]
 	fn fails_finding_route_for_bolt12_invoice() {
-		let logger = test_utils::TestLogger::new();
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, &logger));
+		let logger = Arc::new(test_utils::TestLogger::new());
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
-		let router = test_utils::TestRouter::new(network_graph, &logger, &scorer);
+		let router = test_utils::TestRouter::new(network_graph, Arc::clone(&logger), &scorer);
 		let secp_ctx = Secp256k1::new();
-		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet);
+		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet, Arc::clone(&logger));
 
 		let pending_events = Mutex::new(VecDeque::new());
 		let outbound_payments = OutboundPayments::new(new_hash_map());
@@ -3212,7 +3212,7 @@ mod tests {
 			outbound_payments.send_payment_for_bolt12_invoice(
 				&invoice, payment_id, &&router, vec![], Bolt12InvoiceFeatures::empty(),
 				|| InFlightHtlcs::new(), &&keys_manager, &&keys_manager, &EmptyNodeIdLookUp {},
-				&secp_ctx, 0, &&logger, &pending_events, |_| panic!()
+				&secp_ctx, 0, &logger, &pending_events, |_| panic!()
 			),
 			Err(Bolt12PaymentError::SendingFailed(RetryableSendFailure::RouteNotFound)),
 		);
@@ -3232,12 +3232,12 @@ mod tests {
 	#[test]
 	#[rustfmt::skip]
 	fn sends_payment_for_bolt12_invoice() {
-		let logger = test_utils::TestLogger::new();
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, &logger));
+		let logger = Arc::new(test_utils::TestLogger::new());
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, logger));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
 		let router = test_utils::TestRouter::new(network_graph, &logger, &scorer);
 		let secp_ctx = Secp256k1::new();
-		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet);
+		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet, Arc::clone(&logger));
 
 		let pending_events = Mutex::new(VecDeque::new());
 		let outbound_payments = OutboundPayments::new(new_hash_map());
@@ -3288,7 +3288,7 @@ mod tests {
 			outbound_payments.send_payment_for_bolt12_invoice(
 				&invoice, payment_id, &&router, vec![], Bolt12InvoiceFeatures::empty(),
 				|| InFlightHtlcs::new(), &&keys_manager, &&keys_manager, &EmptyNodeIdLookUp {},
-				&secp_ctx, 0, &&logger, &pending_events, |_| panic!()
+				&secp_ctx, 0, &logger, &pending_events, |_| panic!()
 			),
 			Err(Bolt12PaymentError::UnexpectedInvoice),
 		);
@@ -3308,7 +3308,7 @@ mod tests {
 			outbound_payments.send_payment_for_bolt12_invoice(
 				&invoice, payment_id, &&router, vec![], Bolt12InvoiceFeatures::empty(),
 				|| InFlightHtlcs::new(), &&keys_manager, &&keys_manager, &EmptyNodeIdLookUp {},
-				&secp_ctx, 0, &&logger, &pending_events, |_| Ok(())
+				&secp_ctx, 0, &logger, &pending_events, |_| Ok(())
 			),
 			Ok(()),
 		);
@@ -3319,7 +3319,7 @@ mod tests {
 			outbound_payments.send_payment_for_bolt12_invoice(
 				&invoice, payment_id, &&router, vec![], Bolt12InvoiceFeatures::empty(),
 				|| InFlightHtlcs::new(), &&keys_manager, &&keys_manager, &EmptyNodeIdLookUp {},
-				&secp_ctx, 0, &&logger, &pending_events, |_| panic!()
+				&secp_ctx, 0, &logger, &pending_events, |_| panic!()
 			),
 			Err(Bolt12PaymentError::DuplicateInvoice),
 		);

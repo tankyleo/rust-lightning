@@ -4224,6 +4224,7 @@ mod tests {
 		ChannelFeatures, ChannelTypeFeatures, InitFeatures, NodeFeatures,
 	};
 	use crate::types::payment::{PaymentHash, PaymentPreimage, PaymentSecret};
+	use crate::sync::Arc;
 	use crate::util::ser::{
 		BigSize, Hostname, LengthReadable, Readable, ReadableArgs, TransactionU16LenLimited,
 		Writeable,
@@ -5923,7 +5924,8 @@ mod tests {
 			<Vec<u8>>::from_hex("1a02080badf00d010203040404ffffffff0608deadbeef1bad1dea").unwrap();
 		assert_eq!(encoded_value, target_value);
 
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet);
+		let logger = Arc::new(test_utils::TestLogger::new());
+		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet, logger);
 		let inbound_msg =
 			ReadableArgs::read(&mut Cursor::new(&target_value[..]), (None, &node_signer)).unwrap();
 		if let msgs::InboundOnionPayload::Forward(InboundOnionForwardPayload {
@@ -5954,7 +5956,8 @@ mod tests {
 		let target_value = <Vec<u8>>::from_hex("1002080badf00d010203040404ffffffff").unwrap();
 		assert_eq!(encoded_value, target_value);
 
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet);
+		let logger = Arc::new(test_utils::TestLogger::new());
+		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet, logger);
 		let inbound_msg =
 			ReadableArgs::read(&mut Cursor::new(&target_value[..]), (None, &node_signer)).unwrap();
 		if let msgs::InboundOnionPayload::Receive(InboundOnionReceivePayload {
@@ -5989,7 +5992,8 @@ mod tests {
 		let target_value = <Vec<u8>>::from_hex("3602080badf00d010203040404ffffffff082442424242424242424242424242424242424242424242424242424242424242421badca1f").unwrap();
 		assert_eq!(encoded_value, target_value);
 
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet);
+		let logger = Arc::new(test_utils::TestLogger::new());
+		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet, logger);
 		let inbound_msg =
 			ReadableArgs::read(&mut Cursor::new(&target_value[..]), (None, &node_signer)).unwrap();
 		if let msgs::InboundOnionPayload::Receive(InboundOnionReceivePayload {
@@ -6024,7 +6028,8 @@ mod tests {
 			cltv_expiry_height: 0xffffffff,
 		};
 		let encoded_value = msg.encode();
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet);
+		let logger = Arc::new(test_utils::TestLogger::new());
+		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet, logger);
 		assert!(msgs::InboundOnionPayload::read(
 			&mut Cursor::new(&encoded_value[..]),
 			(None, &node_signer)
@@ -6060,7 +6065,8 @@ mod tests {
 		let encoded_value = msg.encode();
 		let target_value = <Vec<u8>>::from_hex("2e02080badf00d010203040404ffffffffff0000000146c6616b021234ff0000000146c6616f084242424242424242").unwrap();
 		assert_eq!(encoded_value, target_value);
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet);
+		let logger = Arc::new(test_utils::TestLogger::new());
+		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet, logger);
 		let inbound_msg: msgs::InboundOnionPayload =
 			ReadableArgs::read(&mut Cursor::new(&target_value[..]), (None, &node_signer)).unwrap();
 		if let msgs::InboundOnionPayload::Receive(InboundOnionReceivePayload {
@@ -6397,7 +6403,8 @@ mod tests {
 		let big_payload = encode_big_payload().unwrap();
 		let mut rd = Cursor::new(&big_payload[..]);
 
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet);
+		let logger = Arc::new(test_utils::TestLogger::new());
+		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet, logger);
 		<msgs::InboundOnionPayload as ReadableArgs<(
 			Option<PublicKey>,
 			&test_utils::TestKeysInterface,

@@ -48,6 +48,7 @@ use crate::types::string::UntrustedString;
 use crate::util::errors::APIError;
 use crate::util::ser::Writeable;
 use crate::util::test_utils;
+use crate::sync::Arc;
 
 use bitcoin::hashes::sha256::Hash as Sha256;
 use bitcoin::hashes::Hash;
@@ -1457,7 +1458,8 @@ fn get_ldk_payment_preimage() {
 		.with_bolt11_features(nodes[1].node.bolt11_invoice_features())
 		.unwrap();
 	let scorer = test_utils::TestScorer::new();
-	let keys_manager = test_utils::TestKeysInterface::new(&[0u8; 32], Network::Testnet);
+	let logger = Arc::new(test_utils::TestLogger::new());
+	let keys_manager = test_utils::TestKeysInterface::new(&[0u8; 32], Network::Testnet, logger);
 	let random_seed_bytes = keys_manager.get_secure_random_bytes();
 	let route_params = RouteParameters::from_payment_params_and_value(payment_params, amt_msat);
 	let route = get_route(

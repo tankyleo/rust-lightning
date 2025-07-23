@@ -1690,7 +1690,7 @@ pub static SIGNER_FACTORY: MutGlobal<Arc<dyn TestSignerFactory>> =
 pub trait TestSignerFactory: Send + Sync {
 	/// Make a dynamic signer
 	fn make_signer(
-		&self, seed: &[u8; 32], now: Duration,
+		&self, seed: &[u8; 32], now: Duration, logger: Arc<TestLogger>,
 	) -> Box<dyn DynKeysInterfaceTrait<EcdsaSigner = DynSigner>>;
 }
 
@@ -1699,9 +1699,9 @@ struct DefaultSignerFactory();
 
 impl TestSignerFactory for DefaultSignerFactory {
 	fn make_signer(
-		&self, seed: &[u8; 32], now: Duration,
+		&self, seed: &[u8; 32], now: Duration, logger: Arc<TestLogger>,
 	) -> Box<dyn DynKeysInterfaceTrait<EcdsaSigner = DynSigner>> {
-		let phantom = sign::PhantomKeysManager::new(seed, now.as_secs(), now.subsec_nanos(), seed, Arc::new(TestLogger::new()));
+		let phantom = sign::PhantomKeysManager::new(seed, now.as_secs(), now.subsec_nanos(), seed, logger);
 		let dphantom = DynPhantomKeysInterface::new(phantom);
 		let backing = Box::new(dphantom) as Box<dyn DynKeysInterfaceTrait<EcdsaSigner = DynSigner>>;
 		backing
@@ -1709,7 +1709,7 @@ impl TestSignerFactory for DefaultSignerFactory {
 }
 
 impl TestKeysInterface {
-	pub fn new(seed: &[u8; 32], network: Network) -> Self {
+	pub fn new(seed: &[u8; 32], network: Network, logger: Arc<TestLogger>) -> Self {
 		#[cfg(feature = "std")]
 		let factory = SIGNER_FACTORY.get();
 
@@ -1717,7 +1717,7 @@ impl TestKeysInterface {
 		let factory = DefaultSignerFactory();
 
 		let now = Duration::from_secs(genesis_block(network).header.time as u64);
-		let backing = factory.make_signer(seed, now);
+		let backing = factory.make_signer(seed, now, logger);
 		Self {
 			backing: DynKeysInterface::new(backing),
 			override_random_bytes: Mutex::new(None),

@@ -5146,7 +5146,8 @@ pub fn test_key_derivation_params() {
 
 	// We manually create the node configuration to backup the seed.
 	let seed = [42; 32];
-	let keys_manager = test_utils::TestKeysInterface::new(&seed, Network::Testnet);
+	let logger = Arc::new(TestLogger::new());
+	let keys_manager = test_utils::TestKeysInterface::new(&seed, Network::Testnet, Arc::clone(&logger));
 	let chain_monitor = test_utils::TestChainMonitor::new(
 		Some(&chanmon_cfgs[0].chain_source),
 		&chanmon_cfgs[0].tx_broadcaster,
@@ -5241,7 +5242,7 @@ pub fn test_key_derivation_params() {
 	expect_payment_failed!(nodes[0], our_payment_hash, false);
 
 	// Verify that A is able to spend its own HTLC-Timeout tx thanks to spendable output event given back by its ChannelMonitor
-	let new_keys_manager = test_utils::TestKeysInterface::new(&seed, Network::Testnet);
+	let new_keys_manager = test_utils::TestKeysInterface::new(&seed, Network::Testnet, Arc::clone(&logger));
 	let spend_txn = check_spendable_outputs!(nodes[0], new_keys_manager);
 	assert_eq!(spend_txn.len(), 3);
 	check_spends!(spend_txn[0], local_txn_1[0]);

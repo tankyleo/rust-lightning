@@ -2172,6 +2172,7 @@ mod tests {
 	use crate::types::features::ChannelTypeFeatures;
 	use crate::types::payment::PaymentHash;
 	use crate::util::test_utils;
+	use crate::sync::Arc;
 	use bitcoin::hashes::Hash;
 	use bitcoin::hex::FromHex;
 	use bitcoin::secp256k1::{self, PublicKey, Secp256k1, SecretKey};
@@ -2196,7 +2197,8 @@ mod tests {
 			let secp_ctx = Secp256k1::new();
 			let seed = [42; 32];
 			let network = Network::Testnet;
-			let keys_provider = test_utils::TestKeysInterface::new(&seed, network);
+			let logger = Arc::new(test_utils::TestLogger::new());
+			let keys_provider = test_utils::TestKeysInterface::new(&seed, network, logger);
 			let signer = keys_provider.derive_channel_signer(keys_provider.generate_channel_keys_id(false, 0));
 			let counterparty_signer = keys_provider.derive_channel_signer(keys_provider.generate_channel_keys_id(true, 1));
 			let per_commitment_secret = SecretKey::from_slice(&<Vec<u8>>::from_hex("1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100").unwrap()[..]).unwrap();

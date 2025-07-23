@@ -13714,12 +13714,12 @@ mod tests {
 
 		let seed = [42; 32];
 		let network = Network::Testnet;
-		let keys_provider = TestKeysInterface::new(&seed, network);
+		let logger = Arc::new(TestLogger::new());
+		let keys_provider = TestKeysInterface::new(&seed, network, Arc::clone(&logger));
 		keys_provider
 			.expect(OnGetShutdownScriptpubkey { returns: non_v0_segwit_shutdown_script.clone() });
 		let fee_estimator = TestFeeEstimator::new(253);
 		let bounded_fee_estimator = LowerBoundedFeeEstimator::new(&fee_estimator);
-		let logger = TestLogger::new();
 
 		let secp_ctx = Secp256k1::new();
 		let node_id =
@@ -13738,7 +13738,7 @@ mod tests {
 			0,
 			42,
 			None,
-			&logger,
+			logger,
 		);
 		match res {
 			Err(APIError::IncompatibleShutdownScript { script }) => {
@@ -13760,17 +13760,17 @@ mod tests {
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
 		let network = Network::Testnet;
-		let keys_provider = TestKeysInterface::new(&seed, network);
-		let logger = TestLogger::new();
+		let logger = Arc::new(TestLogger::new());
+		let keys_provider = TestKeysInterface::new(&seed, network, Arc::clone(&logger));
 
 		let node_a_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
 		let config = UserConfig::default();
-		let mut node_a_chan = OutboundV1Channel::<&TestKeysInterface>::new(&bounded_fee_estimator, &&keys_provider, &&keys_provider, node_a_node_id, &channelmanager::provided_init_features(&config), 10000000, 100000, 42, &config, 0, 42, None, &logger).unwrap();
+		let mut node_a_chan = OutboundV1Channel::<&TestKeysInterface>::new(&bounded_fee_estimator, &&keys_provider, &&keys_provider, node_a_node_id, &channelmanager::provided_init_features(&config), 10000000, 100000, 42, &config, 0, 42, None, Arc::clone(&logger)).unwrap();
 
 		// Now change the fee so we can check that the fee in the open_channel message is the
 		// same as the old fee.
 		*fee_est.sat_per_kw.lock().unwrap() = 500;
-		let open_channel_msg = node_a_chan.get_open_channel(ChainHash::using_genesis_block(network), &&logger).unwrap();
+		let open_channel_msg = node_a_chan.get_open_channel(ChainHash::using_genesis_block(network), &logger).unwrap();
 		assert_eq!(open_channel_msg.common_fields.commitment_feerate_sat_per_1000_weight, original_fee);
 	}
 
@@ -13784,8 +13784,8 @@ mod tests {
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
 		let network = Network::Testnet;
-		let keys_provider = TestKeysInterface::new(&seed, network);
-		let logger = TestLogger::new();
+		let logger = Arc::new(TestLogger::new());
+		let keys_provider = TestKeysInterface::new(&seed, network, Arc::clone(&logger));
 		let best_block = BestBlock::from_network(network);
 
 		// Go through the flow of opening a channel between two nodes, making sure
@@ -13794,16 +13794,16 @@ mod tests {
 		// Create Node A's channel pointing to Node B's pubkey
 		let node_b_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
 		let config = UserConfig::default();
-		let mut node_a_chan = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_init_features(&config), 10000000, 100000, 42, &config, 0, 42, None, &logger).unwrap();
+		let mut node_a_chan = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_init_features(&config), 10000000, 100000, 42, &config, 0, 42, None, Arc::clone(&logger)).unwrap();
 
 		// Create Node B's channel by receiving Node A's open_channel message
 		// Make sure A's dust limit is as we expect.
-		let open_channel_msg = node_a_chan.get_open_channel(ChainHash::using_genesis_block(network), &&logger).unwrap();
+		let open_channel_msg = node_a_chan.get_open_channel(ChainHash::using_genesis_block(network), &logger).unwrap();
 		let node_b_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[7; 32]).unwrap());
-		let mut node_b_chan = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_channel_type_features(&config), &channelmanager::provided_init_features(&config), &open_channel_msg, 7, &config, 0, &&logger, /*is_0conf=*/false).unwrap();
+		let mut node_b_chan = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_channel_type_features(&config), &channelmanager::provided_init_features(&config), &open_channel_msg, 7, &config, 0, &logger, /*is_0conf=*/false).unwrap();
 
 		// Node B --> Node A: accept channel, explicitly setting B's dust limit.
-		let mut accept_channel_msg = node_b_chan.accept_inbound_channel(&&logger).unwrap();
+		let mut accept_channel_msg = node_b_chan.accept_inbound_channel(&logger).unwrap();
 		accept_channel_msg.common_fields.dust_limit_satoshis = 546;
 		node_a_chan.accept_channel(&accept_channel_msg, &config.channel_handshake_limits, &channelmanager::provided_init_features(&config)).unwrap();
 		node_a_chan.context.holder_dust_limit_satoshis = 1560;
@@ -13814,11 +13814,11 @@ mod tests {
 			value: Amount::from_sat(10000000), script_pubkey: output_script.clone(),
 		}]};
 		let funding_outpoint = OutPoint{ txid: tx.compute_txid(), index: 0 };
-		let funding_created_msg = node_a_chan.get_funding_created(tx.clone(), funding_outpoint, false, &&logger).map_err(|_| ()).unwrap();
-		let (_, funding_signed_msg, _) = node_b_chan.funding_created(&funding_created_msg.unwrap(), best_block, &&keys_provider, &&logger).map_err(|_| ()).unwrap();
+		let funding_created_msg = node_a_chan.get_funding_created(tx.clone(), funding_outpoint, false, &logger).map_err(|_| ()).unwrap();
+		let (_, funding_signed_msg, _) = node_b_chan.funding_created(&funding_created_msg.unwrap(), best_block, &&keys_provider, &Arc::clone(&logger)).map_err(|_| ()).unwrap();
 
 		// Node B --> Node A: funding signed
-		let res = node_a_chan.funding_signed(&funding_signed_msg.unwrap(), best_block, &&keys_provider, &&logger);
+		let res = node_a_chan.funding_signed(&funding_signed_msg.unwrap(), best_block, &&keys_provider, &logger);
 		let (mut node_a_chan, _) = if let Ok(res) = res { res } else { panic!(); };
 
 		// Put some inbound and outbound HTLCs in A's channel.
@@ -13877,12 +13877,12 @@ mod tests {
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
 		let network = Network::Testnet;
-		let keys_provider = TestKeysInterface::new(&seed, network);
-		let logger = TestLogger::new();
+		let logger = Arc::new(TestLogger::new());
+		let keys_provider = TestKeysInterface::new(&seed, network, Arc::clone(&logger));
 
 		let node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
 		let config = UserConfig::default();
-		let mut chan = OutboundV1Channel::<&TestKeysInterface>::new(&fee_est, &&keys_provider, &&keys_provider, node_id, &channelmanager::provided_init_features(&config), 10000000, 100000, 42, &config, 0, 42, None, &logger).unwrap();
+		let mut chan = OutboundV1Channel::<&TestKeysInterface>::new(&fee_est, &&keys_provider, &&keys_provider, node_id, &channelmanager::provided_init_features(&config), 10000000, 100000, 42, &config, 0, 42, None, Arc::clone(&logger)).unwrap();
 
 		let commitment_tx_fee_0_htlcs = commit_tx_fee_sat(chan.context.feerate_per_kw, 0, chan.funding.get_channel_type()) * 1000;
 		let commitment_tx_fee_1_htlc = commit_tx_fee_sat(chan.context.feerate_per_kw, 1, chan.funding.get_channel_type()) * 1000;
@@ -13923,28 +13923,28 @@ mod tests {
 	fn channel_reestablish_no_updates() {
 		let test_est = TestFeeEstimator::new(15000);
 		let feeest = LowerBoundedFeeEstimator::new(&test_est);
-		let logger = TestLogger::new();
+		let logger = Arc::new(TestLogger::new());
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
 		let network = Network::Testnet;
 		let best_block = BestBlock::from_network(network);
 		let chain_hash = ChainHash::using_genesis_block(network);
-		let keys_provider = TestKeysInterface::new(&seed, network);
+		let keys_provider = TestKeysInterface::new(&seed, network, Arc::clone(&logger));
 
 		// Go through the flow of opening a channel between two nodes.
 
 		// Create Node A's channel pointing to Node B's pubkey
 		let node_b_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
 		let config = UserConfig::default();
-		let mut node_a_chan = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_init_features(&config), 10000000, 100000, 42, &config, 0, 42, None, &logger).unwrap();
+		let mut node_a_chan = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_init_features(&config), 10000000, 100000, 42, &config, 0, 42, None, Arc::clone(&logger)).unwrap();
 
 		// Create Node B's channel by receiving Node A's open_channel message
-		let open_channel_msg = node_a_chan.get_open_channel(chain_hash, &&logger).unwrap();
+		let open_channel_msg = node_a_chan.get_open_channel(chain_hash, &logger).unwrap();
 		let node_b_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[7; 32]).unwrap());
-		let mut node_b_chan = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_channel_type_features(&config), &channelmanager::provided_init_features(&config), &open_channel_msg, 7, &config, 0, &&logger, /*is_0conf=*/false).unwrap();
+		let mut node_b_chan = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_channel_type_features(&config), &channelmanager::provided_init_features(&config), &open_channel_msg, 7, &config, 0, &logger, /*is_0conf=*/false).unwrap();
 
 		// Node B --> Node A: accept channel
-		let accept_channel_msg = node_b_chan.accept_inbound_channel(&&logger).unwrap();
+		let accept_channel_msg = node_b_chan.accept_inbound_channel(&logger).unwrap();
 		node_a_chan.accept_channel(&accept_channel_msg, &config.channel_handshake_limits, &channelmanager::provided_init_features(&config)).unwrap();
 
 		// Node A --> Node B: funding created
@@ -13953,25 +13953,25 @@ mod tests {
 			value: Amount::from_sat(10000000), script_pubkey: output_script.clone(),
 		}]};
 		let funding_outpoint = OutPoint{ txid: tx.compute_txid(), index: 0 };
-		let funding_created_msg = node_a_chan.get_funding_created(tx.clone(), funding_outpoint, false, &&logger).map_err(|_| ()).unwrap();
-		let (mut node_b_chan, funding_signed_msg, _) = node_b_chan.funding_created(&funding_created_msg.unwrap(), best_block, &&keys_provider, &&logger).map_err(|_| ()).unwrap();
+		let funding_created_msg = node_a_chan.get_funding_created(tx.clone(), funding_outpoint, false, &logger).map_err(|_| ()).unwrap();
+		let (mut node_b_chan, funding_signed_msg, _) = node_b_chan.funding_created(&funding_created_msg.unwrap(), best_block, &&keys_provider, &logger).map_err(|_| ()).unwrap();
 
 		// Node B --> Node A: funding signed
-		let res = node_a_chan.funding_signed(&funding_signed_msg.unwrap(), best_block, &&keys_provider, &&logger);
+		let res = node_a_chan.funding_signed(&funding_signed_msg.unwrap(), best_block, &&keys_provider, &logger);
 		let (mut node_a_chan, _) = if let Ok(res) = res { res } else { panic!(); };
 
 		// Now disconnect the two nodes and check that the commitment point in
 		// Node B's channel_reestablish message is sane.
-		assert!(node_b_chan.remove_uncommitted_htlcs_and_mark_paused(&&logger).is_ok());
-		let msg = node_b_chan.get_channel_reestablish(&&logger);
+		assert!(node_b_chan.remove_uncommitted_htlcs_and_mark_paused(&logger).is_ok());
+		let msg = node_b_chan.get_channel_reestablish(&logger);
 		assert_eq!(msg.next_local_commitment_number, 1); // now called next_commitment_number
 		assert_eq!(msg.next_remote_commitment_number, 0); // now called next_revocation_number
 		assert_eq!(msg.your_last_per_commitment_secret, [0; 32]);
 
 		// Check that the commitment point in Node A's channel_reestablish message
 		// is sane.
-		assert!(node_a_chan.remove_uncommitted_htlcs_and_mark_paused(&&logger).is_ok());
-		let msg = node_a_chan.get_channel_reestablish(&&logger);
+		assert!(node_a_chan.remove_uncommitted_htlcs_and_mark_paused(&logger).is_ok());
+		let msg = node_a_chan.get_channel_reestablish(&logger);
 		assert_eq!(msg.next_local_commitment_number, 1); // now called next_commitment_number
 		assert_eq!(msg.next_remote_commitment_number, 0); // now called next_revocation_number
 		assert_eq!(msg.your_last_per_commitment_secret, [0; 32]);
@@ -13982,11 +13982,11 @@ mod tests {
 	fn test_configured_holder_max_htlc_value_in_flight() {
 		let test_est = TestFeeEstimator::new(15000);
 		let feeest = LowerBoundedFeeEstimator::new(&test_est);
-		let logger = TestLogger::new();
+		let logger = Arc::new(TestLogger::new());
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
 		let network = Network::Testnet;
-		let keys_provider = TestKeysInterface::new(&seed, network);
+		let keys_provider = TestKeysInterface::new(&seed, network, Arc::clone(&logger));
 		let outbound_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
 		let inbound_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[7; 32]).unwrap());
 
@@ -14002,52 +14002,52 @@ mod tests {
 		// Test that `OutboundV1Channel::new` creates a channel with the correct value for
 		// `holder_max_htlc_value_in_flight_msat`, when configured with a valid percentage value,
 		// which is set to the lower bound + 1 (2%) of the `channel_value`.
-		let mut chan_1 = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, outbound_node_id, &channelmanager::provided_init_features(&config_2_percent), 10000000, 100000, 42, &config_2_percent, 0, 42, None, &logger).unwrap();
+		let mut chan_1 = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, outbound_node_id, &channelmanager::provided_init_features(&config_2_percent), 10000000, 100000, 42, &config_2_percent, 0, 42, None, Arc::clone(&logger)).unwrap();
 		let chan_1_value_msat = chan_1.funding.get_value_satoshis() * 1000;
 		assert_eq!(chan_1.context.holder_max_htlc_value_in_flight_msat, (chan_1_value_msat as f64 * 0.02) as u64);
 
 		// Test with the upper bound - 1 of valid values (99%).
-		let chan_2 = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, outbound_node_id, &channelmanager::provided_init_features(&config_99_percent), 10000000, 100000, 42, &config_99_percent, 0, 42, None, &logger).unwrap();
+		let chan_2 = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, outbound_node_id, &channelmanager::provided_init_features(&config_99_percent), 10000000, 100000, 42, &config_99_percent, 0, 42, None, Arc::clone(&logger)).unwrap();
 		let chan_2_value_msat = chan_2.funding.get_value_satoshis() * 1000;
 		assert_eq!(chan_2.context.holder_max_htlc_value_in_flight_msat, (chan_2_value_msat as f64 * 0.99) as u64);
 
-		let chan_1_open_channel_msg = chan_1.get_open_channel(ChainHash::using_genesis_block(network), &&logger).unwrap();
+		let chan_1_open_channel_msg = chan_1.get_open_channel(ChainHash::using_genesis_block(network), &logger).unwrap();
 
 		// Test that `InboundV1Channel::new` creates a channel with the correct value for
 		// `holder_max_htlc_value_in_flight_msat`, when configured with a valid percentage value,
 		// which is set to the lower bound - 1 (2%) of the `channel_value`.
-		let chan_3 = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, inbound_node_id, &channelmanager::provided_channel_type_features(&config_2_percent), &channelmanager::provided_init_features(&config_2_percent), &chan_1_open_channel_msg, 7, &config_2_percent, 0, &&logger, /*is_0conf=*/false).unwrap();
+		let chan_3 = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, inbound_node_id, &channelmanager::provided_channel_type_features(&config_2_percent), &channelmanager::provided_init_features(&config_2_percent), &chan_1_open_channel_msg, 7, &config_2_percent, 0, &logger, /*is_0conf=*/false).unwrap();
 		let chan_3_value_msat = chan_3.funding.get_value_satoshis() * 1000;
 		assert_eq!(chan_3.context.holder_max_htlc_value_in_flight_msat, (chan_3_value_msat as f64 * 0.02) as u64);
 
 		// Test with the upper bound - 1 of valid values (99%).
-		let chan_4 = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, inbound_node_id, &channelmanager::provided_channel_type_features(&config_99_percent), &channelmanager::provided_init_features(&config_99_percent), &chan_1_open_channel_msg, 7, &config_99_percent, 0, &&logger, /*is_0conf=*/false).unwrap();
+		let chan_4 = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, inbound_node_id, &channelmanager::provided_channel_type_features(&config_99_percent), &channelmanager::provided_init_features(&config_99_percent), &chan_1_open_channel_msg, 7, &config_99_percent, 0, &logger, /*is_0conf=*/false).unwrap();
 		let chan_4_value_msat = chan_4.funding.get_value_satoshis() * 1000;
 		assert_eq!(chan_4.context.holder_max_htlc_value_in_flight_msat, (chan_4_value_msat as f64 * 0.99) as u64);
 
 		// Test that `OutboundV1Channel::new` uses the lower bound of the configurable percentage values (1%)
 		// if `max_inbound_htlc_value_in_flight_percent_of_channel` is set to a value less than 1.
-		let chan_5 = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, outbound_node_id, &channelmanager::provided_init_features(&config_0_percent), 10000000, 100000, 42, &config_0_percent, 0, 42, None, &logger).unwrap();
+		let chan_5 = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, outbound_node_id, &channelmanager::provided_init_features(&config_0_percent), 10000000, 100000, 42, &config_0_percent, 0, 42, None, Arc::clone(&logger)).unwrap();
 		let chan_5_value_msat = chan_5.funding.get_value_satoshis() * 1000;
 		assert_eq!(chan_5.context.holder_max_htlc_value_in_flight_msat, (chan_5_value_msat as f64 * 0.01) as u64);
 
 		// Test that `OutboundV1Channel::new` uses the upper bound of the configurable percentage values
 		// (100%) if `max_inbound_htlc_value_in_flight_percent_of_channel` is set to a larger value
 		// than 100.
-		let chan_6 = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, outbound_node_id, &channelmanager::provided_init_features(&config_101_percent), 10000000, 100000, 42, &config_101_percent, 0, 42, None, &logger).unwrap();
+		let chan_6 = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, outbound_node_id, &channelmanager::provided_init_features(&config_101_percent), 10000000, 100000, 42, &config_101_percent, 0, 42, None, Arc::clone(&logger)).unwrap();
 		let chan_6_value_msat = chan_6.funding.get_value_satoshis() * 1000;
 		assert_eq!(chan_6.context.holder_max_htlc_value_in_flight_msat, chan_6_value_msat);
 
 		// Test that `InboundV1Channel::new` uses the lower bound of the configurable percentage values (1%)
 		// if `max_inbound_htlc_value_in_flight_percent_of_channel` is set to a value less than 1.
-		let chan_7 = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, inbound_node_id, &channelmanager::provided_channel_type_features(&config_0_percent), &channelmanager::provided_init_features(&config_0_percent), &chan_1_open_channel_msg, 7, &config_0_percent, 0, &&logger, /*is_0conf=*/false).unwrap();
+		let chan_7 = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, inbound_node_id, &channelmanager::provided_channel_type_features(&config_0_percent), &channelmanager::provided_init_features(&config_0_percent), &chan_1_open_channel_msg, 7, &config_0_percent, 0, &logger, /*is_0conf=*/false).unwrap();
 		let chan_7_value_msat = chan_7.funding.get_value_satoshis() * 1000;
 		assert_eq!(chan_7.context.holder_max_htlc_value_in_flight_msat, (chan_7_value_msat as f64 * 0.01) as u64);
 
 		// Test that `InboundV1Channel::new` uses the upper bound of the configurable percentage values
 		// (100%) if `max_inbound_htlc_value_in_flight_percent_of_channel` is set to a larger value
 		// than 100.
-		let chan_8 = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, inbound_node_id, &channelmanager::provided_channel_type_features(&config_101_percent), &channelmanager::provided_init_features(&config_101_percent), &chan_1_open_channel_msg, 7, &config_101_percent, 0, &&logger, /*is_0conf=*/false).unwrap();
+		let chan_8 = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, inbound_node_id, &channelmanager::provided_channel_type_features(&config_101_percent), &channelmanager::provided_init_features(&config_101_percent), &chan_1_open_channel_msg, 7, &config_101_percent, 0, &logger, /*is_0conf=*/false).unwrap();
 		let chan_8_value_msat = chan_8.funding.get_value_satoshis() * 1000;
 		assert_eq!(chan_8.context.holder_max_htlc_value_in_flight_msat, chan_8_value_msat);
 	}
@@ -14079,28 +14079,28 @@ mod tests {
 	fn test_self_and_counterparty_channel_reserve(channel_value_satoshis: u64, outbound_selected_channel_reserve_perc: f64, inbound_selected_channel_reserve_perc: f64) {
 		let test_est = TestFeeEstimator::new(15000);
 		let fee_est = LowerBoundedFeeEstimator::new(&test_est);
-		let logger = TestLogger::new();
+		let logger = Arc::new(TestLogger::new());
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
 		let network = Network::Testnet;
-		let keys_provider = TestKeysInterface::new(&seed, network);
+		let keys_provider = TestKeysInterface::new(&seed, network, Arc::clone(&logger));
 		let outbound_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
 		let inbound_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[7; 32]).unwrap());
 
 
 		let mut outbound_node_config = UserConfig::default();
 		outbound_node_config.channel_handshake_config.their_channel_reserve_proportional_millionths = (outbound_selected_channel_reserve_perc * 1_000_000.0) as u32;
-		let mut chan = OutboundV1Channel::<&TestKeysInterface>::new(&&fee_est, &&keys_provider, &&keys_provider, outbound_node_id, &channelmanager::provided_init_features(&outbound_node_config), channel_value_satoshis, 100_000, 42, &outbound_node_config, 0, 42, None, &logger).unwrap();
+		let mut chan = OutboundV1Channel::<&TestKeysInterface>::new(&&fee_est, &&keys_provider, &&keys_provider, outbound_node_id, &channelmanager::provided_init_features(&outbound_node_config), channel_value_satoshis, 100_000, 42, &outbound_node_config, 0, 42, None, Arc::clone(&logger)).unwrap();
 
 		let expected_outbound_selected_chan_reserve = cmp::max(MIN_THEIR_CHAN_RESERVE_SATOSHIS, (chan.funding.get_value_satoshis() as f64 * outbound_selected_channel_reserve_perc) as u64);
 		assert_eq!(chan.funding.holder_selected_channel_reserve_satoshis, expected_outbound_selected_chan_reserve);
 
-		let chan_open_channel_msg = chan.get_open_channel(ChainHash::using_genesis_block(network), &&logger).unwrap();
+		let chan_open_channel_msg = chan.get_open_channel(ChainHash::using_genesis_block(network), &logger).unwrap();
 		let mut inbound_node_config = UserConfig::default();
 		inbound_node_config.channel_handshake_config.their_channel_reserve_proportional_millionths = (inbound_selected_channel_reserve_perc * 1_000_000.0) as u32;
 
 		if outbound_selected_channel_reserve_perc + inbound_selected_channel_reserve_perc < 1.0 {
-			let chan_inbound_node = InboundV1Channel::<&TestKeysInterface>::new(&&fee_est, &&keys_provider, &&keys_provider, inbound_node_id, &channelmanager::provided_channel_type_features(&inbound_node_config), &channelmanager::provided_init_features(&outbound_node_config), &chan_open_channel_msg, 7, &inbound_node_config, 0, &&logger, /*is_0conf=*/false).unwrap();
+			let chan_inbound_node = InboundV1Channel::<&TestKeysInterface>::new(&&fee_est, &&keys_provider, &&keys_provider, inbound_node_id, &channelmanager::provided_channel_type_features(&inbound_node_config), &channelmanager::provided_init_features(&outbound_node_config), &chan_open_channel_msg, 7, &inbound_node_config, 0, &logger, /*is_0conf=*/false).unwrap();
 
 			let expected_inbound_selected_chan_reserve = cmp::max(MIN_THEIR_CHAN_RESERVE_SATOSHIS, (chan.funding.get_value_satoshis() as f64 * inbound_selected_channel_reserve_perc) as u64);
 
@@ -14108,7 +14108,7 @@ mod tests {
 			assert_eq!(chan_inbound_node.funding.counterparty_selected_channel_reserve_satoshis.unwrap(), expected_outbound_selected_chan_reserve);
 		} else {
 			// Channel Negotiations failed
-			let result = InboundV1Channel::<&TestKeysInterface>::new(&&fee_est, &&keys_provider, &&keys_provider, inbound_node_id, &channelmanager::provided_channel_type_features(&inbound_node_config), &channelmanager::provided_init_features(&outbound_node_config), &chan_open_channel_msg, 7, &inbound_node_config, 0, &&logger, /*is_0conf=*/false);
+			let result = InboundV1Channel::<&TestKeysInterface>::new(&&fee_est, &&keys_provider, &&keys_provider, inbound_node_id, &channelmanager::provided_channel_type_features(&inbound_node_config), &channelmanager::provided_init_features(&outbound_node_config), &chan_open_channel_msg, 7, &inbound_node_config, 0, &logger, /*is_0conf=*/false);
 			assert!(result.is_err());
 		}
 	}
@@ -14118,27 +14118,27 @@ mod tests {
 	fn channel_update() {
 		let test_est = TestFeeEstimator::new(15000);
 		let feeest = LowerBoundedFeeEstimator::new(&test_est);
-		let logger = TestLogger::new();
+		let logger = Arc::new(TestLogger::new());
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
 		let network = Network::Testnet;
 		let best_block = BestBlock::from_network(network);
 		let chain_hash = ChainHash::using_genesis_block(network);
-		let keys_provider = TestKeysInterface::new(&seed, network);
+		let keys_provider = TestKeysInterface::new(&seed, network, Arc::clone(&logger));
 
 		// Create Node A's channel pointing to Node B's pubkey
 		let node_b_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
 		let config = UserConfig::default();
-		let mut node_a_chan = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_init_features(&config), 10000000, 100000, 42, &config, 0, 42, None, &logger).unwrap();
+		let mut node_a_chan = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_init_features(&config), 10000000, 100000, 42, &config, 0, 42, None, Arc::clone(&logger)).unwrap();
 
 		// Create Node B's channel by receiving Node A's open_channel message
 		// Make sure A's dust limit is as we expect.
-		let open_channel_msg = node_a_chan.get_open_channel(ChainHash::using_genesis_block(network), &&logger).unwrap();
+		let open_channel_msg = node_a_chan.get_open_channel(ChainHash::using_genesis_block(network), &logger).unwrap();
 		let node_b_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[7; 32]).unwrap());
-		let mut node_b_chan = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_channel_type_features(&config), &channelmanager::provided_init_features(&config), &open_channel_msg, 7, &config, 0, &&logger, /*is_0conf=*/false).unwrap();
+		let mut node_b_chan = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_channel_type_features(&config), &channelmanager::provided_init_features(&config), &open_channel_msg, 7, &config, 0, &logger, /*is_0conf=*/false).unwrap();
 
 		// Node B --> Node A: accept channel, explicitly setting B's dust limit.
-		let mut accept_channel_msg = node_b_chan.accept_inbound_channel(&&logger).unwrap();
+		let mut accept_channel_msg = node_b_chan.accept_inbound_channel(&logger).unwrap();
 		accept_channel_msg.common_fields.dust_limit_satoshis = 546;
 		node_a_chan.accept_channel(&accept_channel_msg, &config.channel_handshake_limits, &channelmanager::provided_init_features(&config)).unwrap();
 		node_a_chan.context.holder_dust_limit_satoshis = 1560;
@@ -14149,11 +14149,11 @@ mod tests {
 			value: Amount::from_sat(10000000), script_pubkey: output_script.clone(),
 		}]};
 		let funding_outpoint = OutPoint{ txid: tx.compute_txid(), index: 0 };
-		let funding_created_msg = node_a_chan.get_funding_created(tx.clone(), funding_outpoint, false, &&logger).map_err(|_| ()).unwrap();
-		let (_, funding_signed_msg, _) = node_b_chan.funding_created(&funding_created_msg.unwrap(), best_block, &&keys_provider, &&logger).map_err(|_| ()).unwrap();
+		let funding_created_msg = node_a_chan.get_funding_created(tx.clone(), funding_outpoint, false, &logger).map_err(|_| ()).unwrap();
+		let (_, funding_signed_msg, _) = node_b_chan.funding_created(&funding_created_msg.unwrap(), best_block, &&keys_provider, &logger).map_err(|_| ()).unwrap();
 
 		// Node B --> Node A: funding signed
-		let res = node_a_chan.funding_signed(&funding_signed_msg.unwrap(), best_block, &&keys_provider, &&logger);
+		let res = node_a_chan.funding_signed(&funding_signed_msg.unwrap(), best_block, &&keys_provider, &logger);
 		let (mut node_a_chan, _) = if let Ok(res) = res { res } else { panic!(); };
 
 		// Make sure that receiving a channel update will update the Channel as expected.
@@ -14194,14 +14194,14 @@ mod tests {
 	fn blinding_point_skimmed_fee_malformed_ser() {
 		// Ensure that channel blinding points, skimmed fees, and malformed HTLCs are (de)serialized
 		// properly.
-		let logger = TestLogger::new();
+		let logger = Arc::new(TestLogger::new());
 		let test_est = TestFeeEstimator::new(15000);
 		let feeest = LowerBoundedFeeEstimator::new(&test_est);
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
 		let network = Network::Testnet;
 		let best_block = BestBlock::from_network(network);
-		let keys_provider = TestKeysInterface::new(&seed, network);
+		let keys_provider = TestKeysInterface::new(&seed, network, Arc::clone(&logger));
 
 		let node_b_node_id =
 			PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
@@ -14220,11 +14220,11 @@ mod tests {
 			0,
 			42,
 			None,
-			&logger,
+			Arc::clone(&logger),
 		)
 		.unwrap();
 		let open_channel_msg = &outbound_chan
-			.get_open_channel(ChainHash::using_genesis_block(network), &&logger)
+			.get_open_channel(ChainHash::using_genesis_block(network), &logger)
 			.unwrap();
 		let mut inbound_chan = InboundV1Channel::<&TestKeysInterface>::new(
 			&feeest,
@@ -14237,13 +14237,13 @@ mod tests {
 			7,
 			&config,
 			0,
-			&&logger,
+			&logger,
 			false,
 		)
 		.unwrap();
 		outbound_chan
 			.accept_channel(
-				&inbound_chan.get_accept_channel_message(&&logger).unwrap(),
+				&inbound_chan.get_accept_channel_message(&logger).unwrap(),
 				&config.channel_handshake_limits,
 				&features,
 			)
@@ -14259,7 +14259,7 @@ mod tests {
 		};
 		let funding_outpoint = OutPoint { txid: tx.compute_txid(), index: 0 };
 		let funding_created = outbound_chan
-			.get_funding_created(tx.clone(), funding_outpoint, false, &&logger)
+			.get_funding_created(tx.clone(), funding_outpoint, false, &logger)
 			.map_err(|_| ())
 			.unwrap()
 			.unwrap();
@@ -14267,7 +14267,7 @@ mod tests {
 			&funding_created,
 			best_block,
 			&&keys_provider,
-			&&logger,
+			&logger,
 		) {
 			Ok((chan, _, _)) => chan,
 			Err((_, e)) => panic!("{}", e),
@@ -15190,13 +15190,13 @@ mod tests {
 	fn test_waiting_for_batch() {
 		let test_est = TestFeeEstimator::new(15000);
 		let feeest = LowerBoundedFeeEstimator::new(&test_est);
-		let logger = TestLogger::new();
+		let logger = Arc::new(TestLogger::new());
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
 		let network = Network::Testnet;
 		let best_block = BestBlock::from_network(network);
 		let chain_hash = ChainHash::using_genesis_block(network);
-		let keys_provider = TestKeysInterface::new(&seed, network);
+		let keys_provider = TestKeysInterface::new(&seed, network, Arc::clone(&logger));
 
 		let mut config = UserConfig::default();
 		// Set trust_own_funding_0conf while ensuring we don't send channel_ready for a
@@ -15218,10 +15218,10 @@ mod tests {
 			0,
 			42,
 			None,
-			&logger
+			Arc::clone(&logger),
 		).unwrap();
 
-		let open_channel_msg = node_a_chan.get_open_channel(ChainHash::using_genesis_block(network), &&logger).unwrap();
+		let open_channel_msg = node_a_chan.get_open_channel(ChainHash::using_genesis_block(network), &logger).unwrap();
 		let node_b_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[7; 32]).unwrap());
 		let mut node_b_chan = InboundV1Channel::<&TestKeysInterface>::new(
 			&feeest,
@@ -15234,11 +15234,11 @@ mod tests {
 			7,
 			&config,
 			0,
-			&&logger,
+			&logger,
 			true,  // Allow node b to send a 0conf channel_ready.
 		).unwrap();
 
-		let accept_channel_msg = node_b_chan.accept_inbound_channel(&&logger).unwrap();
+		let accept_channel_msg = node_b_chan.accept_inbound_channel(&logger).unwrap();
 		node_a_chan.accept_channel(
 			&accept_channel_msg,
 			&config.channel_handshake_limits,
@@ -15261,16 +15261,16 @@ mod tests {
 			]};
 		let funding_outpoint = OutPoint{ txid: tx.compute_txid(), index: 0 };
 		let funding_created_msg = node_a_chan.get_funding_created(
-			tx.clone(), funding_outpoint, true, &&logger,
+			tx.clone(), funding_outpoint, true, &logger,
 		).map_err(|_| ()).unwrap();
 		let (mut node_b_chan, funding_signed_msg, _) = node_b_chan.funding_created(
 			&funding_created_msg.unwrap(),
 			best_block,
 			&&keys_provider,
-			&&logger,
+			&logger,
 		).map_err(|_| ()).unwrap();
 		let node_b_updates = node_b_chan.monitor_updating_restored(
-			&&logger,
+			&logger,
 			&&keys_provider,
 			chain_hash,
 			&config,
@@ -15280,11 +15280,11 @@ mod tests {
 		// Receive funding_signed, but the channel will be configured to hold sending channel_ready and
 		// broadcasting the funding transaction until the batch is ready.
 		let res = node_a_chan.funding_signed(
-			&funding_signed_msg.unwrap(), best_block, &&keys_provider, &&logger,
+			&funding_signed_msg.unwrap(), best_block, &&keys_provider, &logger,
 		);
 		let (mut node_a_chan, _) = if let Ok(res) = res { res } else { panic!(); };
 		let node_a_updates = node_a_chan.monitor_updating_restored(
-			&&logger,
+			&logger,
 			&&keys_provider,
 			chain_hash,
 			&config,
@@ -15303,7 +15303,7 @@ mod tests {
 			chain_hash,
 			&config,
 			&best_block,
-			&&logger,
+			&logger,
 		).unwrap();
 		assert_eq!(
 			node_a_chan.context.channel_state,
@@ -15313,7 +15313,7 @@ mod tests {
 		// Clear the ChannelState::WaitingForBatch only when called by ChannelManager.
 		node_a_chan.set_batch_ready();
 		assert_eq!(node_a_chan.context.channel_state, ChannelState::AwaitingChannelReady(AwaitingChannelReadyFlags::THEIR_CHANNEL_READY));
-		assert!(node_a_chan.check_get_channel_ready(0, &&logger).is_some());
+		assert!(node_a_chan.check_get_channel_ready(0, &logger).is_some());
 	}
 
 	#[test]

@@ -276,9 +276,10 @@ pub(crate) mod fake_scid {
 		fn test_get_fake_scid() {
 			let mainnet_genesis = ChainHash::using_genesis_block(Network::Bitcoin);
 			let seed = [0; 32];
+			let logger = Arc::new(test_utils::TestLogger::new());
 			let fake_scid_rand_bytes = [1; 32];
 			let keys_manager =
-				Arc::new(test_utils::TestKeysInterface::new(&seed, Network::Testnet));
+				Arc::new(test_utils::TestKeysInterface::new(&seed, Network::Testnet, logger));
 			let namespace = Namespace::Phantom;
 			let fake_scid = namespace.get_fake_scid(
 				500_000,

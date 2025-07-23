@@ -18184,11 +18184,11 @@ pub mod bench {
 
 		let tx_broadcaster = test_utils::TestBroadcaster::new(network);
 		let fee_estimator = test_utils::TestFeeEstimator::new(253);
-		let logger_a = test_utils::TestLogger::with_id("node a".to_owned());
+		let logger_a = Arc::new(test_utils::TestLogger::with_id("node a".to_owned()));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
-		let entropy = test_utils::TestKeysInterface::new(&[0u8; 32], network);
-		let router = test_utils::TestRouter::new(Arc::new(NetworkGraph::new(network, &logger_a)), &logger_a, &scorer);
-		let message_router = test_utils::TestMessageRouter::new(Arc::new(NetworkGraph::new(network, &logger_a)), &entropy);
+		let entropy = test_utils::TestKeysInterface::new(&[0u8; 32], network, Arc::clone(&logger));
+		let router = test_utils::TestRouter::new(Arc::new(NetworkGraph::new(network, Arc::clone(&logger_a))), Arc::clone(&logger_a), &scorer);
+		let message_router = test_utils::TestMessageRouter::new(Arc::new(NetworkGraph::new(network, Arc::clone(&logger_a))), &entropy);
 
 		let mut config: UserConfig = Default::default();
 		config.channel_config.max_dust_htlc_exposure = MaxDustHTLCExposure::FeeRateMultiplier(5_000_000 / 253);
@@ -18196,18 +18196,18 @@ pub mod bench {
 
 		let seed_a = [1u8; 32];
 		let keys_manager_a = KeysManager::new(&seed_a, 42, 42);
-		let chain_monitor_a = ChainMonitor::new(None, &tx_broadcaster, &logger_a, &fee_estimator, &persister_a, &keys_manager_a, keys_manager_a.get_peer_storage_key());
-		let node_a = ChannelManager::new(&fee_estimator, &chain_monitor_a, &tx_broadcaster, &router, &message_router, &logger_a, &keys_manager_a, &keys_manager_a, &keys_manager_a, config.clone(), ChainParameters {
+		let chain_monitor_a = ChainMonitor::new(None, &tx_broadcaster, Arc::clone(&logger_a), &fee_estimator, &persister_a, &keys_manager_a, keys_manager_a.get_peer_storage_key());
+		let node_a = ChannelManager::new(&fee_estimator, &chain_monitor_a, &tx_broadcaster, &router, &message_router, Arc::clone(&logger_a), &keys_manager_a, &keys_manager_a, &keys_manager_a, config.clone(), ChainParameters {
 			network,
 			best_block: BestBlock::from_network(network),
 		}, genesis_block.header.time);
 		let node_a_holder = ANodeHolder { node: &node_a };
 
-		let logger_b = test_utils::TestLogger::with_id("node a".to_owned());
+		let logger_b = Arc::new(test_utils::TestLogger::with_id("node a".to_owned()));
 		let seed_b = [2u8; 32];
 		let keys_manager_b = KeysManager::new(&seed_b, 42, 42);
-		let chain_monitor_b = ChainMonitor::new(None, &tx_broadcaster, &logger_a, &fee_estimator, &persister_b, &keys_manager_b, keys_manager_b.get_peer_storage_key());
-		let node_b = ChannelManager::new(&fee_estimator, &chain_monitor_b, &tx_broadcaster, &router, &message_router, &logger_b, &keys_manager_b, &keys_manager_b, &keys_manager_b, config.clone(), ChainParameters {
+		let chain_monitor_b = ChainMonitor::new(None, &tx_broadcaster, Arc::clone(&logger_a), &fee_estimator, &persister_b, &keys_manager_b, keys_manager_b.get_peer_storage_key());
+		let node_b = ChannelManager::new(&fee_estimator, &chain_monitor_b, &tx_broadcaster, &router, &message_router, Arc::clone(&logger_b), &keys_manager_b, &keys_manager_b, &keys_manager_b, config.clone(), ChainParameters {
 			network,
 			best_block: BestBlock::from_network(network),
 		}, genesis_block.header.time);

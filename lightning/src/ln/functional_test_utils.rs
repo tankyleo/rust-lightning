@@ -2696,7 +2696,8 @@ macro_rules! get_payment_preimage_hash {
 /// Gets a route from the given sender to the node described in `payment_params`.
 pub fn get_route(send_node: &Node, route_params: &RouteParameters) -> Result<Route, &'static str> {
 	let scorer = TestScorer::new();
-	let keys_manager = TestKeysInterface::new(&[0u8; 32], Network::Testnet);
+	let logger = Arc::new(test_utils::TestLogger::new());
+	let keys_manager = TestKeysInterface::new(&[0u8; 32], Network::Testnet, logger);
 	let random_seed_bytes = keys_manager.get_secure_random_bytes();
 	router::get_route(
 		&send_node.node.get_our_node_id(),
@@ -2713,7 +2714,8 @@ pub fn get_route(send_node: &Node, route_params: &RouteParameters) -> Result<Rou
 /// Like `get_route` above, but adds a random CLTV offset to the final hop.
 pub fn find_route(send_node: &Node, route_params: &RouteParameters) -> Result<Route, &'static str> {
 	let scorer = TestScorer::new();
-	let keys_manager = TestKeysInterface::new(&[0u8; 32], Network::Testnet);
+	let logger = Arc::new(test_utils::TestLogger::new());
+	let keys_manager = TestKeysInterface::new(&[0u8; 32], Network::Testnet, logger);
 	let random_seed_bytes = keys_manager.get_secure_random_bytes();
 	router::find_route(
 		&send_node.node.get_our_node_id(),
@@ -4208,10 +4210,10 @@ pub fn create_chanmon_cfgs_with_keys(
 		let tx_broadcaster = test_utils::TestBroadcaster::new(Network::Testnet);
 		let fee_estimator = test_utils::TestFeeEstimator::new(253);
 		let chain_source = test_utils::TestChainSource::new(Network::Testnet);
-		let logger = test_utils::TestLogger::with_id(format!("node {}", i));
+		let logger = Arc::new(test_utils::TestLogger::with_id(format!("node {}", i)));
 		let persister = test_utils::TestPersister::new();
 		let seed = [i as u8; 32];
-		let keys_manager = test_utils::TestKeysInterface::new(&seed, Network::Testnet);
+		let keys_manager = test_utils::TestKeysInterface::new(&seed, Network::Testnet, Arc::clone(&logger));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
 
 		// Set predefined keys_id if provided

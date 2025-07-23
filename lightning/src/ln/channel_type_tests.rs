@@ -4,6 +4,7 @@ use crate::ln::channelmanager;
 use crate::prelude::*;
 use crate::util::config::UserConfig;
 use crate::util::test_utils::{TestFeeEstimator, TestKeysInterface, TestLogger};
+use crate::sync::Arc;
 use bitcoin::constants::ChainHash;
 use bitcoin::network::Network;
 use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
@@ -122,8 +123,8 @@ fn test_zero_conf_channel_type_support() {
 	let secp_ctx = Secp256k1::new();
 	let seed = [42; 32];
 	let network = Network::Testnet;
-	let keys_provider = TestKeysInterface::new(&seed, network);
-	let logger = TestLogger::new();
+	let logger = Arc::new(TestLogger::new());
+	let keys_provider = TestKeysInterface::new(&seed, network, Arc::clone(&logger));
 
 	let node_b_node_id =
 		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
@@ -141,7 +142,7 @@ fn test_zero_conf_channel_type_support() {
 		0,
 		42,
 		None,
-		&logger,
+		Arc::clone(&logger),
 	)
 	.unwrap();
 
@@ -149,7 +150,7 @@ fn test_zero_conf_channel_type_support() {
 	channel_type_features.set_zero_conf_required();
 
 	let mut open_channel_msg =
-		node_a_chan.get_open_channel(ChainHash::using_genesis_block(network), &&logger).unwrap();
+		node_a_chan.get_open_channel(ChainHash::using_genesis_block(network), &logger).unwrap();
 	open_channel_msg.common_fields.channel_type = Some(channel_type_features);
 	let node_b_node_id =
 		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[7; 32]).unwrap());
@@ -164,7 +165,7 @@ fn test_zero_conf_channel_type_support() {
 		7,
 		&config,
 		0,
-		&&logger,
+		&logger,
 		/*is_0conf=*/ false,
 	);
 	assert!(res.is_ok());
@@ -217,8 +218,8 @@ fn do_test_supports_channel_type(config: UserConfig, expected_channel_type: Chan
 	let test_est = TestFeeEstimator::new(15000);
 	let fee_estimator = LowerBoundedFeeEstimator::new(&test_est);
 	let network = Network::Testnet;
-	let keys_provider = TestKeysInterface::new(&[42; 32], network);
-	let logger = TestLogger::new();
+	let logger = Arc::new(TestLogger::new());
+	let keys_provider = TestKeysInterface::new(&[42; 32], network, Arc::clone(&logger));
 
 	let node_id_a =
 		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[1; 32]).unwrap());
@@ -239,7 +240,7 @@ fn do_test_supports_channel_type(config: UserConfig, expected_channel_type: Chan
 		0,
 		42,
 		None,
-		&logger,
+		Arc::clone(&logger),
 	)
 	.unwrap();
 	assert_eq!(
@@ -260,12 +261,12 @@ fn do_test_supports_channel_type(config: UserConfig, expected_channel_type: Chan
 		0,
 		42,
 		None,
-		&logger,
+		Arc::clone(&logger),
 	)
 	.unwrap();
 
 	let open_channel_msg =
-		channel_a.get_open_channel(ChainHash::using_genesis_block(network), &&logger).unwrap();
+		channel_a.get_open_channel(ChainHash::using_genesis_block(network), &logger).unwrap();
 	let channel_b = InboundV1Channel::<&TestKeysInterface>::new(
 		&fee_estimator,
 		&&keys_provider,
@@ -277,7 +278,7 @@ fn do_test_supports_channel_type(config: UserConfig, expected_channel_type: Chan
 		7,
 		&config,
 		0,
-		&&logger,
+		&logger,
 		/*is_0conf=*/ false,
 	)
 	.unwrap();
@@ -302,8 +303,8 @@ fn test_rejects_if_channel_type_not_set() {
 	let test_est = TestFeeEstimator::new(15000);
 	let fee_estimator = LowerBoundedFeeEstimator::new(&test_est);
 	let network = Network::Testnet;
-	let keys_provider = TestKeysInterface::new(&[42; 32], network);
-	let logger = TestLogger::new();
+	let logger = Arc::new(TestLogger::new());
+	let keys_provider = TestKeysInterface::new(&[42; 32], network, Arc::clone(&logger));
 
 	let node_id_a =
 		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[1; 32]).unwrap());
@@ -325,13 +326,13 @@ fn test_rejects_if_channel_type_not_set() {
 		0,
 		42,
 		None,
-		&logger,
+		Arc::clone(&logger),
 	)
 	.unwrap();
 
 	// Set `channel_type` to `None` to cause failure.
 	let mut open_channel_msg =
-		channel_a.get_open_channel(ChainHash::using_genesis_block(network), &&logger).unwrap();
+		channel_a.get_open_channel(ChainHash::using_genesis_block(network), &logger).unwrap();
 	open_channel_msg.common_fields.channel_type = None;
 
 	let channel_b = InboundV1Channel::<&TestKeysInterface>::new(
@@ -345,7 +346,7 @@ fn test_rejects_if_channel_type_not_set() {
 		7,
 		&config,
 		0,
-		&&logger,
+		&logger,
 		/*is_0conf=*/ false,
 	);
 	assert!(channel_b.is_err());
@@ -363,13 +364,13 @@ fn test_rejects_if_channel_type_not_set() {
 		7,
 		&config,
 		0,
-		&&logger,
+		&logger,
 		/*is_0conf=*/ false,
 	)
 	.unwrap();
 
 	// Set `channel_type` to `None` in `accept_channel` to cause failure.
-	let mut accept_channel_msg = channel_b.get_accept_channel_message(&&logger).unwrap();
+	let mut accept_channel_msg = channel_b.get_accept_channel_message(&logger).unwrap();
 	accept_channel_msg.common_fields.channel_type = None;
 
 	let res = channel_a.accept_channel(
@@ -388,8 +389,8 @@ fn test_rejects_if_channel_type_differ() {
 	let test_est = TestFeeEstimator::new(15000);
 	let fee_estimator = LowerBoundedFeeEstimator::new(&test_est);
 	let network = Network::Testnet;
-	let keys_provider = TestKeysInterface::new(&[42; 32], network);
-	let logger = TestLogger::new();
+	let logger = Arc::new(TestLogger::new());
+	let keys_provider = TestKeysInterface::new(&[42; 32], network, Arc::clone(&logger));
 
 	let node_id_a =
 		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[1; 32]).unwrap());
@@ -411,12 +412,12 @@ fn test_rejects_if_channel_type_differ() {
 		0,
 		42,
 		None,
-		&logger,
+		Arc::clone(&logger),
 	)
 	.unwrap();
 
 	let open_channel_msg =
-		channel_a.get_open_channel(ChainHash::using_genesis_block(network), &&logger).unwrap();
+		channel_a.get_open_channel(ChainHash::using_genesis_block(network), &logger).unwrap();
 
 	let mut channel_b = InboundV1Channel::<&TestKeysInterface>::new(
 		&fee_estimator,
@@ -429,14 +430,14 @@ fn test_rejects_if_channel_type_differ() {
 		7,
 		&config,
 		0,
-		&&logger,
+		&logger,
 		/*is_0conf=*/ false,
 	)
 	.unwrap();
 
 	// Change the `channel_type` in `accept_channel` msg to make it different from the one set in
 	// `open_channel` to cause failure.
-	let mut accept_channel_msg = channel_b.get_accept_channel_message(&&logger).unwrap();
+	let mut accept_channel_msg = channel_b.get_accept_channel_message(&logger).unwrap();
 	let mut channel_type = channelmanager::provided_channel_type_features(&config);
 	channel_type.set_zero_conf_required();
 	accept_channel_msg.common_fields.channel_type = Some(channel_type.clone());
@@ -457,8 +458,8 @@ fn test_rejects_simple_anchors_channel_type() {
 	let test_est = TestFeeEstimator::new(15000);
 	let fee_estimator = LowerBoundedFeeEstimator::new(&test_est);
 	let network = Network::Testnet;
-	let keys_provider = TestKeysInterface::new(&[42; 32], network);
-	let logger = TestLogger::new();
+	let logger = Arc::new(TestLogger::new());
+	let keys_provider = TestKeysInterface::new(&[42; 32], network, Arc::clone(&logger));
 
 	let node_id_a =
 		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[1; 32]).unwrap());
@@ -494,12 +495,12 @@ fn test_rejects_simple_anchors_channel_type() {
 		0,
 		42,
 		None,
-		&logger,
+		Arc::clone(&logger),
 	)
 	.unwrap();
 
 	let mut open_channel_msg =
-		channel_a.get_open_channel(ChainHash::using_genesis_block(network), &&logger).unwrap();
+		channel_a.get_open_channel(ChainHash::using_genesis_block(network), &logger).unwrap();
 	open_channel_msg.common_fields.channel_type = Some(simple_anchors_channel_type.clone());
 
 	let res = InboundV1Channel::<&TestKeysInterface>::new(
@@ -513,7 +514,7 @@ fn test_rejects_simple_anchors_channel_type() {
 		7,
 		&config,
 		0,
-		&&logger,
+		&logger,
 		/*is_0conf=*/ false,
 	);
 	assert!(res.is_err());
@@ -535,12 +536,12 @@ fn test_rejects_simple_anchors_channel_type() {
 		0,
 		42,
 		None,
-		&logger,
+		Arc::clone(&logger),
 	)
 	.unwrap();
 
 	let open_channel_msg =
-		channel_a.get_open_channel(ChainHash::using_genesis_block(network), &&logger).unwrap();
+		channel_a.get_open_channel(ChainHash::using_genesis_block(network), &logger).unwrap();
 
 	let mut channel_b = InboundV1Channel::<&TestKeysInterface>::new(
 		&fee_estimator,
@@ -553,12 +554,12 @@ fn test_rejects_simple_anchors_channel_type() {
 		7,
 		&config,
 		0,
-		&&logger,
+		&logger,
 		/*is_0conf=*/ false,
 	)
 	.unwrap();
 
-	let mut accept_channel_msg = channel_b.get_accept_channel_message(&&logger).unwrap();
+	let mut accept_channel_msg = channel_b.get_accept_channel_message(&logger).unwrap();
 	accept_channel_msg.common_fields.channel_type = Some(simple_anchors_channel_type.clone());
 
 	let res = channel_a.accept_channel(
