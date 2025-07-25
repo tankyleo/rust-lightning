@@ -4832,21 +4832,9 @@ where
 			&fee_estimator, funding.get_channel_type(),
 		);
 		let htlc_list = self.get_pending_htlcs();
-		let amount_check: u64 = htlc_list.iter().filter_map(|htlc| htlc.outbound.then_some(htlc.amount_msat)).sum();
-		assert_eq!(amount_check, self.pending_outbound_htlcs_value_msat());
-		let amount_check: u64 = htlc_list.iter().filter_map(|htlc| (!htlc.outbound).then_some(htlc.amount_msat)).sum();
-		assert_eq!(amount_check, self.pending_inbound_htlcs_value_msat());
 		let builder_stats = self.get_builder_stats(&htlc_list, 0, None, dust_exposure_limiting_feerate, funding);
-
-		// Subtract any non-HTLC outputs from the local and remote balances
-		let (local_balance_before_fee_msat, remote_balance_before_fee_msat) = SpecTxBuilder {}.subtract_non_htlc_outputs(
-			funding.is_outbound(),
-			funding.value_to_self_msat.saturating_sub(self.pending_outbound_htlcs_value_msat()),
-			(funding.get_value_satoshis() * 1000).checked_sub(funding.value_to_self_msat).unwrap().saturating_sub(self.pending_inbound_htlcs_value_msat()),
-			funding.get_channel_type(),
-		);
-		assert_eq!(local_balance_before_fee_msat, builder_stats.holder_balance_msat);
-		assert_eq!(remote_balance_before_fee_msat, builder_stats.counterparty_balance_msat);
+		let local_balance_before_fee_msat = builder_stats.holder_balance_msat;
+		let remote_balance_before_fee_msat = builder_stats.counterparty_balance_msat;
 
 		let outbound_capacity_msat = local_balance_before_fee_msat
 				.saturating_sub(
