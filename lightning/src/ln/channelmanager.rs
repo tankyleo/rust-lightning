@@ -6178,7 +6178,7 @@ where
 							&chan.context,
 							Some(update_add_htlc.payment_hash),
 						);
-						chan.can_accept_incoming_htlc(update_add_htlc, &self.fee_estimator, &logger)
+						chan.can_accept_incoming_htlc(&self.fee_estimator, &logger)
 					},
 				) {
 					Some(Ok(_)) => {},
@@ -9927,7 +9927,7 @@ This indicates a bug inside LDK. Please report this error at https://github.com/
 		match peer_state.channel_by_id.entry(msg.channel_id) {
 			hash_map::Entry::Occupied(mut chan_entry) => {
 				if let Some(chan) = chan_entry.get_mut().as_funded_mut() {
-					try_channel_entry!(self, peer_state, chan.update_add_htlc(&msg, &self.fee_estimator), chan_entry);
+					try_channel_entry!(self, peer_state, chan.update_add_htlc(&msg), chan_entry);
 				} else {
 					return try_channel_entry!(self, peer_state, Err(ChannelError::close(
 						"Got an update_add_htlc message for an unfunded channel!".into())), chan_entry);
