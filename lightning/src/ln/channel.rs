@@ -4937,7 +4937,8 @@ where
 		let dust_exposure_limiting_feerate = self.get_dust_exposure_limiting_feerate(
 			&fee_estimator, funding.get_channel_type(),
 		);
-		let htlc_stats = context.get_pending_htlc_stats(funding, None, dust_exposure_limiting_feerate);
+		let htlc_list = self.get_pending_htlcs();
+		let builder_stats = self.get_builder_stats(&htlc_list, 0, None, dust_exposure_limiting_feerate, funding.get_channel_type());
 
 		// Subtract any non-HTLC outputs from the local and remote balances
 		let (local_balance_before_fee_msat, remote_balance_before_fee_msat) = SpecTxBuilder {}.subtract_non_htlc_outputs(
@@ -5027,7 +5028,7 @@ where
 		let buffer_dust_limit_success_sat = buffer_htlc_success_tx_fee_sat + context.counterparty_dust_limit_satoshis;
 		let buffer_dust_limit_timeout_sat = buffer_htlc_timeout_tx_fee_sat + context.holder_dust_limit_satoshis;
 
-		if let Some(extra_htlc_dust_exposure) = htlc_stats.extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat {
+		if let Some(extra_htlc_dust_exposure) = builder_stats.extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat {
 			if extra_htlc_dust_exposure > max_dust_htlc_exposure_msat {
 				// If adding an extra HTLC would put us over the dust limit in total fees, we cannot
 				// send any non-dust HTLCs.
@@ -5035,18 +5036,18 @@ where
 			}
 		}
 
-		if htlc_stats.on_counterparty_tx_dust_exposure_msat.saturating_add(buffer_dust_limit_success_sat * 1000) > max_dust_htlc_exposure_msat.saturating_add(1) {
+		if builder_stats.on_counterparty_tx_dust_exposure_msat.saturating_add(buffer_dust_limit_success_sat * 1000) > max_dust_htlc_exposure_msat.saturating_add(1) {
 			// Note that we don't use the `counterparty_tx_dust_exposure` (with
 			// `htlc_dust_exposure_msat`) here as it only applies to non-dust HTLCs.
 			remaining_msat_below_dust_exposure_limit =
-				Some(max_dust_htlc_exposure_msat.saturating_sub(htlc_stats.on_counterparty_tx_dust_exposure_msat));
+				Some(max_dust_htlc_exposure_msat.saturating_sub(builder_stats.on_counterparty_tx_dust_exposure_msat));
 			dust_exposure_dust_limit_msat = cmp::max(dust_exposure_dust_limit_msat, buffer_dust_limit_success_sat * 1000);
 		}
 
-		if htlc_stats.on_holder_tx_dust_exposure_msat as i64 + buffer_dust_limit_timeout_sat as i64 * 1000 - 1 > max_dust_htlc_exposure_msat.try_into().unwrap_or(i64::max_value()) {
+		if builder_stats.on_holder_tx_dust_exposure_msat as i64 + buffer_dust_limit_timeout_sat as i64 * 1000 - 1 > max_dust_htlc_exposure_msat.try_into().unwrap_or(i64::max_value()) {
 			remaining_msat_below_dust_exposure_limit = Some(cmp::min(
 				remaining_msat_below_dust_exposure_limit.unwrap_or(u64::max_value()),
-				max_dust_htlc_exposure_msat.saturating_sub(htlc_stats.on_holder_tx_dust_exposure_msat)));
+				max_dust_htlc_exposure_msat.saturating_sub(builder_stats.on_holder_tx_dust_exposure_msat)));
 			dust_exposure_dust_limit_msat = cmp::max(dust_exposure_dust_limit_msat, buffer_dust_limit_timeout_sat * 1000);
 		}
 
