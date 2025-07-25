@@ -4189,7 +4189,7 @@ where
 			&fee_estimator, funding.get_channel_type(),
 		);
 		let htlc_list = self.get_pending_htlcs();
-		let ret = self.get_builder_stats(&htlc_list, None, dust_exposure_limiting_feerate, funding.get_channel_type());
+		let ret = self.get_builder_stats(&htlc_list, 0, None, dust_exposure_limiting_feerate, funding.get_channel_type());
 		match ret {
 			Err(TxBuilderError::DustExposure {
 				max: _,
@@ -4330,7 +4330,7 @@ where
 			&fee_estimator, funding.get_channel_type(),
 		);
 		let htlc_list = self.get_pending_htlcs();
-		let ret = self.get_builder_stats(&htlc_list, Some(feerate_per_kw), dust_exposure_limiting_feerate, funding.get_channel_type());
+		let ret = self.get_builder_stats(&htlc_list, 0, Some(feerate_per_kw), dust_exposure_limiting_feerate, funding.get_channel_type());
 		if let Err(_) = ret {
 			log_debug!(logger, "Cannot afford to send new feerate at {} without infringing max dust htlc exposure", feerate_per_kw);
 			return false;
@@ -4348,7 +4348,7 @@ where
 		L::Target: Logger,
 	{
 		let htlc_list = self.get_pending_htlcs();
-		let ret = self.get_builder_stats(&htlc_list, None, dust_exposure_limiting_feerate, funding.get_channel_type());
+		let ret = self.get_builder_stats(&htlc_list, 0, None, dust_exposure_limiting_feerate, funding.get_channel_type());
 		match ret {
 			Err(TxBuilderError::DustExposure {
 				max,
@@ -4730,7 +4730,7 @@ where
 	}
 
 	fn get_builder_stats(
-		&self, htlc_list: &[HTLCAmountHeading], outbound_feerate_update: Option<u32>, dust_exposure_limiting_feerate: Option<u32>,
+		&self, htlc_list: &[HTLCAmountHeading], nondust_htlcs: usize, outbound_feerate_update: Option<u32>, dust_exposure_limiting_feerate: Option<u32>,
 		channel_type: &ChannelTypeFeatures,
 	) -> Result<BuilderStats, TxBuilderError> {
 		let max_dust_htlc_exposure_msat =
@@ -4748,7 +4748,7 @@ where
 			debug_assert_eq!(excess_feerate_opt, Some(0));
 		}
 
-		SpecTxBuilder {}.get_builder_stats(&htlc_list, dust_buffer_feerate, excess_feerate_opt, max_dust_htlc_exposure_msat, channel_type, self.holder_dust_limit_satoshis, self.counterparty_dust_limit_satoshis)
+		SpecTxBuilder {}.get_builder_stats(&htlc_list, nondust_htlcs, dust_buffer_feerate, excess_feerate_opt, max_dust_htlc_exposure_msat, channel_type, self.holder_dust_limit_satoshis, self.counterparty_dust_limit_satoshis)
 	}
 
 	fn pending_inbound_htlcs_value_msat(&self) -> u64 {
