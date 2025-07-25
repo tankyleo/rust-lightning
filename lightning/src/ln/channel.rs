@@ -4322,28 +4322,43 @@ where
 		}
 
 		if !funding.is_outbound() {
-			let removed_outbound_total_msat: u64 = self.pending_outbound_htlcs
-				.iter()
-				.filter_map(|htlc| {
-					matches!(
-						htlc.state,
-						OutboundHTLCState::AwaitingRemoteRevokeToRemove(OutboundHTLCOutcome::Success(_, _))
-						| OutboundHTLCState::AwaitingRemovedRemoteRevoke(OutboundHTLCOutcome::Success(_, _))
-					)
-					.then_some(htlc.amount_msat)
-				})
-				.sum();
-			let pending_value_to_self_msat =
-				funding.value_to_self_msat + self.pending_inbound_htlcs_value_msat() - removed_outbound_total_msat;
-			let pending_remote_value_msat =
-				funding.get_value_satoshis() * 1000 - pending_value_to_self_msat;
-			// Subtract any non-HTLC outputs from the local and remote balances
-			let (_, remote_balance_before_fee_msat) = SpecTxBuilder {}.subtract_non_htlc_outputs(
-				funding.is_outbound(),
-				pending_value_to_self_msat,
-				pending_remote_value_msat,
-				funding.get_channel_type()
+			let mut pending_htlcs: Vec<HTLCAmountHeading> = Vec::with_capacity(
+				self.pending_inbound_htlcs.len()
+					+ self.pending_outbound_htlcs.len()
+					+ self.holding_cell_htlc_updates.len(),
 			);
+
+			for htlc in self.pending_inbound_htlcs.iter() {
+				pending_htlcs
+					.push(HTLCAmountHeading { outbound: false, amount_msat: htlc.amount_msat });
+			}
+
+			let mut removed_outbound_total_msat = 0;
+			for htlc in self.pending_outbound_htlcs.iter().filter(|htlc| {
+				if !matches!(
+					htlc.state,
+					OutboundHTLCState::AwaitingRemoteRevokeToRemove(OutboundHTLCOutcome::Success(_, _))
+					| OutboundHTLCState::AwaitingRemovedRemoteRevoke(OutboundHTLCOutcome::Success(_, _))
+				) {
+					true
+				} else {
+					removed_outbound_total_msat += htlc.amount_msat;
+					false
+				}
+			}) {
+				pending_htlcs
+					.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat });
+			}
+
+			for update in self.holding_cell_htlc_updates.iter() {
+				if let &HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = update {
+					pending_htlcs.push(HTLCAmountHeading { outbound: true, amount_msat });
+				}
+			}
+
+			let value_to_self_msat = funding.value_to_self_msat - removed_outbound_total_msat;
+			let ret = self.get_builder_stats(value_to_self_msat, &pending_htlcs, 0, None, None, funding);
+			let remote_balance_before_fee_msat = ret.counterparty_balance_msat;
 
 			// `Some(())` is for the fee spike buffer we keep for the remote if the channel is
 			// not zero fee. This deviates from the spec because the fee spike buffer requirement
