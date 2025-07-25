@@ -13,14 +13,26 @@ use crate::prelude::*;
 use crate::types::features::ChannelTypeFeatures;
 use crate::util::logger::Logger;
 
-pub(crate) struct HTLCAmountHeading {
+pub(crate) struct HTLCAmountDirection {
 	pub outbound: bool,
 	pub amount_msat: u64,
 }
 
-pub(crate) struct HTLCAmountDirection {
-	pub offered: bool,
-	pub amount_msat: u64,
+impl HTLCAmountDirection {
+	fn is_dust(&self, local: bool, feerate_per_kw: u32, broadcaster_dust_limit_sat: u64, channel_type: &ChannelTypeFeatures) -> bool {
+		let htlc_tx_fee_sat = if channel_type.supports_anchors_zero_fee_htlc_tx() {
+			0
+		} else {
+			let htlc_tx_weight = if self.outbound == local {
+				htlc_timeout_tx_weight(channel_type)
+			} else {
+				htlc_success_tx_weight(channel_type)
+			};
+			// As required by the spec, round down
+			feerate_per_kw as u64 * htlc_tx_weight / 1000
+		};
+		self.amount_msat / 1000 < broadcaster_dust_limit_sat + htlc_tx_fee_sat
+	}
 }
 
 pub(crate) struct BuilderStats {
@@ -43,39 +55,14 @@ impl BuilderStats {
 	}
 }
 
-impl HTLCAmountDirection {
-	fn is_dust(&self, htlc_success_dust_limit_sat: u64, htlc_timeout_dust_limit_sat: u64) -> bool {
-		if self.offered {
-			self.amount_msat / 1000 < htlc_timeout_dust_limit_sat
-		} else {
-			self.amount_msat / 1000 < htlc_success_dust_limit_sat
-		}
-	}
-}
-
 fn on_holder_tx_dust_exposure_msat(
 	dust_buffer_feerate: u32, holder_dust_limit_satoshis: u64,
 	channel_type: &ChannelTypeFeatures, htlcs: &[HTLCAmountDirection],
 ) -> u64 {
-	let (htlc_success_dust_limit_sat, htlc_timeout_dust_limit_sat) = {
-		let (htlc_timeout_dust_limit_sat, htlc_success_dust_limit_sat) =
-			if channel_type.supports_anchors_zero_fee_htlc_tx() {
-				(0, 0)
-			} else {
-				(
-					dust_buffer_feerate as u64 * htlc_timeout_tx_weight(channel_type) / 1000,
-					dust_buffer_feerate as u64 * htlc_success_tx_weight(channel_type) / 1000,
-				)
-			};
-		(
-			holder_dust_limit_satoshis + htlc_success_dust_limit_sat,
-			holder_dust_limit_satoshis + htlc_timeout_dust_limit_sat,
-		)
-	};
 	htlcs
 		.iter()
 		.filter_map(|htlc| {
-			htlc.is_dust(htlc_success_dust_limit_sat, htlc_timeout_dust_limit_sat)
+			htlc.is_dust(true, dust_buffer_feerate, holder_dust_limit_satoshis, channel_type)
 				.then_some(htlc.amount_msat)
 		})
 		.sum()
@@ -84,7 +71,7 @@ fn on_holder_tx_dust_exposure_msat(
 pub(crate) trait TxBuilder {
 	// TODO: try to delete some of the feerate parameters, maybe calculate dust buffer feerate
 	// from the actual feerate
-	fn get_builder_stats(&self, is_outbound_from_holder: bool, channel_value_satoshis: u64, value_to_holder_msat: u64, htlcs: &[HTLCAmountHeading], nondust_htlcs: usize, feerate_per_kw: u32, dust_buffer_feerate: u32, excess_feerate: Option<u32>, max_dust_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> BuilderStats;
+	fn get_builder_stats(&self, is_outbound_from_holder: bool, channel_value_satoshis: u64, value_to_holder_msat: u64, htlcs: &[HTLCAmountDirection], nondust_htlcs: usize, feerate_per_kw: u32, dust_buffer_feerate: u32, excess_feerate: Option<u32>, max_dust_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> BuilderStats;
 	fn build_commitment_transaction<L: Deref>(
 		&self, local: bool, commitment_number: u64, per_commitment_point: &PublicKey,
 		channel_parameters: &ChannelTransactionParameters, secp_ctx: &Secp256k1<secp256k1::All>,
@@ -100,30 +87,15 @@ fn on_counterparty_tx_dust_exposure_msat(
 	counterparty_dust_limit_satoshis: u64, channel_type: &ChannelTypeFeatures,
 	on_remote_htlcs: &[HTLCAmountDirection],
 ) -> (u64, Option<u64>) {
-	let (htlc_success_dust_limit_sat, htlc_timeout_dust_limit_sat) = {
-		let (htlc_timeout_dust_limit_sat, htlc_success_dust_limit_sat) =
-			if channel_type.supports_anchors_zero_fee_htlc_tx() {
-				(0, 0)
-			} else {
-				(
-					dust_buffer_feerate as u64 * htlc_timeout_tx_weight(channel_type) / 1000,
-					dust_buffer_feerate as u64 * htlc_success_tx_weight(channel_type) / 1000,
-				)
-			};
-		(
-			counterparty_dust_limit_satoshis + htlc_success_dust_limit_sat,
-			counterparty_dust_limit_satoshis + htlc_timeout_dust_limit_sat,
-		)
-	};
 	let mut on_counterparty_tx_accepted_nondust_htlcs = 0;
 	let mut on_counterparty_tx_offered_nondust_htlcs = 0;
 	let mut on_counterparty_tx_dust_exposure_msat: u64 = on_remote_htlcs
 		.iter()
 		.filter_map(|htlc| {
-			if htlc.is_dust(htlc_success_dust_limit_sat, htlc_timeout_dust_limit_sat) {
+			if htlc.is_dust(false, dust_buffer_feerate, counterparty_dust_limit_satoshis, channel_type) {
 				Some(htlc.amount_msat)
 			} else {
-				if htlc.offered {
+				if !htlc.outbound {
 					on_counterparty_tx_offered_nondust_htlcs += 1;
 				} else {
 					on_counterparty_tx_accepted_nondust_htlcs += 1;
@@ -207,47 +179,31 @@ fn subtract_addl_outputs(
 pub(crate) struct SpecTxBuilder {}
 
 impl TxBuilder for SpecTxBuilder {
-	fn get_builder_stats(&self, is_outbound_from_holder: bool, channel_value_satoshis: u64, value_to_holder_msat: u64, htlcs: &[HTLCAmountHeading], nondust_htlcs: usize, feerate_per_kw: u32, dust_buffer_feerate: u32, excess_feerate: Option<u32>, max_dust_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> BuilderStats {
+	fn get_builder_stats(&self, is_outbound_from_holder: bool, channel_value_satoshis: u64, value_to_holder_msat: u64, htlcs: &[HTLCAmountDirection], nondust_htlcs: usize, feerate_per_kw: u32, dust_buffer_feerate: u32, excess_feerate: Option<u32>, max_dust_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> BuilderStats {
 		let value_to_counterparty_msat = channel_value_satoshis * 1000 - value_to_holder_msat;
-		let is_dust = |htlc: &HTLCAmountDirection, broadcaster_dust_limit_sat: u64| -> bool {
-			let htlc_tx_fee_sat = if channel_type.supports_anchors_zero_fee_htlc_tx() {
-				0
-			} else {
-				let htlc_tx_weight = if htlc.offered {
-					htlc_timeout_tx_weight(channel_type)
-				} else {
-					htlc_success_tx_weight(channel_type)
-				};
-				// As required by the spec, round down
-				feerate_per_kw as u64 * htlc_tx_weight / 1000
-			};
-			htlc.amount_msat / 1000 < broadcaster_dust_limit_sat + htlc_tx_fee_sat
-		};
 
 		let outbound_htlcs_value_msat: u64 = htlcs.iter().filter_map(|htlc| htlc.outbound.then_some(htlc.amount_msat)).sum();
 		let inbound_htlcs_value_msat: u64 = htlcs.iter().filter_map(|htlc| (!htlc.outbound).then_some(htlc.amount_msat)).sum();
 		let value_to_holder_after_htlcs = value_to_holder_msat.saturating_sub(outbound_htlcs_value_msat);
 		let value_to_counterparty_after_htlcs = value_to_counterparty_msat.saturating_sub(inbound_htlcs_value_msat);
 
-		let on_holder_htlcs: Vec<_> = htlcs.iter().map(|htlc| HTLCAmountDirection { offered: htlc.outbound, amount_msat: htlc.amount_msat }).collect();
-		let on_holder_htlc_count = on_holder_htlcs.iter().filter(|htlc| !is_dust(htlc, holder_dust_limit_satoshis)).count();
+		let on_holder_htlc_count = htlcs.iter().filter(|htlc| !htlc.is_dust(true, feerate_per_kw, holder_dust_limit_satoshis, channel_type)).count();
 		let holder_commit_tx_fee_sat = commit_tx_fee_sat(feerate_per_kw, on_holder_htlc_count + nondust_htlcs, channel_type);
 		let on_holder_tx_dust_exposure_msat = on_holder_tx_dust_exposure_msat(
 			dust_buffer_feerate,
 			holder_dust_limit_satoshis,
 			channel_type,
-			&on_holder_htlcs,
+			&htlcs,
 		);
 
-		let on_counterparty_htlcs: Vec<_> = htlcs.iter().map(|htlc| HTLCAmountDirection { offered: !htlc.outbound, amount_msat: htlc.amount_msat }).collect();
-		let on_counterparty_htlc_count = on_counterparty_htlcs.iter().filter(|htlc| !is_dust(htlc, counterparty_dust_limit_satoshis)).count();
+		let on_counterparty_htlc_count = htlcs.iter().filter(|htlc| !htlc.is_dust(false, feerate_per_kw, counterparty_dust_limit_satoshis, channel_type)).count();
 		let counterparty_commit_tx_fee_sat = commit_tx_fee_sat(feerate_per_kw, on_counterparty_htlc_count + nondust_htlcs, channel_type);
 		let (on_counterparty_tx_dust_exposure_msat, extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat) = on_counterparty_tx_dust_exposure_msat(
 			dust_buffer_feerate,
 			excess_feerate,
 			counterparty_dust_limit_satoshis,
 			channel_type,
-			&on_counterparty_htlcs,
+			&htlcs,
 		);
 
 		let (holder_balance_msat, counterparty_balance_msat) = subtract_addl_outputs(is_outbound_from_holder, value_to_holder_after_htlcs, value_to_counterparty_after_htlcs, channel_type);

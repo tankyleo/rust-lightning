@@ -70,7 +70,7 @@ use crate::ln::script::{self, ShutdownScript};
 use crate::ln::types::ChannelId;
 use crate::routing::gossip::NodeId;
 use crate::sign::ecdsa::EcdsaChannelSigner;
-use crate::sign::tx_builder::{HTLCAmountHeading, SpecTxBuilder, TxBuilder, BuilderStats};
+use crate::sign::tx_builder::{HTLCAmountDirection, SpecTxBuilder, TxBuilder, BuilderStats};
 use crate::sign::{ChannelSigner, EntropySource, NodeSigner, Recipient, SignerProvider};
 use crate::types::features::{ChannelTypeFeatures, InitFeatures};
 use crate::types::payment::{PaymentHash, PaymentPreimage};
@@ -4077,7 +4077,7 @@ where
 		// Channel state once they will not be present in the next received commitment
 		// transaction).
 		let (local_balance_before_fee_msat, remote_balance_before_fee_msat) = {
-			let mut pending_htlcs: Vec<HTLCAmountHeading> = Vec::with_capacity(
+			let mut pending_htlcs: Vec<HTLCAmountDirection> = Vec::with_capacity(
 				self.pending_inbound_htlcs.len()
 					+ self.pending_outbound_htlcs.len()
 					+ self.holding_cell_htlc_updates.len(),
@@ -4085,7 +4085,7 @@ where
 
 			for htlc in self.pending_inbound_htlcs.iter() {
 				pending_htlcs
-					.push(HTLCAmountHeading { outbound: false, amount_msat: htlc.amount_msat });
+					.push(HTLCAmountDirection { outbound: false, amount_msat: htlc.amount_msat });
 			}
 
 			let mut removed_outbound_total_msat = 0;
@@ -4102,12 +4102,12 @@ where
 				}
 			}) {
 				pending_htlcs
-					.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat });
+					.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat });
 			}
 
 			for update in self.holding_cell_htlc_updates.iter() {
 				if let &HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = update {
-					pending_htlcs.push(HTLCAmountHeading { outbound: true, amount_msat });
+					pending_htlcs.push(HTLCAmountDirection { outbound: true, amount_msat });
 				}
 			}
 
@@ -4322,7 +4322,7 @@ where
 		}
 
 		if !funding.is_outbound() {
-			let mut pending_htlcs: Vec<HTLCAmountHeading> = Vec::with_capacity(
+			let mut pending_htlcs: Vec<HTLCAmountDirection> = Vec::with_capacity(
 				self.pending_inbound_htlcs.len()
 					+ self.pending_outbound_htlcs.len()
 					+ self.holding_cell_htlc_updates.len(),
@@ -4330,7 +4330,7 @@ where
 
 			for htlc in self.pending_inbound_htlcs.iter() {
 				pending_htlcs
-					.push(HTLCAmountHeading { outbound: false, amount_msat: htlc.amount_msat });
+					.push(HTLCAmountDirection { outbound: false, amount_msat: htlc.amount_msat });
 			}
 
 			let mut removed_outbound_total_msat = 0;
@@ -4347,12 +4347,12 @@ where
 				}
 			}) {
 				pending_htlcs
-					.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat });
+					.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat });
 			}
 
 			for update in self.holding_cell_htlc_updates.iter() {
 				if let &HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = update {
-					pending_htlcs.push(HTLCAmountHeading { outbound: true, amount_msat });
+					pending_htlcs.push(HTLCAmountDirection { outbound: true, amount_msat });
 				}
 			}
 
@@ -4417,10 +4417,10 @@ where
 
 		let feerate_per_kw = feerate_per_kw.unwrap_or_else(|| self.get_commitment_feerate(funding, generated_by_local));
 
-		let mut htlcs: Vec<HTLCAmountHeading> = Vec::with_capacity(self.pending_inbound_htlcs.len() + self.pending_outbound_htlcs.len() + self.holding_cell_htlc_updates.len());
+		let mut htlcs: Vec<HTLCAmountDirection> = Vec::with_capacity(self.pending_inbound_htlcs.len() + self.pending_outbound_htlcs.len() + self.holding_cell_htlc_updates.len());
 		for htlc in self.pending_inbound_htlcs.iter() {
 			if htlc.state.included_in_commitment(generated_by_local) {
-				htlcs.push(HTLCAmountHeading { outbound: false, amount_msat: htlc.amount_msat });
+				htlcs.push(HTLCAmountDirection { outbound: false, amount_msat: htlc.amount_msat });
 			} else {
 				if htlc.state.preimage().is_some() {
 					value_to_self_claimed_msat += htlc.amount_msat;
@@ -4430,7 +4430,7 @@ where
 
 		for htlc in self.pending_outbound_htlcs.iter() {
 			if htlc.state.included_in_commitment(generated_by_local) {
-				htlcs.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat });
+				htlcs.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat });
 			} else {
 				if htlc.state.preimage().is_some() {
 					value_to_remote_claimed_msat += htlc.amount_msat;
@@ -4442,7 +4442,7 @@ where
 		if local && generated_by_local {
 			for update in self.holding_cell_htlc_updates.iter() {
 				if let &HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = update {
-					htlcs.push(HTLCAmountHeading { outbound: true, amount_msat });
+					htlcs.push(HTLCAmountDirection { outbound: true, amount_msat });
 				}
 			}
 		}
@@ -4653,8 +4653,8 @@ where
 		self.counterparty_forwarding_info.clone()
 	}
 
-	pub fn get_pending_htlcs(&self) -> Vec<HTLCAmountHeading> {
-		let mut pending_htlcs: Vec<HTLCAmountHeading> = Vec::with_capacity(
+	pub fn get_pending_htlcs(&self) -> Vec<HTLCAmountDirection> {
+		let mut pending_htlcs: Vec<HTLCAmountDirection> = Vec::with_capacity(
 			self.pending_inbound_htlcs.len()
 				+ self.pending_outbound_htlcs.len()
 				+ self.holding_cell_htlc_updates.len(),
@@ -4662,24 +4662,24 @@ where
 
 		for htlc in self.pending_inbound_htlcs.iter() {
 			pending_htlcs
-				.push(HTLCAmountHeading { outbound: false, amount_msat: htlc.amount_msat });
+				.push(HTLCAmountDirection { outbound: false, amount_msat: htlc.amount_msat });
 		}
 
 		for htlc in self.pending_outbound_htlcs.iter() {
 			pending_htlcs
-				.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat });
+				.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat });
 		}
 
 		for update in self.holding_cell_htlc_updates.iter() {
 			if let &HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = update {
-				pending_htlcs.push(HTLCAmountHeading { outbound: true, amount_msat });
+				pending_htlcs.push(HTLCAmountDirection { outbound: true, amount_msat });
 			}
 		}
 		pending_htlcs
 	}
 
 	fn get_builder_stats(
-		&self, value_to_self_msat: u64, htlc_list: &[HTLCAmountHeading], nondust_htlcs: usize, outbound_feerate_update: Option<u32>, dust_exposure_limiting_feerate: Option<u32>,
+		&self, value_to_self_msat: u64, htlc_list: &[HTLCAmountDirection], nondust_htlcs: usize, outbound_feerate_update: Option<u32>, dust_exposure_limiting_feerate: Option<u32>,
 		funding: &FundingScope,
 	) -> BuilderStats {
 		let channel_type = funding.get_channel_type();
@@ -5006,24 +5006,24 @@ where
 		let mut htlc_list = Vec::new();
 		match htlc.origin {
 			HTLCInitiator::LocalOffered => {
-				htlc_list.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat });
+				htlc_list.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat });
 			},
 			HTLCInitiator::RemoteOffered => {
-				htlc_list.push(HTLCAmountHeading { outbound: false, amount_msat: htlc.amount_msat });
+				htlc_list.push(HTLCAmountDirection { outbound: false, amount_msat: htlc.amount_msat });
 			}
 		}
 
 		for ref htlc in context.pending_inbound_htlcs.iter() {
 			// We include LocalRemoved HTLCs here because we may still need to broadcast a commitment
 			// transaction including this HTLC if it times out before they RAA.
-			htlc_list.push(HTLCAmountHeading { outbound: false, amount_msat: htlc.amount_msat });
+			htlc_list.push(HTLCAmountDirection { outbound: false, amount_msat: htlc.amount_msat });
 		}
 
 		for ref htlc in context.pending_outbound_htlcs.iter() {
 			match htlc.state {
-				OutboundHTLCState::LocalAnnounced {..} => htlc_list.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat }),
-				OutboundHTLCState::Committed => htlc_list.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat }),
-				OutboundHTLCState::RemoteRemoved {..} => htlc_list.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat }),
+				OutboundHTLCState::LocalAnnounced {..} => htlc_list.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat }),
+				OutboundHTLCState::Committed => htlc_list.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat }),
+				OutboundHTLCState::RemoteRemoved {..} => htlc_list.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat }),
 				// We don't include AwaitingRemoteRevokeToRemove HTLCs because our next commitment
 				// transaction won't be generated until they send us their next RAA, which will mean
 				// dropping any HTLCs in this state.
@@ -5034,7 +5034,7 @@ where
 		for htlc in context.holding_cell_htlc_updates.iter() {
 			match htlc {
 				&HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } => {
-					htlc_list.push(HTLCAmountHeading { outbound: true, amount_msat });
+					htlc_list.push(HTLCAmountDirection { outbound: true, amount_msat });
 				},
 				_ => {}, // Don't include claims/fails that are awaiting ack, because once we get the
 				         // ack we're guaranteed to never include them in commitment txs anymore.
@@ -5097,10 +5097,10 @@ where
 		if let Some(htlc) = &htlc {
 			match htlc.origin {
 				HTLCInitiator::LocalOffered => {
-					htlc_list.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat });
+					htlc_list.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat });
 				},
 				HTLCInitiator::RemoteOffered => {
-					htlc_list.push(HTLCAmountHeading { outbound: false, amount_msat: htlc.amount_msat });
+					htlc_list.push(HTLCAmountDirection { outbound: false, amount_msat: htlc.amount_msat });
 				}
 			}
 		}
@@ -5109,17 +5109,17 @@ where
 		// non-dust inbound HTLCs are included (as all states imply it will be included) and only
 		// committed outbound HTLCs, see below.
 		for ref htlc in context.pending_inbound_htlcs.iter() {
-			htlc_list.push(HTLCAmountHeading { outbound: false, amount_msat: htlc.amount_msat });
+			htlc_list.push(HTLCAmountDirection { outbound: false, amount_msat: htlc.amount_msat });
 		}
 
 		for ref htlc in context.pending_outbound_htlcs.iter() {
 			// We only include outbound HTLCs if it will not be included in their next commitment_signed,
 			// i.e. if they've responded to us with an RAA after announcement.
 			match htlc.state {
-				OutboundHTLCState::Committed => htlc_list.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat }),
+				OutboundHTLCState::Committed => htlc_list.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat }),
 
-				OutboundHTLCState::RemoteRemoved {..} => htlc_list.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat }),
-				OutboundHTLCState::LocalAnnounced { .. } => htlc_list.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat }),
+				OutboundHTLCState::RemoteRemoved {..} => htlc_list.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat }),
+				OutboundHTLCState::LocalAnnounced { .. } => htlc_list.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat }),
 				_ => {},
 			}
 		}
