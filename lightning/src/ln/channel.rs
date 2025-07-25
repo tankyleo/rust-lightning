@@ -3123,7 +3123,8 @@ where
 		// check if the funder's amount for the initial commitment tx is sufficient
 		// for full fee payment plus a few HTLCs to ensure the channel will be useful.
 		let funders_amount_msat = open_channel_fields.funding_satoshis * 1000 - msg_push_msat;
-		let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat(open_channel_fields.commitment_feerate_sat_per_1000_weight, MIN_AFFORDABLE_HTLC_COUNT, &channel_type);
+		let ret = SpecTxBuilder {}.get_builder_stats(&[], MIN_AFFORDABLE_HTLC_COUNT, open_channel_fields.commitment_feerate_sat_per_1000_weight, 0, None, 0, &channel_type, MIN_CHAN_DUST_LIMIT_SATOSHIS, open_channel_fields.dust_limit_satoshis);
+		let commit_tx_fee_sat = ret.counterparty_commit_tx_fee_sat;
 		// Subtract any non-HTLC outputs from the remote balance
 		let (_, remote_balance_before_fee_msat) = SpecTxBuilder {}.subtract_non_htlc_outputs(false, value_to_self_msat, funders_amount_msat, &channel_type);
 		if remote_balance_before_fee_msat / 1000 < commit_tx_fee_sat {
@@ -3392,7 +3393,8 @@ where
 		);
 
 		let value_to_self_msat = channel_value_satoshis * 1000 - push_msat;
-		let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat(commitment_feerate, MIN_AFFORDABLE_HTLC_COUNT, &channel_type);
+		let ret = SpecTxBuilder {}.get_builder_stats(&[], MIN_AFFORDABLE_HTLC_COUNT, commitment_feerate, 0, None, 0, &channel_type, MIN_CHAN_DUST_LIMIT_SATOSHIS, MIN_CHAN_DUST_LIMIT_SATOSHIS);
+		let commit_tx_fee_sat = ret.holder_commit_tx_fee_sat;
 		// Subtract any non-HTLC outputs from the local balance
 		let (local_balance_before_fee_msat, _) = SpecTxBuilder {}.subtract_non_htlc_outputs(
 			true,
