@@ -28,6 +28,8 @@ pub(crate) struct HTLCAmountDirection {
 }
 
 pub(crate) struct BuilderStats {
+	holder_commit_tx_fee_sat: u64,
+	counterparty_commit_tx_fee_sat: u64,
 	on_counterparty_tx_dust_exposure_msat: u64,
 	extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat: Option<u64>,
 	on_holder_tx_dust_exposure_msat: u64,
@@ -72,7 +74,7 @@ fn on_holder_tx_dust_exposure_msat(
 }
 
 pub(crate) trait TxBuilder {
-	fn check_exposure(&self, htlcs: &[HTLCAmountHeading], dust_buffer_feerate: u32, excess_feerate: Option<u32>, max_dust_htlc_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> Result<BuilderStats, TxBuilderError>;
+	fn check_exposure(&self, htlcs: &[HTLCAmountHeading], feerate_per_kw: u32, excess_feerate: Option<u32>, max_dust_htlc_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> Result<BuilderStats, TxBuilderError>;
 	fn commit_tx_fee_sat(&self, feerate_per_kw: u32, nondust_htlc_count: usize, channel_type: &ChannelTypeFeatures) -> u64;
 	fn subtract_non_htlc_outputs(
 		&self, is_outbound_from_holder: bool, value_to_self_after_htlcs: u64,
@@ -169,12 +171,30 @@ fn on_counterparty_tx_dust_exposure_msat(
 pub(crate) struct SpecTxBuilder {}
 
 impl TxBuilder for SpecTxBuilder {
-	fn check_exposure(&self, htlcs: &[HTLCAmountHeading], dust_buffer_feerate: u32, excess_feerate: Option<u32>, max_dust_htlc_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> Result<BuilderStats, TxBuilderError> {
+	fn check_exposure(&self, htlcs: &[HTLCAmountHeading], feerate_per_kw: u32, excess_feerate: Option<u32>, max_dust_htlc_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> Result<BuilderStats, TxBuilderError> {
+
+		let is_dust = |htlc: &HTLCAmountDirection, broadcaster_dust_limit_sat: u64| -> bool {
+			let htlc_tx_fee_sat = if channel_type.supports_anchors_zero_fee_htlc_tx() {
+				0
+			} else {
+				let htlc_tx_weight = if htlc.offered {
+					htlc_timeout_tx_weight(channel_type)
+				} else {
+					htlc_success_tx_weight(channel_type)
+				};
+				// As required by the spec, round down
+				feerate_per_kw as u64 * htlc_tx_weight / 1000
+			};
+			htlc.amount_msat / 1000 < broadcaster_dust_limit_sat + htlc_tx_fee_sat
+		};
+
 		let mut holder = None;
 		let mut counterparty = None;
 		let on_holder_htlcs: Vec<_> = htlcs.iter().map(|htlc| HTLCAmountDirection { offered: htlc.outbound, amount_msat: htlc.amount_msat }).collect();
+		let on_holder_htlc_count = on_holder_htlcs.iter().filter(|htlc| !is_dust(htlc, holder_dust_limit_satoshis)).count();
+		let holder_commit_tx_fee_sat = commit_tx_fee_sat(feerate_per_kw, on_holder_htlc_count, channel_type);
 		let on_holder_tx_dust_exposure_msat = on_holder_tx_dust_exposure_msat(
-			dust_buffer_feerate,
+			feerate_per_kw,
 			holder_dust_limit_satoshis,
 			channel_type,
 			&on_holder_htlcs,
@@ -185,8 +205,10 @@ impl TxBuilder for SpecTxBuilder {
 		}
 
 		let on_counterparty_htlcs: Vec<_> = htlcs.iter().map(|htlc| HTLCAmountDirection { offered: !htlc.outbound, amount_msat: htlc.amount_msat }).collect();
+		let on_counterparty_htlc_count = on_counterparty_htlcs.iter().filter(|htlc| !is_dust(htlc, counterparty_dust_limit_satoshis)).count();
+		let counterparty_commit_tx_fee_sat = commit_tx_fee_sat(feerate_per_kw, on_counterparty_htlc_count, channel_type);
 		let (on_counterparty_tx_dust_exposure_msat, extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat) = on_counterparty_tx_dust_exposure_msat(
-			dust_buffer_feerate,
+			feerate_per_kw,
 			excess_feerate,
 			counterparty_dust_limit_satoshis,
 			channel_type,
@@ -204,6 +226,8 @@ impl TxBuilder for SpecTxBuilder {
 			})
 		} else {
 			Ok(BuilderStats {
+				holder_commit_tx_fee_sat,
+				counterparty_commit_tx_fee_sat,
 				on_counterparty_tx_dust_exposure_msat,
 				extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat,
 				on_holder_tx_dust_exposure_msat,
