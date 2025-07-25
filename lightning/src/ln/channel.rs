@@ -70,7 +70,7 @@ use crate::ln::script::{self, ShutdownScript};
 use crate::ln::types::ChannelId;
 use crate::routing::gossip::NodeId;
 use crate::sign::ecdsa::EcdsaChannelSigner;
-use crate::sign::tx_builder::{HTLCAmountDirection, HTLCAmountHeading, SpecTxBuilder, TxBuilder, TxBuilderError};
+use crate::sign::tx_builder::{HTLCAmountDirection, HTLCAmountHeading, SpecTxBuilder, TxBuilder, BuilderStats, TxBuilderError};
 use crate::sign::{ChannelSigner, EntropySource, NodeSigner, Recipient, SignerProvider};
 use crate::types::features::{ChannelTypeFeatures, InitFeatures};
 use crate::types::payment::{PaymentHash, PaymentPreimage};
@@ -4729,7 +4729,7 @@ where
 	fn check_exposure(
 		&self, outbound_feerate_update: Option<u32>, dust_exposure_limiting_feerate: Option<u32>,
 		channel_type: &ChannelTypeFeatures,
-	) -> Result<(), TxBuilderError> {
+	) -> Result<BuilderStats, TxBuilderError> {
 		let max_dust_htlc_exposure_msat =
 			self.get_max_dust_htlc_exposure_msat(dust_exposure_limiting_feerate);
 		let htlc_list = self.get_pending_htlcs();

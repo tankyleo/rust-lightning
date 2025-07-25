@@ -27,6 +27,12 @@ pub(crate) struct HTLCAmountDirection {
 	pub amount_msat: u64,
 }
 
+pub(crate) struct BuilderStats {
+	on_counterparty_tx_dust_exposure_msat: u64,
+	extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat: Option<u64>,
+	on_holder_tx_dust_exposure_msat: u64,
+}
+
 impl HTLCAmountDirection {
 	fn is_dust(&self, htlc_success_dust_limit_sat: u64, htlc_timeout_dust_limit_sat: u64) -> bool {
 		if self.offered {
@@ -66,7 +72,7 @@ fn on_holder_tx_dust_exposure_msat(
 }
 
 pub(crate) trait TxBuilder {
-	fn check_exposure(&self, htlcs: &[HTLCAmountHeading], dust_buffer_feerate: u32, excess_feerate: Option<u32>, max_dust_htlc_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> Result<(), TxBuilderError>;
+	fn check_exposure(&self, htlcs: &[HTLCAmountHeading], dust_buffer_feerate: u32, excess_feerate: Option<u32>, max_dust_htlc_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> Result<BuilderStats, TxBuilderError>;
 	fn commit_tx_fee_sat(&self, feerate_per_kw: u32, nondust_htlc_count: usize, channel_type: &ChannelTypeFeatures) -> u64;
 	fn subtract_non_htlc_outputs(
 		&self, is_outbound_from_holder: bool, value_to_self_after_htlcs: u64,
@@ -163,7 +169,7 @@ fn on_counterparty_tx_dust_exposure_msat(
 pub(crate) struct SpecTxBuilder {}
 
 impl TxBuilder for SpecTxBuilder {
-	fn check_exposure(&self, htlcs: &[HTLCAmountHeading], dust_buffer_feerate: u32, excess_feerate: Option<u32>, max_dust_htlc_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> Result<(), TxBuilderError> {
+	fn check_exposure(&self, htlcs: &[HTLCAmountHeading], dust_buffer_feerate: u32, excess_feerate: Option<u32>, max_dust_htlc_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> Result<BuilderStats, TxBuilderError> {
 		let mut holder = None;
 		let mut counterparty = None;
 		let on_holder_htlcs: Vec<_> = htlcs.iter().map(|htlc| HTLCAmountDirection { offered: htlc.outbound, amount_msat: htlc.amount_msat }).collect();
@@ -179,7 +185,7 @@ impl TxBuilder for SpecTxBuilder {
 		}
 
 		let on_counterparty_htlcs: Vec<_> = htlcs.iter().map(|htlc| HTLCAmountDirection { offered: !htlc.outbound, amount_msat: htlc.amount_msat }).collect();
-		let (on_counterparty_tx_dust_exposure_msat, _) = on_counterparty_tx_dust_exposure_msat(
+		let (on_counterparty_tx_dust_exposure_msat, extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat) = on_counterparty_tx_dust_exposure_msat(
 			dust_buffer_feerate,
 			excess_feerate,
 			counterparty_dust_limit_satoshis,
@@ -197,7 +203,11 @@ impl TxBuilder for SpecTxBuilder {
 				counterparty,
 			})
 		} else {
-			Ok(())
+			Ok(BuilderStats {
+				on_counterparty_tx_dust_exposure_msat,
+				extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat,
+				on_holder_tx_dust_exposure_msat,
+			})
 		}
 	}
 	fn commit_tx_fee_sat(
