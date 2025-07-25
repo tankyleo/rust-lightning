@@ -74,7 +74,7 @@ fn on_holder_tx_dust_exposure_msat(
 }
 
 pub(crate) trait TxBuilder {
-	fn check_exposure(&self, htlcs: &[HTLCAmountHeading], feerate_per_kw: u32, excess_feerate: Option<u32>, max_dust_htlc_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> Result<BuilderStats, TxBuilderError>;
+	fn get_builder_stats(&self, htlcs: &[HTLCAmountHeading], feerate_per_kw: u32, excess_feerate: Option<u32>, max_dust_htlc_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> Result<BuilderStats, TxBuilderError>;
 	fn commit_tx_fee_sat(&self, feerate_per_kw: u32, nondust_htlc_count: usize, channel_type: &ChannelTypeFeatures) -> u64;
 	fn subtract_non_htlc_outputs(
 		&self, is_outbound_from_holder: bool, value_to_self_after_htlcs: u64,
@@ -171,7 +171,7 @@ fn on_counterparty_tx_dust_exposure_msat(
 pub(crate) struct SpecTxBuilder {}
 
 impl TxBuilder for SpecTxBuilder {
-	fn check_exposure(&self, htlcs: &[HTLCAmountHeading], feerate_per_kw: u32, excess_feerate: Option<u32>, max_dust_htlc_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> Result<BuilderStats, TxBuilderError> {
+	fn get_builder_stats(&self, htlcs: &[HTLCAmountHeading], feerate_per_kw: u32, excess_feerate: Option<u32>, max_dust_htlc_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> Result<BuilderStats, TxBuilderError> {
 
 		let is_dust = |htlc: &HTLCAmountDirection, broadcaster_dust_limit_sat: u64| -> bool {
 			let htlc_tx_fee_sat = if channel_type.supports_anchors_zero_fee_htlc_tx() {
