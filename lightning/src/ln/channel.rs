@@ -4737,10 +4737,12 @@ where
 			self.get_max_dust_htlc_exposure_msat(dust_exposure_limiting_feerate);
 		let dust_buffer_feerate = self.get_dust_buffer_feerate(outbound_feerate_update);
 
-		let current_feerate = outbound_feerate_update
-				.or(self.pending_update_fee.map(|(fee, _)| fee))
-				.unwrap_or(self.feerate_per_kw);
-		let excess_feerate_opt = current_feerate.checked_sub(dust_exposure_limiting_feerate.unwrap_or(0));
+		let excess_feerate_opt = {
+			let current_feerate = outbound_feerate_update
+					.or(self.pending_update_fee.map(|(fee, _)| fee))
+					.unwrap_or(self.feerate_per_kw);
+			current_feerate.checked_sub(dust_exposure_limiting_feerate.unwrap_or(0))
+		};
 
 		// Dust exposure is only decoupled from feerate for zero fee commitment channels.
 		if channel_type.supports_anchor_zero_fee_commitments() {
@@ -4748,7 +4750,7 @@ where
 			debug_assert_eq!(excess_feerate_opt, Some(0));
 		}
 
-		SpecTxBuilder {}.get_builder_stats(&htlc_list, nondust_htlcs, dust_buffer_feerate, excess_feerate_opt, max_dust_htlc_exposure_msat, channel_type, self.holder_dust_limit_satoshis, self.counterparty_dust_limit_satoshis)
+		SpecTxBuilder {}.get_builder_stats(&htlc_list, nondust_htlcs, self.feerate_per_kw, dust_buffer_feerate, excess_feerate_opt, max_dust_htlc_exposure_msat, channel_type, self.holder_dust_limit_satoshis, self.counterparty_dust_limit_satoshis)
 	}
 
 	fn pending_inbound_htlcs_value_msat(&self) -> u64 {
@@ -5151,45 +5153,27 @@ where
 			return 0;
 		}
 
-		let (htlc_success_tx_fee_sat, htlc_timeout_tx_fee_sat) = second_stage_tx_fees_sat(
-			funding.get_channel_type(), context.feerate_per_kw,
-		);
-		let real_dust_limit_success_sat = htlc_success_tx_fee_sat + context.holder_dust_limit_satoshis;
-		let real_dust_limit_timeout_sat = htlc_timeout_tx_fee_sat + context.holder_dust_limit_satoshis;
-
-		let mut addl_htlcs = 0;
-		if fee_spike_buffer_htlc.is_some() { addl_htlcs += 1; }
+		let mut htlc_list = Vec::new();
 		match htlc.origin {
 			HTLCInitiator::LocalOffered => {
-				if htlc.amount_msat / 1000 >= real_dust_limit_timeout_sat {
-					addl_htlcs += 1;
-				}
+				htlc_list.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat });
 			},
 			HTLCInitiator::RemoteOffered => {
-				if htlc.amount_msat / 1000 >= real_dust_limit_success_sat {
-					addl_htlcs += 1;
-				}
+				htlc_list.push(HTLCAmountHeading { outbound: false, amount_msat: htlc.amount_msat });
 			}
 		}
 
-		let mut included_htlcs = 0;
 		for ref htlc in context.pending_inbound_htlcs.iter() {
-			if htlc.amount_msat / 1000 < real_dust_limit_success_sat {
-				continue
-			}
 			// We include LocalRemoved HTLCs here because we may still need to broadcast a commitment
 			// transaction including this HTLC if it times out before they RAA.
-			included_htlcs += 1;
+			htlc_list.push(HTLCAmountHeading { outbound: false, amount_msat: htlc.amount_msat });
 		}
 
 		for ref htlc in context.pending_outbound_htlcs.iter() {
-			if htlc.amount_msat / 1000 < real_dust_limit_timeout_sat {
-				continue
-			}
 			match htlc.state {
-				OutboundHTLCState::LocalAnnounced {..} => included_htlcs += 1,
-				OutboundHTLCState::Committed => included_htlcs += 1,
-				OutboundHTLCState::RemoteRemoved {..} => included_htlcs += 1,
+				OutboundHTLCState::LocalAnnounced {..} => htlc_list.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat }),
+				OutboundHTLCState::Committed => htlc_list.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat }),
+				OutboundHTLCState::RemoteRemoved {..} => htlc_list.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat }),
 				// We don't include AwaitingRemoteRevokeToRemove HTLCs because our next commitment
 				// transaction won't be generated until they send us their next RAA, which will mean
 				// dropping any HTLCs in this state.
@@ -5200,23 +5184,19 @@ where
 		for htlc in context.holding_cell_htlc_updates.iter() {
 			match htlc {
 				&HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } => {
-					if amount_msat / 1000 < real_dust_limit_timeout_sat {
-						continue
-					}
-					included_htlcs += 1
+					htlc_list.push(HTLCAmountHeading { outbound: true, amount_msat });
 				},
 				_ => {}, // Don't include claims/fails that are awaiting ack, because once we get the
 				         // ack we're guaranteed to never include them in commitment txs anymore.
 			}
 		}
 
-		let num_htlcs = included_htlcs + addl_htlcs;
-		let commit_tx_fee_msat = SpecTxBuilder {}.commit_tx_fee_sat(context.feerate_per_kw, num_htlcs, funding.get_channel_type()) * 1000;
+		let commit_tx_fee_msat = self.get_builder_stats(&htlc_list, fee_spike_buffer_htlc.map(|()| 1).unwrap_or(0), None, None, funding.get_channel_type()).unwrap().holder_commit_tx_fee_sat * 1000;
 		#[cfg(any(test, fuzzing))]
 		{
 			let mut fee = commit_tx_fee_msat;
 			if fee_spike_buffer_htlc.is_some() {
-				fee = SpecTxBuilder {}.commit_tx_fee_sat(context.feerate_per_kw, num_htlcs - 1, funding.get_channel_type()) * 1000;
+				fee = self.get_builder_stats(&htlc_list, 0, None, None, funding.get_channel_type()).unwrap().holder_commit_tx_fee_sat * 1000;
 			}
 			let total_pending_htlcs = context.pending_inbound_htlcs.len() + context.pending_outbound_htlcs.len()
 				+ context.holding_cell_htlc_updates.len();
