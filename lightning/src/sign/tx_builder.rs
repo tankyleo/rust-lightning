@@ -30,6 +30,8 @@ pub(crate) struct BuilderStats {
 	pub max_dust_exposure_msat: u64,
 	pub extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat: Option<u64>,
 	pub on_holder_tx_dust_exposure_msat: u64,
+	pub holder_balance_msat: u64,
+	pub counterparty_balance_msat: u64,
 }
 
 impl BuilderStats {
@@ -80,7 +82,9 @@ fn on_holder_tx_dust_exposure_msat(
 }
 
 pub(crate) trait TxBuilder {
-	fn get_builder_stats(&self, htlcs: &[HTLCAmountHeading], nondust_htlcs: usize, feerate_per_kw: u32, dust_buffer_feerate: u32, excess_feerate: Option<u32>, max_dust_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> BuilderStats;
+	// TODO: try to delete some of the feerate parameters, maybe calculate dust buffer feerate
+	// from the actual feerate
+	fn get_builder_stats(&self, is_outbound_from_holder: bool, channel_value_satoshis: u64, value_to_holder_msat: u64, htlcs: &[HTLCAmountHeading], nondust_htlcs: usize, feerate_per_kw: u32, dust_buffer_feerate: u32, excess_feerate: Option<u32>, max_dust_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> BuilderStats;
 	fn subtract_non_htlc_outputs(
 		&self, is_outbound_from_holder: bool, value_to_self_after_htlcs: u64,
 		value_to_remote_after_htlcs: u64, channel_type: &ChannelTypeFeatures,
@@ -173,11 +177,42 @@ fn on_counterparty_tx_dust_exposure_msat(
 	)
 }
 
+fn subtract_addl_outputs(
+	is_outbound_from_holder: bool, value_to_self_after_htlcs: u64,
+	value_to_remote_after_htlcs: u64, channel_type: &ChannelTypeFeatures,
+) -> (u64, u64) {
+	let total_anchors_sat = if channel_type.supports_anchors_zero_fee_htlc_tx() {
+		ANCHOR_OUTPUT_VALUE_SATOSHI * 2
+	} else {
+		0
+	};
+
+	let mut local_balance_before_fee_msat = value_to_self_after_htlcs;
+	let mut remote_balance_before_fee_msat = value_to_remote_after_htlcs;
+
+	// We MUST use saturating subs here, as the funder's balance is not guaranteed to be greater
+	// than or equal to `total_anchors_sat`.
+	//
+	// This is because when the remote party sends an `update_fee` message, we build the new
+	// commitment transaction *before* checking whether the remote party's balance is enough to
+	// cover the total anchor sum.
+
+	if is_outbound_from_holder {
+		local_balance_before_fee_msat =
+			local_balance_before_fee_msat.saturating_sub(total_anchors_sat * 1000);
+	} else {
+		remote_balance_before_fee_msat =
+			remote_balance_before_fee_msat.saturating_sub(total_anchors_sat * 1000);
+	}
+
+	(local_balance_before_fee_msat, remote_balance_before_fee_msat)
+}
+
 pub(crate) struct SpecTxBuilder {}
 
 impl TxBuilder for SpecTxBuilder {
-	fn get_builder_stats(&self, htlcs: &[HTLCAmountHeading], nondust_htlcs: usize, feerate_per_kw: u32, dust_buffer_feerate: u32, excess_feerate: Option<u32>, max_dust_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> BuilderStats {
-
+	fn get_builder_stats(&self, is_outbound_from_holder: bool, channel_value_satoshis: u64, value_to_holder_msat: u64, htlcs: &[HTLCAmountHeading], nondust_htlcs: usize, feerate_per_kw: u32, dust_buffer_feerate: u32, excess_feerate: Option<u32>, max_dust_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> BuilderStats {
+		let value_to_counterparty_msat = channel_value_satoshis * 1000 - value_to_holder_msat;
 		let is_dust = |htlc: &HTLCAmountDirection, broadcaster_dust_limit_sat: u64| -> bool {
 			let htlc_tx_fee_sat = if channel_type.supports_anchors_zero_fee_htlc_tx() {
 				0
@@ -192,6 +227,11 @@ impl TxBuilder for SpecTxBuilder {
 			};
 			htlc.amount_msat / 1000 < broadcaster_dust_limit_sat + htlc_tx_fee_sat
 		};
+
+		let outbound_htlcs_value_msat: u64 = htlcs.iter().filter_map(|htlc| htlc.outbound.then_some(htlc.amount_msat)).sum();
+		let inbound_htlcs_value_msat: u64 = htlcs.iter().filter_map(|htlc| (!htlc.outbound).then_some(htlc.amount_msat)).sum();
+		let value_to_holder_after_htlcs = value_to_holder_msat.saturating_sub(outbound_htlcs_value_msat);
+		let value_to_counterparty_after_htlcs = value_to_counterparty_msat.saturating_sub(inbound_htlcs_value_msat);
 
 		let on_holder_htlcs: Vec<_> = htlcs.iter().map(|htlc| HTLCAmountDirection { offered: htlc.outbound, amount_msat: htlc.amount_msat }).collect();
 		let on_holder_htlc_count = on_holder_htlcs.iter().filter(|htlc| !is_dust(htlc, holder_dust_limit_satoshis)).count();
@@ -214,6 +254,8 @@ impl TxBuilder for SpecTxBuilder {
 			&on_counterparty_htlcs,
 		);
 
+		let (holder_balance_msat, counterparty_balance_msat) = subtract_addl_outputs(is_outbound_from_holder, value_to_holder_after_htlcs, value_to_counterparty_after_htlcs, channel_type);
+
 		BuilderStats {
 			holder_commit_tx_fee_sat,
 			counterparty_commit_tx_fee_sat,
@@ -221,6 +263,8 @@ impl TxBuilder for SpecTxBuilder {
 			extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat,
 			on_holder_tx_dust_exposure_msat,
 			max_dust_exposure_msat,
+			holder_balance_msat,
+			counterparty_balance_msat,
 		}
 	}
 	fn subtract_non_htlc_outputs(
