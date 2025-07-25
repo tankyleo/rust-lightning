@@ -70,7 +70,7 @@ use crate::ln::script::{self, ShutdownScript};
 use crate::ln::types::ChannelId;
 use crate::routing::gossip::NodeId;
 use crate::sign::ecdsa::EcdsaChannelSigner;
-use crate::sign::tx_builder::{HTLCAmountDirection, HTLCAmountHeading, SpecTxBuilder, TxBuilder, BuilderStats};
+use crate::sign::tx_builder::{HTLCAmountHeading, SpecTxBuilder, TxBuilder, BuilderStats};
 use crate::sign::{ChannelSigner, EntropySource, NodeSigner, Recipient, SignerProvider};
 use crate::types::features::{ChannelTypeFeatures, InitFeatures};
 use crate::types::payment::{PaymentHash, PaymentPreimage};
@@ -284,24 +284,6 @@ struct InboundHTLCOutput {
 	state: InboundHTLCState,
 }
 
-impl InboundHTLCOutput {
-	fn is_dust(
-		&self, local: bool, feerate_per_kw: u32, broadcaster_dust_limit_sat: u64,
-		features: &ChannelTypeFeatures,
-	) -> bool {
-		let (htlc_success_tx_fee_sat, htlc_timeout_tx_fee_sat) =
-			second_stage_tx_fees_sat(features, feerate_per_kw);
-
-		let htlc_tx_fee_sat = if !local {
-			// This is an offered HTLC.
-			htlc_timeout_tx_fee_sat
-		} else {
-			htlc_success_tx_fee_sat
-		};
-		self.amount_msat / 1000 < broadcaster_dust_limit_sat + htlc_tx_fee_sat
-	}
-}
-
 #[cfg_attr(test, derive(Clone, Debug, PartialEq))]
 enum OutboundHTLCState {
 	/// Added by us and included in a commitment_signed (if we were AwaitingRemoteRevoke when we
@@ -425,24 +407,6 @@ struct OutboundHTLCOutput {
 	blinding_point: Option<PublicKey>,
 	skimmed_fee_msat: Option<u64>,
 	send_timestamp: Option<Duration>,
-}
-
-impl OutboundHTLCOutput {
-	fn is_dust(
-		&self, local: bool, feerate_per_kw: u32, broadcaster_dust_limit_sat: u64,
-		features: &ChannelTypeFeatures,
-	) -> bool {
-		let (htlc_success_tx_fee_sat, htlc_timeout_tx_fee_sat) =
-			second_stage_tx_fees_sat(features, feerate_per_kw);
-
-		let htlc_tx_fee_sat = if local {
-			// This is an offered HTLC.
-			htlc_timeout_tx_fee_sat
-		} else {
-			htlc_success_tx_fee_sat
-		};
-		self.amount_msat / 1000 < broadcaster_dust_limit_sat + htlc_tx_fee_sat
-	}
 }
 
 /// See AwaitingRemoteRevoke ChannelState for more info
@@ -4429,8 +4393,6 @@ where
 	#[inline]
 	#[rustfmt::skip]
 	fn build_commitment_stats(&self, funding: &FundingScope, local: bool, generated_by_local: bool, feerate_per_kw: Option<u32>, fee_buffer_nondust_htlcs: Option<usize>) -> CommitmentStats {
-		let broadcaster_dust_limit_sat = if local { self.holder_dust_limit_satoshis } else { self.counterparty_dust_limit_satoshis };
-		let mut nondust_htlc_count = 0;
 		let mut remote_htlc_total_msat = 0;
 		let mut local_htlc_total_msat = 0;
 		let mut value_to_self_claimed_msat = 0;
@@ -4438,12 +4400,10 @@ where
 
 		let feerate_per_kw = feerate_per_kw.unwrap_or_else(|| self.get_commitment_feerate(funding, generated_by_local));
 
-		let mut htlcs: Vec<HTLCAmountDirection> = Vec::with_capacity(self.pending_inbound_htlcs.len() + self.pending_outbound_htlcs.len() + self.holding_cell_htlc_updates.len());
+		let mut htlcs: Vec<HTLCAmountHeading> = Vec::with_capacity(self.pending_inbound_htlcs.len() + self.pending_outbound_htlcs.len() + self.holding_cell_htlc_updates.len());
 		for htlc in self.pending_inbound_htlcs.iter() {
 			if htlc.state.included_in_commitment(generated_by_local) {
-				if !htlc.is_dust(local, feerate_per_kw, broadcaster_dust_limit_sat, funding.get_channel_type()) {
-					nondust_htlc_count += 1;
-				}
+				htlcs.push(HTLCAmountHeading { outbound: false, amount_msat: htlc.amount_msat });
 				remote_htlc_total_msat += htlc.amount_msat;
 			} else {
 				if htlc.state.preimage().is_some() {
@@ -4454,9 +4414,7 @@ where
 
 		for htlc in self.pending_outbound_htlcs.iter() {
 			if htlc.state.included_in_commitment(generated_by_local) {
-				if !htlc.is_dust(local, feerate_per_kw, broadcaster_dust_limit_sat, funding.get_channel_type()) {
-					nondust_htlc_count += 1;
-				}
+				htlcs.push(HTLCAmountHeading { outbound: true, amount_msat: htlc.amount_msat });
 				local_htlc_total_msat += htlc.amount_msat;
 			} else {
 				if htlc.state.preimage().is_some() {
@@ -4469,7 +4427,7 @@ where
 		if local && generated_by_local {
 			for update in self.holding_cell_htlc_updates.iter() {
 				if let &HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = update {
-					htlcs.push(HTLCAmountDirection { offered: local, amount_msat });
+					htlcs.push(HTLCAmountHeading { outbound: true, amount_msat });
 					local_htlc_total_msat += amount_msat;
 				}
 			}
@@ -4500,7 +4458,13 @@ where
 			broadcaster_max_commitment_tx_output.1 = cmp::max(broadcaster_max_commitment_tx_output.1, value_to_remote_msat);
 		}
 
-		let commit_tx_fee_sat = SpecTxBuilder {}.commit_tx_fee_sat(feerate_per_kw, nondust_htlc_count + fee_buffer_nondust_htlcs.unwrap_or(0), funding.get_channel_type());
+		let ret = self.get_builder_stats(&htlcs, fee_buffer_nondust_htlcs.unwrap_or(0), Some(feerate_per_kw), None, funding.get_channel_type());
+		let commit_tx_fee_sat = if local {
+			ret.holder_commit_tx_fee_sat
+		} else {
+			ret.counterparty_commit_tx_fee_sat
+		};
+
 		// Subtract any non-HTLC outputs from the local and remote balances
 		let (local_balance_before_fee_msat, remote_balance_before_fee_msat) = SpecTxBuilder {}.subtract_non_htlc_outputs(
 			funding.is_outbound(),
@@ -4728,7 +4692,9 @@ where
 			debug_assert_eq!(excess_feerate_opt, Some(0));
 		}
 
-		SpecTxBuilder {}.get_builder_stats(&htlc_list, nondust_htlcs, self.feerate_per_kw, dust_buffer_feerate, excess_feerate_opt, max_dust_htlc_exposure_msat, channel_type, self.holder_dust_limit_satoshis, self.counterparty_dust_limit_satoshis)
+		let feerate = outbound_feerate_update.unwrap_or(self.feerate_per_kw);
+
+		SpecTxBuilder {}.get_builder_stats(&htlc_list, nondust_htlcs, feerate, dust_buffer_feerate, excess_feerate_opt, max_dust_htlc_exposure_msat, channel_type, self.holder_dust_limit_satoshis, self.counterparty_dust_limit_satoshis)
 	}
 
 	fn pending_inbound_htlcs_value_msat(&self) -> u64 {
