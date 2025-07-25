@@ -70,7 +70,7 @@ use crate::ln::script::{self, ShutdownScript};
 use crate::ln::types::ChannelId;
 use crate::routing::gossip::NodeId;
 use crate::sign::ecdsa::EcdsaChannelSigner;
-use crate::sign::tx_builder::{HTLCAmountDirection, HTLCAmountHeading, SpecTxBuilder, TxBuilder, BuilderStats, TxBuilderError};
+use crate::sign::tx_builder::{HTLCAmountDirection, HTLCAmountHeading, SpecTxBuilder, TxBuilder, BuilderStats};
 use crate::sign::{ChannelSigner, EntropySource, NodeSigner, Recipient, SignerProvider};
 use crate::types::features::{ChannelTypeFeatures, InitFeatures};
 use crate::types::payment::{PaymentHash, PaymentPreimage};
@@ -4190,25 +4190,13 @@ where
 		);
 		let htlc_list = self.get_pending_htlcs();
 		let ret = self.get_builder_stats(&htlc_list, 0, None, dust_exposure_limiting_feerate, funding.get_channel_type());
-		match ret {
-			Err(TxBuilderError::DustExposure {
-				max: _,
-				holder: Some(holder),
-				..
-			}) => {
+		if ret.is_holder_exposure_exhausted() {
 				return Err(ChannelError::close(format!("Peer sent update_fee with a feerate ({}) which may over-expose us to dust-in-flight on our own transactions (totaling {} msat)",
-					msg.feerate_per_kw, holder)));
-			}
-			Err(TxBuilderError::DustExposure {
-				max: _,
-				counterparty: Some(counterparty),
-				..
-			}) => {
+					msg.feerate_per_kw, ret.on_holder_tx_dust_exposure_msat)));
+		}
+		if ret.is_counterparty_exposure_exhausted() {
 				return Err(ChannelError::close(format!("Peer sent update_fee with a feerate ({}) which may over-expose us to dust-in-flight on our counterparty's transactions (totaling {} msat)",
-					msg.feerate_per_kw, counterparty)));
-			}
-			// We ignore any other errors for now...
-			_ => (),
+					msg.feerate_per_kw, ret.on_counterparty_tx_dust_exposure_msat)));
 		}
 		Ok(())
 	}
@@ -4331,7 +4319,7 @@ where
 		);
 		let htlc_list = self.get_pending_htlcs();
 		let ret = self.get_builder_stats(&htlc_list, 0, Some(feerate_per_kw), dust_exposure_limiting_feerate, funding.get_channel_type());
-		if let Err(_) = ret {
+		if ret.is_holder_exposure_exhausted() || ret.is_counterparty_exposure_exhausted() {
 			log_debug!(logger, "Cannot afford to send new feerate at {} without infringing max dust htlc exposure", feerate_per_kw);
 			return false;
 		}
@@ -4349,30 +4337,18 @@ where
 	{
 		let htlc_list = self.get_pending_htlcs();
 		let ret = self.get_builder_stats(&htlc_list, 0, None, dust_exposure_limiting_feerate, funding.get_channel_type());
-		match ret {
-			Err(TxBuilderError::DustExposure {
-				max,
-				counterparty: Some(counterparty),
-				..
-			}) => {
-				// Note that the total dust exposure includes both the dust HTLCs and the excess mining fees of the counterparty commitment transaction
-				log_info!(logger, "Cannot accept value that would put our total dust exposure at {} over the limit {} on counterparty commitment tx",
-					counterparty, max);
-				return Err(LocalHTLCFailureReason::DustLimitCounterparty)
-			}
-			Err(TxBuilderError::DustExposure {
-				max,
-				holder: Some(holder),
-				..
-			}) => {
-				// Note: We now always check holder dust exposure, whereas we previously would only
-				// do it if the incoming HTLC was dust on our own commitment transaction
-				log_info!(logger, "Cannot accept value that would put our exposure to dust HTLCs at {} over the limit {} on holder commitment tx",
-					holder, max);
-				return Err(LocalHTLCFailureReason::DustLimitHolder)
-			}
-			// We ignore any other errors for now...
-			_ => (),
+		if ret.is_counterparty_exposure_exhausted() {
+			// Note that the total dust exposure includes both the dust HTLCs and the excess mining fees of the counterparty commitment transaction
+			log_info!(logger, "Cannot accept value that would put our total dust exposure at {} over the limit {} on counterparty commitment tx",
+				ret.on_counterparty_tx_dust_exposure_msat, ret.max_dust_exposure_msat);
+			return Err(LocalHTLCFailureReason::DustLimitCounterparty)
+		}
+		if ret.is_holder_exposure_exhausted() {
+			// Note: We now always check holder dust exposure, whereas we previously would only
+			// do it if the incoming HTLC was dust on our own commitment transaction
+			log_info!(logger, "Cannot accept value that would put our exposure to dust HTLCs at {} over the limit {} on holder commitment tx",
+				ret.on_holder_tx_dust_exposure_msat, ret.max_dust_exposure_msat);
+			return Err(LocalHTLCFailureReason::DustLimitHolder)
 		}
 
 		if !funding.is_outbound() {
@@ -4732,7 +4708,7 @@ where
 	fn get_builder_stats(
 		&self, htlc_list: &[HTLCAmountHeading], nondust_htlcs: usize, outbound_feerate_update: Option<u32>, dust_exposure_limiting_feerate: Option<u32>,
 		channel_type: &ChannelTypeFeatures,
-	) -> Result<BuilderStats, TxBuilderError> {
+	) -> BuilderStats {
 		let max_dust_htlc_exposure_msat =
 			self.get_max_dust_htlc_exposure_msat(dust_exposure_limiting_feerate);
 		let dust_buffer_feerate = self.get_dust_buffer_feerate(outbound_feerate_update);
@@ -5191,12 +5167,12 @@ where
 			}
 		}
 
-		let commit_tx_fee_msat = self.get_builder_stats(&htlc_list, fee_spike_buffer_htlc.map(|()| 1).unwrap_or(0), None, None, funding.get_channel_type()).unwrap().holder_commit_tx_fee_sat * 1000;
+		let commit_tx_fee_msat = self.get_builder_stats(&htlc_list, fee_spike_buffer_htlc.map(|()| 1).unwrap_or(0), None, None, funding.get_channel_type()).holder_commit_tx_fee_sat * 1000;
 		#[cfg(any(test, fuzzing))]
 		{
 			let mut fee = commit_tx_fee_msat;
 			if fee_spike_buffer_htlc.is_some() {
-				fee = self.get_builder_stats(&htlc_list, 0, None, None, funding.get_channel_type()).unwrap().holder_commit_tx_fee_sat * 1000;
+				fee = self.get_builder_stats(&htlc_list, 0, None, None, funding.get_channel_type()).holder_commit_tx_fee_sat * 1000;
 			}
 			let total_pending_htlcs = context.pending_inbound_htlcs.len() + context.pending_outbound_htlcs.len()
 				+ context.holding_cell_htlc_updates.len();
