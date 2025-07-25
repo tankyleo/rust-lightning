@@ -1102,15 +1102,12 @@ enum HTLCInitiator {
 
 /// Current counts of various HTLCs, useful for calculating current balances available exactly.
 struct HTLCStats {
-	pending_outbound_htlcs: usize,
-	pending_outbound_htlcs_value_msat: u64,
 	on_counterparty_tx_dust_exposure_msat: u64,
 	// If the counterparty sets a feerate on the channel in excess of our dust_exposure_limiting_feerate,
 	// this will be set to the dust exposure that would result from us adding an additional nondust outbound
 	// htlc on the counterparty's commitment transaction.
 	extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat: Option<u64>,
 	on_holder_tx_dust_exposure_msat: u64,
-	outbound_holding_cell_msat: u64,
 }
 
 /// A struct gathering data on a commitment, either local or remote.
@@ -4318,12 +4315,8 @@ where
 		L::Target: Logger,
 	{
 		// Before proposing a feerate update, check that we can actually afford the new fee.
-		let dust_exposure_limiting_feerate = self.get_dust_exposure_limiting_feerate(
-			&fee_estimator, funding.get_channel_type(),
-		);
-		let htlc_stats = self.get_pending_htlc_stats(funding, Some(feerate_per_kw), dust_exposure_limiting_feerate);
 		let stats = self.build_commitment_stats(funding, true, true, Some(feerate_per_kw), Some(CONCURRENT_INBOUND_HTLC_FEE_BUFFER as usize));
-		let holder_balance_msat = stats.local_balance_before_fee_msat - htlc_stats.outbound_holding_cell_msat;
+		let holder_balance_msat = stats.local_balance_before_fee_msat - self.outbound_holding_cell_msat();
 		// Note that `stats.commit_tx_fee_sat` accounts for any HTLCs that transition from non-dust to dust under a higher feerate (in the case where HTLC-transactions pay endogenous fees).
 		if holder_balance_msat < stats.commit_tx_fee_sat * 1000 + funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 {
 			//TODO: auto-close after a number of failures?
@@ -4332,6 +4325,9 @@ where
 		}
 
 		// Note, we evaluate pending htlc "preemptive" trimmed-to-dust threshold at the proposed `feerate_per_kw`.
+		let dust_exposure_limiting_feerate = self.get_dust_exposure_limiting_feerate(
+			&fee_estimator, funding.get_channel_type(),
+		);
 		let ret = self.check_exposure(Some(feerate_per_kw), dust_exposure_limiting_feerate, funding.get_channel_type());
 		if let Err(_) = ret {
 			log_debug!(logger, "Cannot afford to send new feerate at {} without infringing max dust htlc exposure", feerate_per_kw);
@@ -4757,6 +4753,38 @@ where
 		self.pending_inbound_htlcs.iter().map(|htlc| htlc.amount_msat).sum()
 	}
 
+	fn outbound_holding_cell_msat(&self) -> u64 {
+		self.holding_cell_htlc_updates
+			.iter()
+			.filter_map(|htlc| {
+				if let HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = htlc {
+					Some(amount_msat)
+				} else {
+					None
+				}
+			})
+			.sum()
+	}
+
+	fn pending_outbound_htlcs(&self) -> usize {
+		let outbound_holding_cell_htlcs = self.holding_cell_htlc_updates
+			.iter()
+			.filter(|htlc| {
+				if let HTLCUpdateAwaitingACK::AddHTLC { .. } = htlc {
+					true
+				} else {
+					false
+				}
+			})
+			.count();
+		outbound_holding_cell_htlcs + self.pending_outbound_htlcs.len()
+	}
+
+	fn pending_outbound_htlcs_value_msat(&self) -> u64 {
+		let outbound_holding_cell_msat = self.outbound_holding_cell_msat();
+		outbound_holding_cell_msat + self.pending_outbound_htlcs.iter().map(|htlc| htlc.amount_msat).sum::<u64>()
+	}
+
 	/// Returns a HTLCStats about pending htlcs
 	#[rustfmt::skip]
 	fn get_pending_htlc_stats(
@@ -4792,8 +4820,6 @@ where
 		}
 
 		let mut pending_outbound_htlcs_value_msat = 0;
-		let mut outbound_holding_cell_msat = 0;
-		let mut pending_outbound_htlcs = self.pending_outbound_htlcs.len();
 		{
 			let counterparty_dust_limit_success_sat = htlc_success_tx_fee_sat + context.counterparty_dust_limit_satoshis;
 			let holder_dust_limit_timeout_sat = htlc_timeout_tx_fee_sat + context.holder_dust_limit_satoshis;
@@ -4811,9 +4837,7 @@ where
 
 			for update in context.holding_cell_htlc_updates.iter() {
 				if let &HTLCUpdateAwaitingACK::AddHTLC { ref amount_msat, .. } = update {
-					pending_outbound_htlcs += 1;
 					pending_outbound_htlcs_value_msat += amount_msat;
-					outbound_holding_cell_msat += amount_msat;
 					if *amount_msat / 1000 < counterparty_dust_limit_success_sat {
 						on_counterparty_tx_dust_exposure_msat += amount_msat;
 					} else {
@@ -4852,12 +4876,9 @@ where
 		});
 
 		HTLCStats {
-			pending_outbound_htlcs,
-			pending_outbound_htlcs_value_msat,
 			on_counterparty_tx_dust_exposure_msat,
 			extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat,
 			on_holder_tx_dust_exposure_msat,
-			outbound_holding_cell_msat,
 		}
 	}
 
@@ -4973,7 +4994,7 @@ where
 		// Subtract any non-HTLC outputs from the local and remote balances
 		let (local_balance_before_fee_msat, remote_balance_before_fee_msat) = SpecTxBuilder {}.subtract_non_htlc_outputs(
 			funding.is_outbound(),
-			funding.value_to_self_msat.saturating_sub(htlc_stats.pending_outbound_htlcs_value_msat),
+			funding.value_to_self_msat.saturating_sub(self.pending_outbound_htlcs_value_msat()),
 			(funding.get_value_satoshis() * 1000).checked_sub(funding.value_to_self_msat).unwrap().saturating_sub(self.pending_inbound_htlcs_value_msat()),
 			funding.get_channel_type(),
 		);
@@ -5090,9 +5111,9 @@ where
 		}
 
 		available_capacity_msat = cmp::min(available_capacity_msat,
-			context.counterparty_max_htlc_value_in_flight_msat - htlc_stats.pending_outbound_htlcs_value_msat);
+			context.counterparty_max_htlc_value_in_flight_msat - self.pending_outbound_htlcs_value_msat());
 
-		if htlc_stats.pending_outbound_htlcs + 1 > context.counterparty_max_accepted_htlcs as usize {
+		if self.pending_outbound_htlcs() + 1 > context.counterparty_max_accepted_htlcs as usize {
 			available_capacity_msat = 0;
 		}
 
