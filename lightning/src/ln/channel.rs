@@ -4226,23 +4226,21 @@ where
 		F::Target: FeeEstimator,
 		L::Target: Logger,
 	{
-		// Before proposing a feerate update, check that we can actually afford the new fee.
-		let stats = self.build_commitment_stats(funding, true, true, Some(feerate_per_kw), Some(CONCURRENT_INBOUND_HTLC_FEE_BUFFER as usize));
-		let holder_balance_msat = stats.local_balance_before_fee_msat - self.outbound_holding_cell_msat();
+		// Note, we evaluate pending htlc "preemptive" trimmed-to-dust threshold at the proposed `feerate_per_kw`.
+		let dust_exposure_limiting_feerate = self.get_dust_exposure_limiting_feerate(
+			&fee_estimator, funding.get_channel_type(),
+		);
+
+		let builder_stats = self.next_local_commit_tx_fee_msat(funding, None, CONCURRENT_INBOUND_HTLC_FEE_BUFFER as usize, Some(feerate_per_kw), dust_exposure_limiting_feerate);
+		let holder_balance_msat = builder_stats.holder_balance_msat;
 		// Note that `stats.commit_tx_fee_sat` accounts for any HTLCs that transition from non-dust to dust under a higher feerate (in the case where HTLC-transactions pay endogenous fees).
-		if holder_balance_msat < stats.commit_tx_fee_sat * 1000 + funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 {
+		if holder_balance_msat < builder_stats.holder_commit_tx_fee_sat * 1000 + funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 {
 			//TODO: auto-close after a number of failures?
 			log_debug!(logger, "Cannot afford to send new feerate at {}", feerate_per_kw);
 			return false;
 		}
 
-		// Note, we evaluate pending htlc "preemptive" trimmed-to-dust threshold at the proposed `feerate_per_kw`.
-		let dust_exposure_limiting_feerate = self.get_dust_exposure_limiting_feerate(
-			&fee_estimator, funding.get_channel_type(),
-		);
-		let htlc_list = self.get_pending_htlcs();
-		let ret = self.get_builder_stats(funding.value_to_self_msat, &htlc_list, 0, Some(feerate_per_kw), dust_exposure_limiting_feerate, funding);
-		if ret.is_holder_exposure_exhausted() || ret.is_counterparty_exposure_exhausted() {
+		if builder_stats.is_holder_exposure_exhausted() || builder_stats.is_counterparty_exposure_exhausted() {
 			log_debug!(logger, "Cannot afford to send new feerate at {} without infringing max dust htlc exposure", feerate_per_kw);
 			return false;
 		}
@@ -4623,19 +4621,6 @@ where
 		self.pending_inbound_htlcs.iter().map(|htlc| htlc.amount_msat).sum()
 	}
 
-	fn outbound_holding_cell_msat(&self) -> u64 {
-		self.holding_cell_htlc_updates
-			.iter()
-			.filter_map(|htlc| {
-				if let HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = htlc {
-					Some(amount_msat)
-				} else {
-					None
-				}
-			})
-			.sum()
-	}
-
 	fn pending_outbound_htlcs(&self) -> usize {
 		let outbound_holding_cell_htlcs = self.holding_cell_htlc_updates
 			.iter()
@@ -4651,7 +4636,16 @@ where
 	}
 
 	fn pending_outbound_htlcs_value_msat(&self) -> u64 {
-		let outbound_holding_cell_msat = self.outbound_holding_cell_msat();
+		let outbound_holding_cell_msat: u64 = self.holding_cell_htlc_updates
+			.iter()
+			.filter_map(|htlc| {
+				if let HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = htlc {
+					Some(amount_msat)
+				} else {
+					None
+				}
+			})
+			.sum();
 		outbound_holding_cell_msat + self.pending_outbound_htlcs.iter().map(|htlc| htlc.amount_msat).sum::<u64>()
 	}
 
@@ -4792,10 +4786,10 @@ where
 
 			let real_dust_limit_timeout_sat = real_htlc_timeout_tx_fee_sat + context.holder_dust_limit_satoshis;
 			let htlc_above_dust = HTLCCandidate::new(real_dust_limit_timeout_sat * 1000, HTLCInitiator::LocalOffered);
-			let builder_stats = context.next_local_commit_tx_fee_msat(&funding, Some(htlc_above_dust), fee_spike_buffer_htlc, None);
+			let builder_stats = context.next_local_commit_tx_fee_msat(&funding, Some(htlc_above_dust), fee_spike_buffer_htlc, None, None);
 			let mut max_reserved_commit_tx_fee_msat = builder_stats.holder_commit_tx_fee_sat * 1000;
 			let htlc_dust = HTLCCandidate::new(real_dust_limit_timeout_sat * 1000 - 1, HTLCInitiator::LocalOffered);
-			let builder_stats = context.next_local_commit_tx_fee_msat(&funding, Some(htlc_dust), fee_spike_buffer_htlc, None);
+			let builder_stats = context.next_local_commit_tx_fee_msat(&funding, Some(htlc_dust), fee_spike_buffer_htlc, None, None);
 			let mut min_reserved_commit_tx_fee_msat = builder_stats.holder_commit_tx_fee_sat * 1000;
 
 			if !funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
@@ -4909,7 +4903,7 @@ where
 	/// Dust HTLCs are excluded.
 	#[rustfmt::skip]
 	fn next_local_commit_tx_fee_msat(
-		&self, funding: &FundingScope, htlc: Option<HTLCCandidate>, addl_nondust_htlc_count: usize, dust_exposure_limiting_feerate: Option<u32>,
+		&self, funding: &FundingScope, htlc: Option<HTLCCandidate>, addl_nondust_htlc_count: usize, outbound_feerate_update: Option<u32>, dust_exposure_limiting_feerate: Option<u32>,
 	) -> BuilderStats {
 		let context = self;
 
@@ -4960,12 +4954,12 @@ where
 		}
 
 		let value_to_self_msat = funding.value_to_self_msat - remote_claimed_msat;
-		let builder_stats = self.get_builder_stats(value_to_self_msat, &htlc_list, addl_nondust_htlc_count, None, dust_exposure_limiting_feerate, funding);
+		let builder_stats = self.get_builder_stats(value_to_self_msat, &htlc_list, addl_nondust_htlc_count, outbound_feerate_update, dust_exposure_limiting_feerate, funding);
 		#[cfg(any(test, fuzzing))]
 		if let Some(ref htlc) = htlc {
 			let mut fee = builder_stats.holder_commit_tx_fee_sat * 1000;
 			if addl_nondust_htlc_count != 0 {
-				fee = self.get_builder_stats(value_to_self_msat, &htlc_list, 0, None, dust_exposure_limiting_feerate, funding).holder_commit_tx_fee_sat * 1000;
+				fee = self.get_builder_stats(value_to_self_msat, &htlc_list, 0, outbound_feerate_update, dust_exposure_limiting_feerate, funding).holder_commit_tx_fee_sat * 1000;
 			}
 			let total_pending_htlcs = context.pending_inbound_htlcs.len() + context.pending_outbound_htlcs.len()
 				+ context.holding_cell_htlc_updates.len();
@@ -13756,7 +13750,7 @@ mod tests {
 		// Make sure when Node A calculates their local commitment transaction, none of the HTLCs pass
 		// the dust limit check.
 		let htlc_candidate = HTLCCandidate::new(htlc_amount_msat, HTLCInitiator::LocalOffered);
-		let local_commit_tx_fee = node_a_chan.context.next_local_commit_tx_fee_msat(&node_a_chan.funding, Some(htlc_candidate), 0, None).holder_commit_tx_fee_sat * 1000;
+		let local_commit_tx_fee = node_a_chan.context.next_local_commit_tx_fee_msat(&node_a_chan.funding, Some(htlc_candidate), 0, None, None).holder_commit_tx_fee_sat * 1000;
 		let local_commit_fee_0_htlcs = commit_tx_fee_sat(node_a_chan.context.feerate_per_kw, 0, node_a_chan.funding.get_channel_type()) * 1000;
 		assert_eq!(local_commit_tx_fee, local_commit_fee_0_htlcs);
 
@@ -13799,13 +13793,13 @@ mod tests {
 		// counted as dust when it shouldn't be.
 		let htlc_amt_above_timeout = (htlc_timeout_tx_fee_sat + chan.context.holder_dust_limit_satoshis + 1) * 1000;
 		let htlc_candidate = HTLCCandidate::new(htlc_amt_above_timeout, HTLCInitiator::LocalOffered);
-		let commitment_tx_fee = chan.context.next_local_commit_tx_fee_msat(&chan.funding, Some(htlc_candidate), 0, None).holder_commit_tx_fee_sat * 1000;
+		let commitment_tx_fee = chan.context.next_local_commit_tx_fee_msat(&chan.funding, Some(htlc_candidate), 0, None, None).holder_commit_tx_fee_sat * 1000;
 		assert_eq!(commitment_tx_fee, commitment_tx_fee_1_htlc);
 
 		// If swapped: this HTLC would be counted as non-dust when it shouldn't be.
 		let dust_htlc_amt_below_success = (htlc_success_tx_fee_sat + chan.context.holder_dust_limit_satoshis - 1) * 1000;
 		let htlc_candidate = HTLCCandidate::new(dust_htlc_amt_below_success, HTLCInitiator::RemoteOffered);
-		let commitment_tx_fee = chan.context.next_local_commit_tx_fee_msat(&chan.funding, Some(htlc_candidate), 0, None).holder_commit_tx_fee_sat * 1000;
+		let commitment_tx_fee = chan.context.next_local_commit_tx_fee_msat(&chan.funding, Some(htlc_candidate), 0, None, None).holder_commit_tx_fee_sat * 1000;
 		assert_eq!(commitment_tx_fee, commitment_tx_fee_0_htlcs);
 
 		chan.funding.channel_transaction_parameters.is_outbound_from_holder = false;
