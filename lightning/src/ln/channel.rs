@@ -4111,15 +4111,15 @@ where
 		let dust_exposure_limiting_feerate = self.get_dust_exposure_limiting_feerate(
 			&fee_estimator, funding.get_channel_type(),
 		);
-		let htlc_list = self.get_pending_htlcs();
-		let ret = self.get_builder_stats(funding.value_to_self_msat, &htlc_list, 0, None, dust_exposure_limiting_feerate, funding);
-		if ret.is_holder_exposure_exhausted() {
+		// TODO: find better var names
+		let on_counterparty_builder_stats = self.next_remote_commit_tx_fee_msat(funding, None, None, dust_exposure_limiting_feerate); // Don't include the extra fee spike buffer HTLC in calculations
+		if on_counterparty_builder_stats.is_holder_exposure_exhausted() {
 				return Err(ChannelError::close(format!("Peer sent update_fee with a feerate ({}) which may over-expose us to dust-in-flight on our own transactions (totaling {} msat)",
-					msg.feerate_per_kw, ret.on_holder_tx_dust_exposure_msat)));
+					msg.feerate_per_kw, on_counterparty_builder_stats.on_holder_tx_dust_exposure_msat)));
 		}
-		if ret.is_counterparty_exposure_exhausted() {
+		if on_counterparty_builder_stats.is_counterparty_exposure_exhausted() {
 				return Err(ChannelError::close(format!("Peer sent update_fee with a feerate ({}) which may over-expose us to dust-in-flight on our counterparty's transactions (totaling {} msat)",
-					msg.feerate_per_kw, ret.on_counterparty_tx_dust_exposure_msat)));
+					msg.feerate_per_kw, on_counterparty_builder_stats.on_counterparty_tx_dust_exposure_msat)));
 		}
 		Ok(())
 	}
