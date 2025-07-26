@@ -4064,82 +4064,34 @@ where
 			return Err(ChannelError::close(format!("Remote HTLC add would put them over our max HTLC value ({})", self.holder_max_htlc_value_in_flight_msat)));
 		}
 
-		// Check holder_selected_channel_reserve_satoshis (we're getting paid, so they have to at least meet
-		// the reserve_satoshis we told them to always have as direct payment so that they lose
-		// something if we punish them for broadcasting an old state).
-		// Note that we don't really care about having a small/no to_remote output in our local
-		// commitment transactions, as the purpose of the channel reserve is to ensure we can
-		// punish *them* if they misbehave, so we discount any outbound HTLCs which will not be
-		// present in the next commitment transaction we send them (at least for fulfilled ones,
-		// failed ones won't modify value_to_self).
-		// Note that we will send HTLCs which another instance of rust-lightning would think
-		// violate the reserve value if we do not do this (as we forget inbound HTLCs from the
-		// Channel state once they will not be present in the next received commitment
-		// transaction).
-		let (local_balance_before_fee_msat, remote_balance_before_fee_msat) = {
-			let mut pending_htlcs: Vec<HTLCAmountDirection> = Vec::with_capacity(
-				self.pending_inbound_htlcs.len()
-					+ self.pending_outbound_htlcs.len()
-					+ self.holding_cell_htlc_updates.len(),
-			);
+		let htlc_candidate = HTLCCandidate::new(msg.amount_msat, HTLCInitiator::RemoteOffered);
 
-			for htlc in self.pending_inbound_htlcs.iter() {
-				pending_htlcs
-					.push(HTLCAmountDirection { outbound: false, amount_msat: htlc.amount_msat });
-			}
+		let on_counterparty_builder_stats = self.next_remote_commit_tx_fee_msat(funding, Some(htlc_candidate), None); // Don't include the extra fee spike buffer HTLC in calculations
+                let remote_balance_before_fee_msat = on_counterparty_builder_stats.counterparty_balance_msat;
+                let local_balance_before_fee_msat = on_counterparty_builder_stats.holder_balance_msat;
 
-			let mut removed_outbound_total_msat = 0;
-			for htlc in self.pending_outbound_htlcs.iter().filter(|htlc| {
-				if !matches!(
-					htlc.state,
-					OutboundHTLCState::AwaitingRemoteRevokeToRemove(OutboundHTLCOutcome::Success(_, _))
-					| OutboundHTLCState::AwaitingRemovedRemoteRevoke(OutboundHTLCOutcome::Success(_, _))
-				) {
-					true
-				} else {
-					removed_outbound_total_msat += htlc.amount_msat;
-					false
-				}
-			}) {
-				pending_htlcs
-					.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat });
-			}
 
-			for update in self.holding_cell_htlc_updates.iter() {
-				if let &HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = update {
-					pending_htlcs.push(HTLCAmountDirection { outbound: true, amount_msat });
-				}
-			}
-
-			let value_to_self_msat = funding.value_to_self_msat - removed_outbound_total_msat;
-			let ret = self.get_builder_stats(value_to_self_msat, &pending_htlcs, 0, None, None, funding);
-			(ret.holder_balance_msat, ret.counterparty_balance_msat)
-		};
-		if remote_balance_before_fee_msat < msg.amount_msat {
-			return Err(ChannelError::close("Remote HTLC add would overdraw remaining funds".to_owned()));
-		}
+                // TODO: what about the case where the remote balance is 0, and the holder counterparty
+                // reserve is 0 ? Need to know whether we landed right at 0, or whether we went
+                // negative...
 
 		// Check that the remote can afford to pay for this HTLC on-chain at the current
 		// feerate_per_kw, while maintaining their channel reserve (as required by the spec).
 		{
 			let remote_commit_tx_fee_msat = if funding.is_outbound() { 0 } else {
-				let htlc_candidate = HTLCCandidate::new(msg.amount_msat, HTLCInitiator::RemoteOffered);
-				let builder_stats = self.next_remote_commit_tx_fee_msat(funding, Some(htlc_candidate), None); // Don't include the extra fee spike buffer HTLC in calculations
-				builder_stats.counterparty_commit_tx_fee_sat * 1000
+				on_counterparty_builder_stats.counterparty_commit_tx_fee_sat * 1000
 			};
-			if remote_balance_before_fee_msat.saturating_sub(msg.amount_msat) < remote_commit_tx_fee_msat {
+			if remote_balance_before_fee_msat < remote_commit_tx_fee_msat {
 				return Err(ChannelError::close("Remote HTLC add would not leave enough to pay for fees".to_owned()));
 			};
-			if remote_balance_before_fee_msat.saturating_sub(msg.amount_msat).saturating_sub(remote_commit_tx_fee_msat) < funding.holder_selected_channel_reserve_satoshis * 1000 {
+			if remote_balance_before_fee_msat.saturating_sub(remote_commit_tx_fee_msat) < funding.holder_selected_channel_reserve_satoshis * 1000 {
 				return Err(ChannelError::close("Remote HTLC add would put them under remote reserve value".to_owned()));
 			}
 		}
 
 		if funding.is_outbound() {
 			// Check that they won't violate our local required channel reserve by adding this HTLC.
-			let htlc_candidate = HTLCCandidate::new(msg.amount_msat, HTLCInitiator::RemoteOffered);
-			let local_commit_tx_fee_msat = self.next_local_commit_tx_fee_msat(funding, htlc_candidate, None);
-			if local_balance_before_fee_msat < funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 + local_commit_tx_fee_msat {
+			if local_balance_before_fee_msat < funding.counterparty_selected_channel_reserve_satoshis.unwrap() * 1000 + on_counterparty_builder_stats.holder_commit_tx_fee_sat * 1000 {
 				return Err(ChannelError::close("Cannot accept HTLC that would put our balance under counterparty-announced channel reserve value".to_owned()));
 			}
 		}
@@ -5086,7 +5038,7 @@ where
 		&self, funding: &FundingScope, htlc: Option<HTLCCandidate>, fee_spike_buffer_htlc: Option<()>,
 	) -> BuilderStats {
 		let context = self;
-		assert!(!funding.is_outbound());
+		//assert!(!funding.is_outbound());
 
 		// TODO: with_capacity
 		let mut htlc_list = Vec::new();
