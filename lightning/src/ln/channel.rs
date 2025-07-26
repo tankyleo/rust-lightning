@@ -5088,7 +5088,9 @@ where
 		let context = self;
 		assert!(!funding.is_outbound());
 
+		// TODO: with_capacity
 		let mut htlc_list = Vec::new();
+		let mut remote_claimed_msat = 0;
 		if let Some(htlc) = &htlc {
 			match htlc.origin {
 				HTLCInitiator::LocalOffered => {
@@ -5110,21 +5112,26 @@ where
 		for ref htlc in context.pending_outbound_htlcs.iter() {
 			// We only include outbound HTLCs if it will not be included in their next commitment_signed,
 			// i.e. if they've responded to us with an RAA after announcement.
-			match htlc.state {
+			match &htlc.state {
 				OutboundHTLCState::Committed => htlc_list.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat }),
 
 				OutboundHTLCState::RemoteRemoved {..} => htlc_list.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat }),
 				OutboundHTLCState::LocalAnnounced { .. } => htlc_list.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat }),
-				_ => {},
+				state => {
+					if state.preimage().is_some() {
+						remote_claimed_msat += htlc.amount_msat;
+					}
+				},
 			}
 		}
 
-		let builder_stats = self.get_builder_stats(funding.value_to_self_msat, &htlc_list, fee_spike_buffer_htlc.map(|()| 1).unwrap_or(0), None, None, funding);
+		let value_to_self_msat = funding.value_to_self_msat - remote_claimed_msat;
+		let builder_stats = self.get_builder_stats(value_to_self_msat, &htlc_list, fee_spike_buffer_htlc.map(|()| 1).unwrap_or(0), None, None, funding);
 		#[cfg(any(test, fuzzing))]
 		if let Some(htlc) = &htlc {
 			let mut fee = builder_stats.counterparty_commit_tx_fee_sat * 1000;
 			if fee_spike_buffer_htlc.is_some() {
-				fee = self.get_builder_stats(funding.value_to_self_msat, &htlc_list, 0, None, None, funding).counterparty_commit_tx_fee_sat * 1000;
+				fee = self.get_builder_stats(value_to_self_msat, &htlc_list, 0, None, None, funding).counterparty_commit_tx_fee_sat * 1000;
 			}
 			let total_pending_htlcs = context.pending_inbound_htlcs.len() + context.pending_outbound_htlcs.len();
 			let commitment_tx_info = CommitmentTxInfoCached {
