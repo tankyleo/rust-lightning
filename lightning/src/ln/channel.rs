@@ -4258,39 +4258,36 @@ where
 	where
 		L::Target: Logger,
 	{
-		let htlc_list = self.get_pending_htlcs();
-		let ret = self.get_builder_stats(funding.value_to_self_msat, &htlc_list, 0, None, dust_exposure_limiting_feerate, funding);
-		if ret.is_counterparty_exposure_exhausted() {
+		// `Some(())` is for the fee spike buffer we keep for the remote if the channel is not zero fee. This deviates from the spec because the fee spike buffer requirement
+		// doesn't exist on the receiver's side, only on the sender's. Note that with anchor
+		// outputs we are no longer as sensitive to fee spikes, so we need to account for them.
+		//
+		// A `None` `HTLCCandidate` is used as in this case because we're already accounting for
+		// the incoming HTLC as it has been fully committed by both sides.
+		let fee_spike_buffer_htlc = if funding.get_channel_type().supports_anchor_zero_fee_commitments() {
+			None
+		} else {
+			Some(())
+		};
+		let counterparty_builder_stats = self.next_remote_commit_tx_fee_msat(
+			funding, None, fee_spike_buffer_htlc, dust_exposure_limiting_feerate,
+		);
+
+		if counterparty_builder_stats.is_counterparty_exposure_exhausted() {
 			// Note that the total dust exposure includes both the dust HTLCs and the excess mining fees of the counterparty commitment transaction
 			log_info!(logger, "Cannot accept value that would put our total dust exposure at {} over the limit {} on counterparty commitment tx",
-				ret.on_counterparty_tx_dust_exposure_msat, ret.max_dust_exposure_msat);
+				counterparty_builder_stats.on_counterparty_tx_dust_exposure_msat, counterparty_builder_stats.max_dust_exposure_msat);
 			return Err(LocalHTLCFailureReason::DustLimitCounterparty)
 		}
-		if ret.is_holder_exposure_exhausted() {
+		if counterparty_builder_stats.is_holder_exposure_exhausted() {
 			// Note: We now always check holder dust exposure, whereas we previously would only
 			// do it if the incoming HTLC was dust on our own commitment transaction
 			log_info!(logger, "Cannot accept value that would put our exposure to dust HTLCs at {} over the limit {} on holder commitment tx",
-				ret.on_holder_tx_dust_exposure_msat, ret.max_dust_exposure_msat);
+				counterparty_builder_stats.on_holder_tx_dust_exposure_msat, counterparty_builder_stats.max_dust_exposure_msat);
 			return Err(LocalHTLCFailureReason::DustLimitHolder)
 		}
 
 		if !funding.is_outbound() {
-			// `Some(())` is for the fee spike buffer we keep for the remote if the channel is
-			// not zero fee. This deviates from the spec because the fee spike buffer requirement
-			// doesn't exist on the receiver's side, only on the sender's. Note that with anchor
-			// outputs we are no longer as sensitive to fee spikes, so we need to account for them.
-			//
-			// A `None` `HTLCCandidate` is used as in this case because we're already accounting for
-			// the incoming HTLC as it has been fully committed by both sides.
-			let fee_spike_buffer_htlc = if funding.get_channel_type().supports_anchor_zero_fee_commitments() {
-				None
-			} else {
-				Some(())
-			};
-
-			let counterparty_builder_stats = self.next_remote_commit_tx_fee_msat(
-				funding, None, fee_spike_buffer_htlc, dust_exposure_limiting_feerate,
-			);
 			let mut remote_fee_cost_incl_stuck_buffer_msat = counterparty_builder_stats.counterparty_commit_tx_fee_sat * 1000;
 			if !funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
 				remote_fee_cost_incl_stuck_buffer_msat *= FEE_SPIKE_BUFFER_FEE_INCREASE_MULTIPLE;
