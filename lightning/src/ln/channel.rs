@@ -4275,44 +4275,6 @@ where
 		}
 
 		if !funding.is_outbound() {
-			let mut pending_htlcs: Vec<HTLCAmountDirection> = Vec::with_capacity(
-				self.pending_inbound_htlcs.len()
-					+ self.pending_outbound_htlcs.len()
-					+ self.holding_cell_htlc_updates.len(),
-			);
-
-			for htlc in self.pending_inbound_htlcs.iter() {
-				pending_htlcs
-					.push(HTLCAmountDirection { outbound: false, amount_msat: htlc.amount_msat });
-			}
-
-			let mut removed_outbound_total_msat = 0;
-			for htlc in self.pending_outbound_htlcs.iter().filter(|htlc| {
-				if !matches!(
-					htlc.state,
-					OutboundHTLCState::AwaitingRemoteRevokeToRemove(OutboundHTLCOutcome::Success(_, _))
-					| OutboundHTLCState::AwaitingRemovedRemoteRevoke(OutboundHTLCOutcome::Success(_, _))
-				) {
-					true
-				} else {
-					removed_outbound_total_msat += htlc.amount_msat;
-					false
-				}
-			}) {
-				pending_htlcs
-					.push(HTLCAmountDirection { outbound: true, amount_msat: htlc.amount_msat });
-			}
-
-			for update in self.holding_cell_htlc_updates.iter() {
-				if let &HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = update {
-					pending_htlcs.push(HTLCAmountDirection { outbound: true, amount_msat });
-				}
-			}
-
-			let value_to_self_msat = funding.value_to_self_msat - removed_outbound_total_msat;
-			let ret = self.get_builder_stats(value_to_self_msat, &pending_htlcs, 0, None, None, funding);
-			let remote_balance_before_fee_msat = ret.counterparty_balance_msat;
-
 			// `Some(())` is for the fee spike buffer we keep for the remote if the channel is
 			// not zero fee. This deviates from the spec because the fee spike buffer requirement
 			// doesn't exist on the receiver's side, only on the sender's. Note that with anchor
@@ -4326,13 +4288,14 @@ where
 				Some(())
 			};
 
-			let builder_stats = self.next_remote_commit_tx_fee_msat(
+			let counterparty_builder_stats = self.next_remote_commit_tx_fee_msat(
 				funding, None, fee_spike_buffer_htlc,
 			);
-			let mut remote_fee_cost_incl_stuck_buffer_msat = builder_stats.counterparty_commit_tx_fee_sat * 1000;
+			let mut remote_fee_cost_incl_stuck_buffer_msat = counterparty_builder_stats.counterparty_commit_tx_fee_sat * 1000;
 			if !funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
 				remote_fee_cost_incl_stuck_buffer_msat *= FEE_SPIKE_BUFFER_FEE_INCREASE_MULTIPLE;
 			}
+			let remote_balance_before_fee_msat = counterparty_builder_stats.counterparty_balance_msat;
 			if remote_balance_before_fee_msat.saturating_sub(funding.holder_selected_channel_reserve_satoshis * 1000) < remote_fee_cost_incl_stuck_buffer_msat {
 				log_info!(logger, "Attempting to fail HTLC due to fee spike buffer violation in channel {}. Rebalancing is required.", &self.channel_id());
 				return Err(LocalHTLCFailureReason::FeeSpikeBuffer);
