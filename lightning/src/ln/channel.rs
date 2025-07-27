@@ -4323,7 +4323,7 @@ where
 	/// commitment transaction. See `build_commitment_transaction` for further docs.
 	#[inline]
 	#[rustfmt::skip]
-	fn build_commitment_stats(&self, funding: &FundingScope, local: bool, generated_by_local: bool, feerate_per_kw: Option<u32>, fee_buffer_nondust_htlcs: Option<usize>) -> CommitmentStats {
+	fn build_commitment_stats(&self, funding: &FundingScope, local: bool, generated_by_local: bool, feerate_per_kw: Option<u32>, fee_buffer_nondust_htlcs: Option<usize>, dust_buffer_limiting_feerate: Option<u32>) -> BuilderStats {
 		let mut value_to_self_claimed_msat = 0;
 		let mut value_to_remote_claimed_msat = 0;
 
@@ -4383,16 +4383,7 @@ where
 		}
 		*/
 
-		let ret = self.get_builder_stats(value_to_self_msat, &htlcs, fee_buffer_nondust_htlcs.unwrap_or(0), Some(feerate_per_kw), None, funding);
-		let commit_tx_fee_sat = if local {
-			ret.holder_commit_tx_fee_sat
-		} else {
-			ret.counterparty_commit_tx_fee_sat
-		};
-		let local_balance_before_fee_msat = ret.holder_balance_msat;
-		let remote_balance_before_fee_msat = ret.counterparty_balance_msat;
-
-		CommitmentStats { commit_tx_fee_sat, local_balance_before_fee_msat, remote_balance_before_fee_msat }
+		self.get_builder_stats(value_to_self_msat, &htlcs, fee_buffer_nondust_htlcs.unwrap_or(0), Some(feerate_per_kw), dust_buffer_limiting_feerate, funding)
 	}
 
 	/// Transaction nomenclature is somewhat confusing here as there are many different cases - a
@@ -4495,7 +4486,23 @@ where
 			broadcaster_dust_limit_sat,
 			logger,
 		);
-		debug_assert_eq!(stats, self.build_commitment_stats(funding, local, generated_by_local, None, None), "Caught an inconsistency between `TxBuilder::build_commitment_transaction` and the rest of the `TxBuilder` methods");
+		#[cfg(debug_assertions)]
+		{
+			let BuilderStats {
+				holder_commit_tx_fee_sat,
+				counterparty_commit_tx_fee_sat,
+				holder_balance_msat,
+				counterparty_balance_msat,
+				..
+			} = self.build_commitment_stats(funding, local, generated_by_local, None, None);
+			let commit_tx_fee_sat = if local { holder_commit_tx_fee_sat } else { counterparty_commit_tx_fee_sat };
+			let stats_check = CommitmentStats {
+				commit_tx_fee_sat,
+				local_balance_before_fee_msat: holder_balance_msat,
+				remote_balance_before_fee_msat: counterparty_balance_msat,
+			};
+			debug_assert_eq!(stats, stats_check, "Caught an inconsistency between `TxBuilder::build_commitment_transaction` and the rest of the `TxBuilder` methods");
+		}
 
 		// This populates the HTLC-source table with the indices from the HTLCs in the commitment
 		// transaction.
