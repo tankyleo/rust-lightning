@@ -4365,8 +4365,8 @@ where
 
 		let value_to_self_msat = (funding.value_to_self_msat + value_to_self_claimed_msat).checked_sub(value_to_remote_claimed_msat).unwrap();
 
-		/*
-		 * TODO: Bring this back!
+		let stats = self.get_builder_stats(value_to_self_msat, &htlcs, fee_buffer_nondust_htlcs.unwrap_or(0), Some(feerate_per_kw), dust_buffer_limiting_feerate, funding);
+
 		#[cfg(debug_assertions)]
 		{
 			// Make sure that the to_self/to_remote is always either past the appropriate
@@ -4376,14 +4376,13 @@ where
 			} else {
 				funding.counterparty_max_commitment_tx_output.lock().unwrap()
 			};
-			debug_assert!(broadcaster_max_commitment_tx_output.0 <= value_to_self_msat || value_to_self_msat / 1000 >= funding.counterparty_selected_channel_reserve_satoshis.unwrap());
-			broadcaster_max_commitment_tx_output.0 = cmp::max(broadcaster_max_commitment_tx_output.0, value_to_self_msat);
-			debug_assert!(broadcaster_max_commitment_tx_output.1 <= value_to_remote_msat || value_to_remote_msat / 1000 >= funding.holder_selected_channel_reserve_satoshis);
-			broadcaster_max_commitment_tx_output.1 = cmp::max(broadcaster_max_commitment_tx_output.1, value_to_remote_msat);
+			debug_assert!(broadcaster_max_commitment_tx_output.0 <= stats.holder_balance_msat || stats.holder_balance_msat / 1000 >= funding.counterparty_selected_channel_reserve_satoshis.unwrap());
+			broadcaster_max_commitment_tx_output.0 = cmp::max(broadcaster_max_commitment_tx_output.0, stats.holder_balance_msat);
+			debug_assert!(broadcaster_max_commitment_tx_output.1 <= stats.counterparty_balance_msat || stats.counterparty_balance_msat / 1000 >= funding.holder_selected_channel_reserve_satoshis);
+			broadcaster_max_commitment_tx_output.1 = cmp::max(broadcaster_max_commitment_tx_output.1, stats.counterparty_balance_msat);
 		}
-		*/
 
-		self.get_builder_stats(value_to_self_msat, &htlcs, fee_buffer_nondust_htlcs.unwrap_or(0), Some(feerate_per_kw), dust_buffer_limiting_feerate, funding)
+		stats
 	}
 
 	/// Transaction nomenclature is somewhat confusing here as there are many different cases - a
@@ -4494,7 +4493,7 @@ where
 				holder_balance_msat,
 				counterparty_balance_msat,
 				..
-			} = self.build_commitment_stats(funding, local, generated_by_local, None, None);
+			} = self.build_commitment_stats(funding, local, generated_by_local, None, None, None);
 			let commit_tx_fee_sat = if local { holder_commit_tx_fee_sat } else { counterparty_commit_tx_fee_sat };
 			let stats_check = CommitmentStats {
 				commit_tx_fee_sat,
