@@ -4598,22 +4598,9 @@ where
 		let max_dust_htlc_exposure_msat =
 			self.get_max_dust_htlc_exposure_msat(dust_exposure_limiting_feerate);
 
-		let excess_feerate_opt = {
-			let current_feerate = outbound_feerate_update
-					.or(self.pending_update_fee.map(|(fee, _)| fee))
-					.unwrap_or(self.feerate_per_kw);
-			current_feerate.checked_sub(dust_exposure_limiting_feerate.unwrap_or(0))
-		};
-
-		// Dust exposure is only decoupled from feerate for zero fee commitment channels.
-		if channel_type.supports_anchor_zero_fee_commitments() {
-			debug_assert!(dust_exposure_limiting_feerate.is_none());
-			debug_assert_eq!(excess_feerate_opt, Some(0));
-		}
-
 		let feerate = outbound_feerate_update.unwrap_or(self.feerate_per_kw);
 
-		SpecTxBuilder {}.get_builder_stats(funding.is_outbound(), funding.get_value_satoshis(), value_to_self_msat, &htlc_list, nondust_htlcs, feerate, excess_feerate_opt, max_dust_htlc_exposure_msat, channel_type, self.holder_dust_limit_satoshis, self.counterparty_dust_limit_satoshis)
+		SpecTxBuilder {}.get_builder_stats(funding.is_outbound(), funding.get_value_satoshis(), value_to_self_msat, &htlc_list, nondust_htlcs, feerate, dust_exposure_limiting_feerate, max_dust_htlc_exposure_msat, channel_type, self.holder_dust_limit_satoshis, self.counterparty_dust_limit_satoshis)
 	}
 
 	fn pending_inbound_htlcs_value_msat(&self) -> u64 {
