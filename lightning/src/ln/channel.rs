@@ -3079,7 +3079,7 @@ where
 		// check if the funder's amount for the initial commitment tx is sufficient
 		// for full fee payment plus a few HTLCs to ensure the channel will be useful.
 		let funders_amount_msat = open_channel_fields.funding_satoshis * 1000 - msg_push_msat;
-		let ret = SpecTxBuilder {}.get_builder_stats(false, open_channel_fields.funding_satoshis, value_to_self_msat, &[], MIN_AFFORDABLE_HTLC_COUNT, open_channel_fields.commitment_feerate_sat_per_1000_weight, 0, None, 0, &channel_type, MIN_CHAN_DUST_LIMIT_SATOSHIS, open_channel_fields.dust_limit_satoshis);
+		let ret = SpecTxBuilder {}.get_builder_stats(false, open_channel_fields.funding_satoshis, value_to_self_msat, &[], MIN_AFFORDABLE_HTLC_COUNT, open_channel_fields.commitment_feerate_sat_per_1000_weight, None, 0, &channel_type, MIN_CHAN_DUST_LIMIT_SATOSHIS, open_channel_fields.dust_limit_satoshis);
 		let commit_tx_fee_sat = ret.counterparty_commit_tx_fee_sat;
 		let remote_balance_before_fee_msat = ret.counterparty_balance_msat;
 		if remote_balance_before_fee_msat / 1000 < commit_tx_fee_sat {
@@ -3348,7 +3348,7 @@ where
 		);
 
 		let value_to_self_msat = channel_value_satoshis * 1000 - push_msat;
-		let ret = SpecTxBuilder {}.get_builder_stats(true, channel_value_satoshis, value_to_self_msat, &[], MIN_AFFORDABLE_HTLC_COUNT, commitment_feerate, 0, None, 0, &channel_type, MIN_CHAN_DUST_LIMIT_SATOSHIS, MIN_CHAN_DUST_LIMIT_SATOSHIS);
+		let ret = SpecTxBuilder {}.get_builder_stats(true, channel_value_satoshis, value_to_self_msat, &[], MIN_AFFORDABLE_HTLC_COUNT, commitment_feerate, None, 0, &channel_type, MIN_CHAN_DUST_LIMIT_SATOSHIS, MIN_CHAN_DUST_LIMIT_SATOSHIS);
 		let commit_tx_fee_sat = ret.holder_commit_tx_fee_sat;
 		let local_balance_before_fee_msat = ret.holder_balance_msat;
 		if local_balance_before_fee_msat / 1000 < commit_tx_fee_sat {
@@ -4597,7 +4597,6 @@ where
 		let channel_type = funding.get_channel_type();
 		let max_dust_htlc_exposure_msat =
 			self.get_max_dust_htlc_exposure_msat(dust_exposure_limiting_feerate);
-		let dust_buffer_feerate = self.get_dust_buffer_feerate(outbound_feerate_update);
 
 		let excess_feerate_opt = {
 			let current_feerate = outbound_feerate_update
@@ -4614,7 +4613,7 @@ where
 
 		let feerate = outbound_feerate_update.unwrap_or(self.feerate_per_kw);
 
-		SpecTxBuilder {}.get_builder_stats(funding.is_outbound(), funding.get_value_satoshis(), value_to_self_msat, &htlc_list, nondust_htlcs, feerate, dust_buffer_feerate, excess_feerate_opt, max_dust_htlc_exposure_msat, channel_type, self.holder_dust_limit_satoshis, self.counterparty_dust_limit_satoshis)
+		SpecTxBuilder {}.get_builder_stats(funding.is_outbound(), funding.get_value_satoshis(), value_to_self_msat, &htlc_list, nondust_htlcs, feerate, excess_feerate_opt, max_dust_htlc_exposure_msat, channel_type, self.holder_dust_limit_satoshis, self.counterparty_dust_limit_satoshis)
 	}
 
 	fn pending_inbound_htlcs_value_msat(&self) -> u64 {

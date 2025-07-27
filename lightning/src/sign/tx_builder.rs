@@ -1,6 +1,7 @@
 //! Defines the `TxBuilder` trait, and the `SpecTxBuilder` type
 
 use core::ops::Deref;
+use core::cmp;
 
 use bitcoin::secp256k1::{self, PublicKey, Secp256k1};
 
@@ -71,7 +72,7 @@ fn on_holder_tx_dust_exposure_msat(
 pub(crate) trait TxBuilder {
 	// TODO: try to delete some of the feerate parameters, maybe calculate dust buffer feerate
 	// from the actual feerate
-	fn get_builder_stats(&self, is_outbound_from_holder: bool, channel_value_satoshis: u64, value_to_holder_msat: u64, htlcs: &[HTLCAmountDirection], nondust_htlcs: usize, feerate_per_kw: u32, dust_buffer_feerate: u32, excess_feerate: Option<u32>, max_dust_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> BuilderStats;
+	fn get_builder_stats(&self, is_outbound_from_holder: bool, channel_value_satoshis: u64, value_to_holder_msat: u64, htlcs: &[HTLCAmountDirection], nondust_htlcs: usize, feerate_per_kw: u32, excess_feerate: Option<u32>, max_dust_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> BuilderStats;
 	fn build_commitment_transaction<L: Deref>(
 		&self, local: bool, commitment_number: u64, per_commitment_point: &PublicKey,
 		channel_parameters: &ChannelTransactionParameters, secp_ctx: &Secp256k1<secp256k1::All>,
@@ -176,11 +177,23 @@ fn subtract_addl_outputs(
 	(local_balance_before_fee_msat, remote_balance_before_fee_msat)
 }
 
+fn get_dust_buffer_feerate(feerate_per_kw: u32) -> u32 {
+	// When calculating our exposure to dust HTLCs, we assume that the channel feerate
+	// may, at any point, increase by at least 10 sat/vB (i.e 2530 sat/kWU) or 25%,
+	// whichever is higher. This ensures that we aren't suddenly exposed to significantly
+	// more dust balance if the feerate increases when we have several HTLCs pending
+	// which are near the dust limit.
+	let feerate_plus_quarter = feerate_per_kw.checked_mul(1250).map(|v| v / 1000);
+	cmp::max(feerate_per_kw.saturating_add(2530), feerate_plus_quarter.unwrap_or(u32::MAX))
+}
+
+
 pub(crate) struct SpecTxBuilder {}
 
 impl TxBuilder for SpecTxBuilder {
-	fn get_builder_stats(&self, is_outbound_from_holder: bool, channel_value_satoshis: u64, value_to_holder_msat: u64, htlcs: &[HTLCAmountDirection], nondust_htlcs: usize, feerate_per_kw: u32, dust_buffer_feerate: u32, excess_feerate: Option<u32>, max_dust_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> BuilderStats {
+	fn get_builder_stats(&self, is_outbound_from_holder: bool, channel_value_satoshis: u64, value_to_holder_msat: u64, htlcs: &[HTLCAmountDirection], nondust_htlcs: usize, feerate_per_kw: u32, excess_feerate: Option<u32>, max_dust_exposure_msat: u64, channel_type: &ChannelTypeFeatures, holder_dust_limit_satoshis: u64, counterparty_dust_limit_satoshis: u64) -> BuilderStats {
 		let value_to_counterparty_msat = channel_value_satoshis * 1000 - value_to_holder_msat;
+		let dust_buffer_feerate = get_dust_buffer_feerate(feerate_per_kw);
 
 		let outbound_htlcs_value_msat: u64 = htlcs.iter().filter_map(|htlc| htlc.outbound.then_some(htlc.amount_msat)).sum();
 		let inbound_htlcs_value_msat: u64 = htlcs.iter().filter_map(|htlc| (!htlc.outbound).then_some(htlc.amount_msat)).sum();
