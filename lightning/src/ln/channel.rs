@@ -4125,7 +4125,7 @@ where
 	#[allow(dead_code)]
 	#[rustfmt::skip]
 	fn get_next_commitment_htlcs(
-		&self, local: bool, htlc_candidate: Option<HTLCAmountDirection>,
+		&self, local: bool, htlc_candidate: Option<HTLCAmountDirection>, include_holding_cell_htlcs: bool,
 	) -> Vec<HTLCAmountDirection> {
 		let mut commitment_htlcs = Vec::with_capacity(
 			1 + self.pending_inbound_htlcs.len()
@@ -4167,12 +4167,24 @@ where
 			})
 			.map(|&OutboundHTLCOutput { amount_msat, .. }| HTLCAmountDirection { outbound: true, amount_msat });
 
-		// We do not include holding cell HTLCs, we will validate them upon freeing the holding cell...
-		//let holding_cell_htlcs = self.holding_cell_htlc_updates.iter().filter_map(|htlc| if let HTLCUpdateAwaitingACK::AddHTLC { amount_msat, ..} = htlc { Some(HTLCAmountDirection { outbound: true, amount_msat: *amount_msat }) } else { None });
+		let holding_cell_htlcs = self.holding_cell_htlc_updates.iter().filter_map(|htlc| {
+			if let &HTLCUpdateAwaitingACK::AddHTLC { amount_msat, .. } = htlc {
+				Some(HTLCAmountDirection { outbound: true, amount_msat })
+			} else {
+				None
+			}
+		});
 
-		commitment_htlcs.extend(
-			htlc_candidate.into_iter().chain(pending_inbound_htlcs).chain(pending_outbound_htlcs),
-		);
+		if include_holding_cell_htlcs {
+			commitment_htlcs.extend(
+				htlc_candidate.into_iter().chain(pending_inbound_htlcs).chain(pending_outbound_htlcs).chain(holding_cell_htlcs)
+			);
+		} else {
+			commitment_htlcs.extend(
+				htlc_candidate.into_iter().chain(pending_inbound_htlcs).chain(pending_outbound_htlcs)
+			);
+		}
+
 		commitment_htlcs
 	}
 
@@ -4218,11 +4230,11 @@ where
 
 	#[allow(dead_code)]
 	fn get_next_local_commitment_stats(
-		&self, funding: &FundingScope, candidate_htlc: Option<HTLCAmountDirection>,
-		addl_nondust_htlc_count: usize, feerate_per_kw: u32,
+		&self, funding: &FundingScope, htlc_candidate: Option<HTLCAmountDirection>,
+		include_holding_cell_htlcs: bool, addl_nondust_htlc_count: usize, feerate_per_kw: u32,
 		dust_exposure_limiting_feerate: Option<u32>,
 	) -> NextCommitmentStats {
-		let next_commitment_htlcs = self.get_next_commitment_htlcs(true, candidate_htlc);
+		let next_commitment_htlcs = self.get_next_commitment_htlcs(true, htlc_candidate, include_holding_cell_htlcs);
 		let next_value_to_self_msat = self.get_next_commitment_value_to_self_msat(true, funding);
 		SpecTxBuilder {}.get_next_commitment_stats(
 			true,
@@ -4240,11 +4252,11 @@ where
 
 	#[allow(dead_code)]
 	fn get_next_remote_commitment_stats(
-		&self, funding: &FundingScope, candidate_htlc: Option<HTLCAmountDirection>,
-		addl_nondust_htlc_count: usize, feerate_per_kw: u32,
+		&self, funding: &FundingScope, htlc_candidate: Option<HTLCAmountDirection>,
+		include_holding_cell_htlcs: bool, addl_nondust_htlc_count: usize, feerate_per_kw: u32,
 		dust_exposure_limiting_feerate: Option<u32>,
 	) -> NextCommitmentStats {
-		let next_commitment_htlcs = self.get_next_commitment_htlcs(false, candidate_htlc);
+		let next_commitment_htlcs = self.get_next_commitment_htlcs(false, htlc_candidate, include_holding_cell_htlcs);
 		let next_value_to_self_msat = self.get_next_commitment_value_to_self_msat(false, funding);
 		SpecTxBuilder {}.get_next_commitment_stats(
 			false,
