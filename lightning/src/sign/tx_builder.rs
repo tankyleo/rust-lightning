@@ -15,14 +15,7 @@ use crate::prelude::*;
 use crate::types::features::ChannelTypeFeatures;
 use crate::util::logger::Logger;
 
-#[cfg(any(test, fuzzing))]
-#[derive(Clone, PartialEq, PartialOrd, Eq, Ord)]
-pub(crate) struct HTLCAmountDirection {
-	pub outbound: bool,
-	pub amount_msat: u64,
-}
-
-#[cfg(not(any(test, fuzzing)))]
+#[cfg_attr(any(test, fuzzing), derive(Clone, PartialEq, PartialOrd, Eq, Ord))]
 pub(crate) struct HTLCAmountDirection {
 	pub outbound: bool,
 	pub amount_msat: u64,
@@ -153,7 +146,7 @@ pub(crate) trait TxBuilder {
 	fn get_next_commitment_stats(
 		&self, local: bool, is_outbound_from_holder: bool, channel_value_satoshis: u64,
 		value_to_holder_msat: u64, next_commitment_htlcs: Vec<HTLCAmountDirection>,
-		nondust_htlcs: usize, feerate_per_kw: u32, dust_exposure_limiting_feerate: Option<u32>,
+		addl_nondust_htlc_count: usize, feerate_per_kw: u32, dust_exposure_limiting_feerate: Option<u32>,
 		broadcaster_dust_limit_satoshis: u64, channel_type: &ChannelTypeFeatures,
 	) -> NextCommitmentStats;
 	fn commit_tx_fee_sat(
@@ -179,7 +172,7 @@ impl TxBuilder for SpecTxBuilder {
 	fn get_next_commitment_stats(
 		&self, local: bool, is_outbound_from_holder: bool, channel_value_satoshis: u64,
 		value_to_holder_msat: u64, next_commitment_htlcs: Vec<HTLCAmountDirection>,
-		nondust_htlcs: usize, feerate_per_kw: u32, dust_exposure_limiting_feerate: Option<u32>,
+		addl_nondust_htlc_count: usize, feerate_per_kw: u32, dust_exposure_limiting_feerate: Option<u32>,
 		broadcaster_dust_limit_satoshis: u64, channel_type: &ChannelTypeFeatures,
 	) -> NextCommitmentStats {
 		let excess_feerate_opt =
@@ -190,7 +183,7 @@ impl TxBuilder for SpecTxBuilder {
 		if is_zero_fee_comm {
 			debug_assert_eq!(feerate_per_kw, 0);
 			debug_assert_eq!(excess_feerate_opt, Some(0));
-			debug_assert_eq!(nondust_htlcs, 0);
+			debug_assert_eq!(addl_nondust_htlc_count, 0);
 		}
 
 		// Calculate balances after htlcs
@@ -234,7 +227,7 @@ impl TxBuilder for SpecTxBuilder {
 				.count();
 			let commit_tx_fee_sat = commit_tx_fee_sat(
 				feerate_per_kw,
-				on_holder_htlc_count + nondust_htlcs,
+				on_holder_htlc_count + addl_nondust_htlc_count,
 				channel_type,
 			);
 			let on_holder_tx_dust_exposure_msat = on_holder_tx_dust_exposure_msat(
@@ -266,7 +259,7 @@ impl TxBuilder for SpecTxBuilder {
 				.count();
 			let commit_tx_fee_sat = commit_tx_fee_sat(
 				feerate_per_kw,
-				on_counterparty_htlc_count + nondust_htlcs,
+				on_counterparty_htlc_count + addl_nondust_htlc_count,
 				channel_type,
 			);
 			let (dust_exposure_msat, extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat) =
