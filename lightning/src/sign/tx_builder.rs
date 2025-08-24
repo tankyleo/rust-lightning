@@ -144,7 +144,7 @@ fn subtract_addl_outputs(
 	}
 }
 
-fn get_dust_buffer_feerate(feerate_per_kw: u32) -> u32 {
+pub(crate) fn get_dust_buffer_feerate(feerate_per_kw: u32) -> u32 {
 	// When calculating our exposure to dust HTLCs, we assume that the channel feerate
 	// may, at any point, increase by at least 10 sat/vB (i.e 2530 sat/kWU) or 25%,
 	// whichever is higher. This ensures that we aren't suddenly exposed to significantly
