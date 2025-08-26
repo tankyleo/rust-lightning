@@ -35,6 +35,7 @@ impl HTLCAmountDirection {
 }
 
 pub(crate) struct NextCommitmentStats {
+	pub is_outbound_from_holder: bool,
 	pub inbound_htlcs_count: usize,
 	pub inbound_htlcs_value_msat: u64,
 	pub holder_balance_before_fee_msat: Option<u64>,
@@ -46,6 +47,26 @@ pub(crate) struct NextCommitmentStats {
 	// this should be set to the dust exposure that would result from us adding an additional nondust outbound
 	// htlc on the counterparty's commitment transaction.
 	pub extra_nondust_htlc_on_counterparty_tx_dust_exposure_msat: Option<u64>,
+}
+
+impl NextCommitmentStats {
+	pub(crate) fn get_balances_including_fee_msat(&self) -> (Option<u64>, Option<u64>) {
+		if self.is_outbound_from_holder {
+			(
+				self.holder_balance_before_fee_msat.and_then(|balance_msat| {
+					balance_msat.checked_sub(self.commit_tx_fee_sat * 1000)
+				}),
+				self.counterparty_balance_before_fee_msat,
+			)
+		} else {
+			(
+				self.holder_balance_before_fee_msat,
+				self.counterparty_balance_before_fee_msat.and_then(|balance_msat| {
+					balance_msat.checked_sub(self.commit_tx_fee_sat * 1000)
+				}),
+			)
+		}
+	}
 }
 
 fn excess_fees_on_counterparty_tx_dust_exposure_msat(
@@ -280,6 +301,7 @@ impl TxBuilder for SpecTxBuilder {
 			};
 
 		NextCommitmentStats {
+			is_outbound_from_holder,
 			inbound_htlcs_count,
 			inbound_htlcs_value_msat,
 			holder_balance_before_fee_msat,
