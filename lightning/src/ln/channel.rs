@@ -11089,6 +11089,8 @@ where
 			)));
 		}
 
+		// TODO(splicing): Once splice acceptor can contribute, check that inputs are sufficient,
+		// similarly to the check in `splice_channel`.
 		debug_assert_eq!(our_funding_contribution, SignedAmount::ZERO);
 
 		// TODO(splicing): Move this check once user-provided contributions are supported for
@@ -11110,33 +11112,18 @@ where
 		}
 
 		let their_funding_contribution = SignedAmount::from_sat(msg.funding_contribution_satoshis);
-		self.validate_splice_contribution(their_funding_contribution)?;
-
-		// TODO(splicing): Check that channel balance does not go below the channel reserve
-
-		let splice_funding = FundingScope::for_splice(
-			&self.funding,
-			&self.context,
+		self.validate_splice_contribution(
 			our_funding_contribution,
 			their_funding_contribution,
 			msg.funding_pubkey,
-		);
-
-		// TODO(splicing): Once splice acceptor can contribute, check that inputs are sufficient,
-		// similarly to the check in `splice_channel`.
-
-		// Note on channel reserve requirement pre-check: as the splice acceptor does not contribute,
-		// it can't go below reserve, therefore no pre-check is done here.
-
-		// TODO(splicing): Early check for reserve requirement
-
-		Ok(splice_funding)
+		)
 	}
 
 	#[cfg(splicing)]
 	fn validate_splice_contribution(
-		&self, their_funding_contribution: SignedAmount,
-	) -> Result<(), ChannelError> {
+		&self, our_funding_contribution: SignedAmount, their_funding_contribution: SignedAmount,
+		counterparty_funding_pubkey: PublicKey,
+	) -> Result<FundingScope, ChannelError> {
 		if their_funding_contribution > SignedAmount::MAX_MONEY {
 			return Err(ChannelError::WarnAndDisconnect(format!(
 				"Channel {} cannot be spliced in; their {} contribution exceeds the total bitcoin supply",
@@ -11169,7 +11156,25 @@ where
 			)));
 		}
 
-		Ok(())
+		let splice_funding = FundingScope::for_splice(
+			&self.funding,
+			&self.context,
+			our_funding_contribution,
+			their_funding_contribution,
+			counterparty_funding_pubkey,
+		);
+
+		// TODO(splicing): Check that channel balance does not go below the channel reserve
+
+		// Note on channel reserve requirement pre-check: as the splice acceptor does not contribute,
+		// it can't go below reserve, therefore no pre-check is done here.
+
+		// TODO(splicing): Early check for reserve requirement
+
+		// TODO(splicing): Pre-check for reserve requirement
+		// (Note: It should also be checked later at tx_complete)
+
+		Ok(splice_funding)
 	}
 
 	#[cfg(splicing)]
@@ -11324,20 +11329,11 @@ where
 		debug_assert!(our_funding_contribution.abs() <= SignedAmount::MAX_MONEY);
 
 		let their_funding_contribution = SignedAmount::from_sat(msg.funding_contribution_satoshis);
-		self.validate_splice_contribution(their_funding_contribution)?;
-
-		let splice_funding = FundingScope::for_splice(
-			&self.funding,
-			&self.context,
+		self.validate_splice_contribution(
 			our_funding_contribution,
 			their_funding_contribution,
 			msg.funding_pubkey,
-		);
-
-		// TODO(splicing): Pre-check for reserve requirement
-		// (Note: It should also be checked later at tx_complete)
-
-		Ok(splice_funding)
+		)
 	}
 
 	#[cfg(splicing)]
