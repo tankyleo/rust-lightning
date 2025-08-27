@@ -147,21 +147,19 @@ fn subtract_addl_outputs(
 	// commitment transaction *before* checking whether the remote party's balance is enough to
 	// cover the total anchor sum.
 
-	let local_balance_before_fee_msat = if is_outbound_from_holder {
-		value_to_self_after_htlcs_msat
-			.and_then(|balance_msat| balance_msat.checked_sub(total_anchors_sat * 1000))
+	if is_outbound_from_holder {
+		(
+			value_to_self_after_htlcs_msat
+				.and_then(|balance_msat| balance_msat.checked_sub(total_anchors_sat * 1000)),
+			value_to_remote_after_htlcs_msat,
+		)
 	} else {
-		value_to_self_after_htlcs_msat
-	};
-
-	let remote_balance_before_fee_msat = if !is_outbound_from_holder {
-		value_to_remote_after_htlcs_msat
-			.and_then(|balance_msat| balance_msat.checked_sub(total_anchors_sat * 1000))
-	} else {
-		value_to_remote_after_htlcs_msat
-	};
-
-	(local_balance_before_fee_msat, remote_balance_before_fee_msat)
+		(
+			value_to_self_after_htlcs_msat,
+			value_to_remote_after_htlcs_msat
+				.and_then(|balance_msat| balance_msat.checked_sub(total_anchors_sat * 1000)),
+		)
+	}
 }
 
 fn get_dust_buffer_feerate(feerate_per_kw: u32) -> u32 {
