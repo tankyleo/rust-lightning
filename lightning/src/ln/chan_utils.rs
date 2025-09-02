@@ -89,6 +89,12 @@ pub const ANCHOR_INPUT_WITNESS_WEIGHT: u64 = 114;
 #[cfg(not(feature = "grind_signatures"))]
 pub const ANCHOR_INPUT_WITNESS_WEIGHT: u64 = 115;
 
+/// The P2A scriptpubkey
+pub const P2A_SCRIPT: &[u8] = &[0x51, 0x02, 0x4e, 0x73];
+
+/// The maximum value of the P2A anchor
+pub const P2A_MAX_VALUE: u64 = 240;
+
 /// The upper bound weight of an HTLC timeout input from a commitment transaction with anchor
 /// outputs.
 pub const HTLC_TIMEOUT_INPUT_ANCHOR_WITNESS_WEIGHT: u64 = 288;
@@ -1300,7 +1306,7 @@ impl HolderCommitmentTransaction {
 		for _ in 0..nondust_htlcs.len() {
 			counterparty_htlc_sigs.push(dummy_sig);
 		}
-		let inner = CommitmentTransaction::new(0, &dummy_key, 0, 0, 0, nondust_htlcs, &channel_parameters.as_counterparty_broadcastable(), &secp_ctx);
+		let inner = CommitmentTransaction::new(0, &dummy_key, 0, 0, 0, nondust_htlcs, 0, &channel_parameters.as_counterparty_broadcastable(), &secp_ctx);
 		HolderCommitmentTransaction {
 			inner,
 			counterparty_sig: dummy_sig,
@@ -1538,6 +1544,8 @@ pub struct CommitmentTransaction {
 	// The set of non-dust HTLCs included in the commitment. They must be sorted in increasing
 	// output index order.
 	nondust_htlcs: Vec<HTLCOutputInCommitment>,
+	// The sum of the values of all outputs that were trimmed to fees
+	trimmed_sum_sat: Option<Amount>, // Added in 0.2
 	// Note that on upgrades, some features of existing outputs may be missed.
 	channel_type_features: ChannelTypeFeatures,
 	// A cache of the parties' pubkeys required to construct the transaction, see doc for trust()
@@ -1578,6 +1586,7 @@ impl Writeable for CommitmentTransaction {
 			(8, self.keys, required),
 			(10, self.built, required),
 			(12, self.nondust_htlcs, required_vec),
+			(13, self.trimmed_sum_sat, option),
 			(14, legacy_deserialization_prevention_marker, option),
 			(15, self.channel_type_features, required),
 		});
@@ -1597,6 +1606,7 @@ impl Readable for CommitmentTransaction {
 			(8, keys, required),
 			(10, built, required),
 			(12, nondust_htlcs, required_vec),
+			(13, trimmed_sum_sat, option),
 			(14, _legacy_deserialization_prevention_marker, (option, explicit_type: ())),
 			(15, channel_type_features, option),
 		});
@@ -1614,6 +1624,7 @@ impl Readable for CommitmentTransaction {
 			keys: keys.0.unwrap(),
 			built: built.0.unwrap(),
 			nondust_htlcs,
+			trimmed_sum_sat,
 			channel_type_features: channel_type_features.unwrap_or(ChannelTypeFeatures::only_static_remote_key())
 		})
 	}
@@ -1626,18 +1637,19 @@ impl CommitmentTransaction {
 	/// The broadcaster and countersignatory amounts MUST be either 0 or above dust. If the amount
 	/// is 0, the corresponding output will be omitted from the transaction.
 	#[rustfmt::skip]
-	pub fn new(commitment_number: u64, per_commitment_point: &PublicKey, to_broadcaster_value_sat: u64, to_countersignatory_value_sat: u64, feerate_per_kw: u32, mut nondust_htlcs: Vec<HTLCOutputInCommitment>, channel_parameters: &DirectedChannelTransactionParameters, secp_ctx: &Secp256k1<secp256k1::All>) -> CommitmentTransaction {
+	pub fn new(commitment_number: u64, per_commitment_point: &PublicKey, to_broadcaster_value_sat: u64, to_countersignatory_value_sat: u64, feerate_per_kw: u32, mut nondust_htlcs: Vec<HTLCOutputInCommitment>, trimmed_sum_sat: u64, channel_parameters: &DirectedChannelTransactionParameters, secp_ctx: &Secp256k1<secp256k1::All>) -> CommitmentTransaction {
 		let to_broadcaster_value_sat = Amount::from_sat(to_broadcaster_value_sat);
 		let to_countersignatory_value_sat = Amount::from_sat(to_countersignatory_value_sat);
+		let trimmed_sum_sat = Amount::from_sat(trimmed_sum_sat);
 		let keys = TxCreationKeys::from_channel_static_keys(per_commitment_point, channel_parameters.broadcaster_pubkeys(), channel_parameters.countersignatory_pubkeys(), secp_ctx);
 
 		// Build and sort the outputs of the transaction.
 		// Also sort the HTLC output data in `nondust_htlcs` in the same order, and populate the
 		// transaction output indices therein.
-		let outputs = Self::build_outputs_and_htlcs(&keys, to_broadcaster_value_sat, to_countersignatory_value_sat, &mut nondust_htlcs, channel_parameters);
+		let outputs = Self::build_outputs_and_htlcs(&keys, to_broadcaster_value_sat, to_countersignatory_value_sat, &mut nondust_htlcs, trimmed_sum_sat, channel_parameters);
 
 		let (obscured_commitment_transaction_number, txins) = Self::build_inputs(commitment_number, channel_parameters);
-		let transaction = Self::make_transaction(obscured_commitment_transaction_number, txins, outputs);
+		let transaction = Self::make_transaction(obscured_commitment_transaction_number, txins, outputs, channel_parameters);
 		let txid = transaction.compute_txid();
 		CommitmentTransaction {
 			commitment_number,
@@ -1646,6 +1658,7 @@ impl CommitmentTransaction {
 			to_broadcaster_delay: Some(channel_parameters.contest_delay()),
 			feerate_per_kw,
 			nondust_htlcs,
+			trimmed_sum_sat: Some(trimmed_sum_sat),
 			channel_type_features: channel_parameters.channel_type_features().clone(),
 			keys,
 			built: BuiltCommitmentTransaction {
@@ -1712,12 +1725,16 @@ impl CommitmentTransaction {
 			keys,
 			self.to_broadcaster_value_sat,
 			self.to_countersignatory_value_sat,
+			// We only expect this member to be `None` for `CommitmentTransactions` serialized prior to 0.2,
+			// ie prior to any 0FC channels. In those cases, this member will be ignored when building the
+			// non-HTLC outputs.
+			self.trimmed_sum_sat.unwrap_or(Amount::ZERO),
 			channel_parameters,
 			!self.nondust_htlcs.is_empty(),
 			insert_non_htlc_output
 		);
 
-		let transaction = Self::make_transaction(obscured_commitment_transaction_number, txins, outputs);
+		let transaction = Self::make_transaction(obscured_commitment_transaction_number, txins, outputs, channel_parameters);
 		let txid = transaction.compute_txid();
 		let built_transaction = BuiltCommitmentTransaction {
 			transaction,
@@ -1727,9 +1744,14 @@ impl CommitmentTransaction {
 	}
 
 	#[rustfmt::skip]
-	fn make_transaction(obscured_commitment_transaction_number: u64, txins: Vec<TxIn>, outputs: Vec<TxOut>) -> Transaction {
+	fn make_transaction(obscured_commitment_transaction_number: u64, txins: Vec<TxIn>, outputs: Vec<TxOut>, channel_parameters: &DirectedChannelTransactionParameters) -> Transaction {
+		let version = if channel_parameters.channel_type_features().supports_anchor_zero_fee_commitments() {
+			Version::non_standard(3)
+		} else {
+			Version::TWO
+		};
 		Transaction {
-			version: Version::TWO,
+			version,
 			lock_time: LockTime::from_consensus(((0x20 as u32) << 8 * 3) | ((obscured_commitment_transaction_number & 0xffffffu64) as u32)),
 			input: txins,
 			output: outputs,
@@ -1742,6 +1764,7 @@ impl CommitmentTransaction {
 		to_broadcaster_value_sat: Amount,
 		to_countersignatory_value_sat: Amount,
 		nondust_htlcs: &mut Vec<HTLCOutputInCommitment>,
+		trimmed_sum_sat: Amount,
 		channel_parameters: &DirectedChannelTransactionParameters
 	) -> Vec<TxOut> {
 		// First build and sort the HTLC outputs.
@@ -1783,6 +1806,7 @@ impl CommitmentTransaction {
 			keys,
 			to_broadcaster_value_sat,
 			to_countersignatory_value_sat,
+			trimmed_sum_sat,
 			channel_parameters,
 			tx_has_htlc_outputs,
 			insert_non_htlc_output
@@ -1796,6 +1820,7 @@ impl CommitmentTransaction {
 		keys: &TxCreationKeys,
 		to_broadcaster_value_sat: Amount,
 		to_countersignatory_value_sat: Amount,
+		trimmed_sum_sat: Amount,
 		channel_parameters: &DirectedChannelTransactionParameters,
 		tx_has_htlc_outputs: bool,
 		mut insert_non_htlc_output: F,
@@ -1848,6 +1873,13 @@ impl CommitmentTransaction {
 					value: Amount::from_sat(ANCHOR_OUTPUT_VALUE_SATOSHI),
 				});
 			}
+		}
+
+		if channel_type.supports_anchor_zero_fee_commitments() {
+				insert_non_htlc_output(TxOut {
+					script_pubkey: ScriptBuf::from_bytes(P2A_SCRIPT.to_vec()),
+					value: cmp::min(Amount::from_sat(P2A_MAX_VALUE), trimmed_sum_sat),
+				});
 		}
 	}
 
@@ -2227,8 +2259,15 @@ mod tests {
 		#[rustfmt::skip]
 		fn build(&self, to_broadcaster_sats: u64, to_countersignatory_sats: u64, nondust_htlcs: Vec<HTLCOutputInCommitment>) -> CommitmentTransaction {
 			CommitmentTransaction::new(
-				self.commitment_number, &self.per_commitment_point, to_broadcaster_sats, to_countersignatory_sats, self.feerate_per_kw,
-				nondust_htlcs, &self.channel_parameters.as_holder_broadcastable(), &self.secp_ctx
+				self.commitment_number,
+				&self.per_commitment_point,
+				to_broadcaster_sats,
+				to_countersignatory_sats,
+				self.feerate_per_kw,
+				nondust_htlcs,
+				0, // trimmed_sum_sat
+				&self.channel_parameters.as_holder_broadcastable(),
+				&self.secp_ctx,
 			)
 		}
 

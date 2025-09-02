@@ -336,6 +336,7 @@ impl TxBuilder for SpecTxBuilder {
 	{
 		let mut local_htlc_total_msat = 0;
 		let mut remote_htlc_total_msat = 0;
+		let mut trimmed_sum_msat = 0;
 		let channel_type = &channel_parameters.channel_type_features;
 
 		let is_dust = |offered: bool, amount_msat: u64| -> bool {
@@ -370,6 +371,7 @@ impl TxBuilder for SpecTxBuilder {
 					htlc.payment_hash,
 					broadcaster_dust_limit_satoshis
 				);
+				trimmed_sum_msat += htlc.amount_msat;
 				false
 			} else {
 				true
@@ -408,41 +410,46 @@ impl TxBuilder for SpecTxBuilder {
 		// commitment transaction *before* checking whether the remote party's balance is enough to
 		// cover the total fee.
 
-		let (value_to_self, value_to_remote) = if channel_parameters.is_outbound_from_holder {
-			(
-				(local_balance_before_fee_msat / 1000).saturating_sub(commit_tx_fee_sat),
-				remote_balance_before_fee_msat / 1000,
-			)
-		} else {
-			(
-				local_balance_before_fee_msat / 1000,
-				(remote_balance_before_fee_msat / 1000).saturating_sub(commit_tx_fee_sat),
-			)
-		};
+		let (value_to_self_msat, value_to_remote_msat) =
+			if channel_parameters.is_outbound_from_holder {
+				(
+					(local_balance_before_fee_msat).saturating_sub(commit_tx_fee_sat * 1000),
+					remote_balance_before_fee_msat,
+				)
+			} else {
+				(
+					local_balance_before_fee_msat,
+					(remote_balance_before_fee_msat).saturating_sub(commit_tx_fee_sat * 1000),
+				)
+			};
 
-		let mut to_broadcaster_value_sat = if local { value_to_self } else { value_to_remote };
-		let mut to_countersignatory_value_sat = if local { value_to_remote } else { value_to_self };
+		let mut to_broadcaster_value_msat =
+			if local { value_to_self_msat } else { value_to_remote_msat };
+		let mut to_countersignatory_value_msat =
+			if local { value_to_remote_msat } else { value_to_self_msat };
 
-		if to_broadcaster_value_sat >= broadcaster_dust_limit_satoshis {
+		if to_broadcaster_value_msat >= broadcaster_dust_limit_satoshis * 1000 {
 			log_trace!(
 				logger,
 				"   ...including {} output with value {}",
 				if local { "to_local" } else { "to_remote" },
-				to_broadcaster_value_sat
+				to_broadcaster_value_msat / 1000
 			);
 		} else {
-			to_broadcaster_value_sat = 0;
+			trimmed_sum_msat += to_broadcaster_value_msat;
+			to_broadcaster_value_msat = 0;
 		}
 
-		if to_countersignatory_value_sat >= broadcaster_dust_limit_satoshis {
+		if to_countersignatory_value_msat >= broadcaster_dust_limit_satoshis * 1000 {
 			log_trace!(
 				logger,
 				"   ...including {} output with value {}",
 				if local { "to_remote" } else { "to_local" },
-				to_countersignatory_value_sat
+				to_countersignatory_value_msat / 1000
 			);
 		} else {
-			to_countersignatory_value_sat = 0;
+			trimmed_sum_msat += to_countersignatory_value_msat;
+			to_countersignatory_value_msat = 0;
 		}
 
 		let directed_parameters = if local {
@@ -453,10 +460,11 @@ impl TxBuilder for SpecTxBuilder {
 		let tx = CommitmentTransaction::new(
 			commitment_number,
 			per_commitment_point,
-			to_broadcaster_value_sat,
-			to_countersignatory_value_sat,
+			to_broadcaster_value_msat / 1000,
+			to_countersignatory_value_msat / 1000,
 			feerate_per_kw,
 			htlcs_in_tx,
+			trimmed_sum_msat / 1000,
 			&directed_parameters,
 			secp_ctx,
 		);

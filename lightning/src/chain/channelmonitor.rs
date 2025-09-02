@@ -3453,13 +3453,16 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 	fn provide_initial_counterparty_commitment_tx(
 		&mut self, commitment_tx: CommitmentTransaction,
 	) {
-		// We populate this field for downgrades
-		self.initial_counterparty_commitment_info = Some((commitment_tx.per_commitment_point(),
-			commitment_tx.feerate_per_kw(), commitment_tx.to_broadcaster_value_sat(), commitment_tx.to_countersignatory_value_sat()));
+		// Only populate `initial_counterparty_commitment_info` in non-0FC channels
+		if !commitment_tx.trust().channel_type_features().supports_anchor_zero_fee_commitments() {
+			// We populate this field for downgrades
+			self.initial_counterparty_commitment_info = Some((commitment_tx.per_commitment_point(),
+				commitment_tx.feerate_per_kw(), commitment_tx.to_broadcaster_value_sat(), commitment_tx.to_countersignatory_value_sat()));
 
-		#[cfg(debug_assertions)] {
-			let rebuilt_commitment_tx = self.initial_counterparty_commitment_tx().unwrap();
-			debug_assert_eq!(rebuilt_commitment_tx.trust().txid(), commitment_tx.trust().txid());
+			#[cfg(debug_assertions)] {
+				let rebuilt_commitment_tx = self.initial_counterparty_commitment_tx().unwrap();
+				debug_assert_eq!(rebuilt_commitment_tx.trust().txid(), commitment_tx.trust().txid());
+			}
 		}
 
 		self.provide_latest_counterparty_commitment_tx(commitment_tx.trust().txid(), Vec::new(), commitment_tx.commitment_number(),
@@ -4412,8 +4415,12 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		nondust_htlcs: Vec<HTLCOutputInCommitment>
 	) -> CommitmentTransaction {
 		let channel_parameters = &channel_parameters.as_counterparty_broadcastable();
+		debug_assert!(!channel_parameters.channel_type_features().supports_anchor_zero_fee_commitments());
+		// As asserted above, we only reach this point in non-0FC channels,
+		// so this parameter will be ignored during the build of the commitment transaction.
+		let trimmed_sum = 0;
 		CommitmentTransaction::new(commitment_number, their_per_commitment_point,
-			to_broadcaster_value, to_countersignatory_value, feerate_per_kw, nondust_htlcs, channel_parameters, &self.onchain_tx_handler.secp_ctx)
+			to_broadcaster_value, to_countersignatory_value, feerate_per_kw, nondust_htlcs, trimmed_sum, channel_parameters, &self.onchain_tx_handler.secp_ctx)
 	}
 
 	#[rustfmt::skip]

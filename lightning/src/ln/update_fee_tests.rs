@@ -498,6 +498,7 @@ pub fn do_test_update_fee_that_funder_cannot_afford(channel_type_features: Chann
 				- commit_tx_fee_msat(non_buffer_feerate + 4, 0, &channel_type_features) / 1000,
 			non_buffer_feerate + 4,
 			nondust_htlcs,
+			0, // trimmed_sum_sat
 			&local_chan.funding().channel_transaction_parameters.as_counterparty_broadcastable(),
 			&secp_ctx,
 		);
@@ -599,6 +600,7 @@ pub fn test_update_fee_that_saturates_subs() {
 			0,
 			FEERATE,
 			nondust_htlcs,
+			0, // trimmed_sum_sat
 			&local_chan.funding().channel_transaction_parameters.as_counterparty_broadcastable(),
 			&secp_ctx,
 		);

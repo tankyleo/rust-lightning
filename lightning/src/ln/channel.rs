@@ -11802,7 +11802,9 @@ where
 		}
 		self.context.resend_order = RAACommitmentOrder::RevokeAndACKFirst;
 
-		let update = if self.pending_funding.is_empty() {
+		let update = if self.pending_funding.is_empty()
+			&& !self.funding.get_channel_type().supports_anchor_zero_fee_commitments()
+		{
 			let (htlcs_ref, counterparty_commitment_tx) =
 				self.build_commitment_no_state_update(&self.funding, logger);
 			let htlc_outputs = htlcs_ref.into_iter()

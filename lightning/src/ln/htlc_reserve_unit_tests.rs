@@ -2339,6 +2339,7 @@ pub fn do_test_dust_limit_fee_accounting(can_afford: bool) {
 				local_chan_balance,
 				FEERATE_PER_KW,
 				htlcs,
+				0, // trimmed_sum_sat
 				&channel.funding().channel_transaction_parameters.as_counterparty_broadcastable(),
 				&secp_ctx,
 			);
