@@ -4350,8 +4350,6 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 						counterparty_node_id,
 						claim_id,
 						package_target_feerate_sat_per_1000_weight,
-						commitment_tx,
-						commitment_tx_fee_satoshis,
 						anchor_descriptor: AnchorDescriptor {
 							channel_derivation_parameters: ChannelDerivationParameters {
 								keys_id: self.channel_keys_id,
@@ -4362,8 +4360,11 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 								txid: commitment_txid,
 								vout: anchor_output_idx,
 							},
+							value: commitment_tx.output[anchor_output_idx as usize].value,
 						},
 						pending_htlcs: pending_nondust_htlcs,
+						commitment_tx,
+						commitment_tx_fee_satoshis,
 					}));
 				},
 				ClaimEvent::BumpHTLC {
