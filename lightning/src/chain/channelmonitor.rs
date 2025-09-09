@@ -2676,6 +2676,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 					BitcoinOutPoint::new(*txid, htlc_input_idx_opt.unwrap_or(0))
 				} else {
 					debug_assert!(!self.channel_type_features().supports_anchors_zero_fee_htlc_tx());
+					debug_assert!(!self.channel_type_features().supports_anchor_zero_fee_commitments());
 					BitcoinOutPoint::new(*txid, 0)
 				}
 			} else {
