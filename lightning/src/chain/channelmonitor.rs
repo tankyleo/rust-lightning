@@ -5065,9 +5065,12 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			self.funding.current_holder_commitment_tx.add_holder_sig(&redeem_script, sig)
 		};
 		let mut holder_transactions = vec![commitment_tx];
-		// When anchor outputs are present, the HTLC transactions are only final once the commitment
-		// transaction confirms due to the CSV 1 encumberance.
-		if self.channel_type_features().supports_anchors_zero_fee_htlc_tx() {
+
+		if self.channel_type_features().supports_anchors_zero_fee_htlc_tx()
+			|| self.channel_type_features().supports_anchor_zero_fee_commitments()
+		{
+			// HTLC transactions in these channels require external funding before finalized,
+			// so we return the commitment transaction alone here
 			return holder_transactions;
 		}
 
