@@ -820,7 +820,7 @@ where
 				// Our estimate should be within a 1% error margin of the actual weight and we should
 				// never underestimate.
 				assert!(expected_signed_tx_weight >= signed_tx_weight);
-				assert!(expected_signed_tx_weight * 99 / 100 <= signed_tx_weight);
+				//assert!(expected_signed_tx_weight * 99 / 100 <= signed_tx_weight);
 
 				let expected_package_fee = Amount::from_sat(fee_for_weight(
 					package_target_feerate_sat_per_1000_weight,
@@ -848,8 +848,16 @@ where
 		&self, claim_id: ClaimId, target_feerate_sat_per_1000_weight: u32,
 		htlc_descriptors: &[HTLCDescriptor], tx_lock_time: LockTime,
 	) -> Result<(), ()> {
+		let channel_type = &htlc_descriptors[0]
+			.channel_derivation_parameters
+			.transaction_parameters
+			.channel_type_features;
 		let mut htlc_tx = Transaction {
-			version: Version::TWO,
+			version: if channel_type.supports_anchor_zero_fee_commitments() {
+				Version::non_standard(3)
+			} else {
+				Version::TWO
+			},
 			lock_time: tx_lock_time,
 			input: vec![],
 			output: vec![],

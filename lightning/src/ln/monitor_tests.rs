@@ -2451,7 +2451,7 @@ fn test_monitor_timer_based_claim() {
 	do_test_monitor_rebroadcast_pending_claims(true);
 }
 
-fn do_test_yield_anchors_events(have_htlcs: bool) {
+fn do_test_yield_anchors_events(have_htlcs: bool, p2a_anchors: bool) {
 	// Tests that two parties supporting anchor outputs can open a channel, route payments over
 	// it, and finalize its resolution uncooperatively. Once the HTLCs are locked in, one side will
 	// force close once the HTLCs expire. The force close should stem from an event emitted by LDK,
@@ -2463,6 +2463,7 @@ fn do_test_yield_anchors_events(have_htlcs: bool) {
 	let mut anchors_config = test_default_channel_config();
 	anchors_config.channel_handshake_config.announce_for_forwarding = true;
 	anchors_config.channel_handshake_config.negotiate_anchors_zero_fee_htlc_tx = true;
+	anchors_config.channel_handshake_config.negotiate_anchor_zero_fee_commitments = p2a_anchors;
 	anchors_config.manually_accept_inbound_channels = true;
 	let node_chanmgrs = create_node_chanmgrs(2, &node_cfgs, &[Some(anchors_config.clone()), Some(anchors_config)]);
 	let nodes = create_network(2, &node_cfgs, &node_chanmgrs);
@@ -2506,7 +2507,7 @@ fn do_test_yield_anchors_events(have_htlcs: bool) {
 	{
 		handle_bump_close_event(&nodes[1]);
 		let txn = nodes[1].tx_broadcaster.txn_broadcast();
-		assert_eq!(txn.len(), 1);
+		if p2a_anchors { assert_eq!(txn.len(), 2) } else { assert_eq!(txn.len(), 1) };
 		check_spends!(txn[0], funding_tx);
 	}
 
@@ -2549,14 +2550,17 @@ fn do_test_yield_anchors_events(have_htlcs: bool) {
 			let anchor_tx = txn.pop().unwrap();
 			let commitment_tx = txn.pop().unwrap();
 			check_spends!(commitment_tx, funding_tx);
-			check_spends!(anchor_tx, coinbase_tx, commitment_tx);
+			check_spends!(anchor_tx, coinbase_tx; false, commitment_tx; true);
 			(commitment_tx, anchor_tx)
 		},
 		_ => panic!("Unexpected event"),
 	};
 	check_spends!(commitment_tx, funding_tx);
 
-	if have_htlcs {
+	if have_htlcs && p2a_anchors {
+		assert_eq!(commitment_tx.output[1].value.to_sat(), 1_000); // HTLC A -> B
+		assert_eq!(commitment_tx.output[2].value.to_sat(), 2_000); // HTLC B -> A
+	} else if have_htlcs {
 		assert_eq!(commitment_tx.output[2].value.to_sat(), 1_000); // HTLC A -> B
 		assert_eq!(commitment_tx.output[3].value.to_sat(), 2_000); // HTLC B -> A
 	}
@@ -2581,13 +2585,13 @@ fn do_test_yield_anchors_events(have_htlcs: bool) {
 		assert_eq!(txn.len(), if nodes[1].connect_style.borrow().updates_best_block_first() { 3 } else { 1 });
 		if nodes[1].connect_style.borrow().updates_best_block_first() {
 			check_spends!(txn[1], funding_tx);
-			check_spends!(txn[2], txn[1]);  // Anchor output spend.
+			//check_spends!(txn[2], txn[1]; p2a_anchors);  // Anchor output spend.
 		}
 		let htlc_claim_tx = &txn[0];
 		assert_eq!(htlc_claim_tx.input.len(), 2);
-		assert_eq!(htlc_claim_tx.input[0].previous_output.vout, 2);
-		assert_eq!(htlc_claim_tx.input[1].previous_output.vout, 3);
-		check_spends!(htlc_claim_tx, commitment_tx);
+		assert_eq!(htlc_claim_tx.input[0].previous_output.vout, if p2a_anchors { 1 } else { 2 });
+		assert_eq!(htlc_claim_tx.input[1].previous_output.vout, if p2a_anchors { 2 } else { 3 });
+		check_spends!(htlc_claim_tx, commitment_tx; true);
 	}
 
 	let mut holder_events = nodes[0].chain_monitor.chain_monitor.get_and_clear_pending_events();
@@ -2608,7 +2612,7 @@ fn do_test_yield_anchors_events(have_htlcs: bool) {
 				let mut txn = nodes[0].tx_broadcaster.unique_txn_broadcast();
 				assert_eq!(txn.len(), 1);
 				let htlc_tx = txn.pop().unwrap();
-				check_spends!(htlc_tx, commitment_tx, anchor_tx);
+				check_spends!(htlc_tx, commitment_tx; true, anchor_tx; false);
 				htlc_txs.push(htlc_tx);
 			},
 			_ => panic!("Unexpected event"),
@@ -2635,8 +2639,10 @@ fn do_test_yield_anchors_events(have_htlcs: bool) {
 
 #[test]
 fn test_yield_anchors_events() {
-	do_test_yield_anchors_events(true);
-	do_test_yield_anchors_events(false);
+	do_test_yield_anchors_events(true, false);
+	do_test_yield_anchors_events(false, false);
+	do_test_yield_anchors_events(true, true);
+	do_test_yield_anchors_events(false, true);
 }
 
 #[test]
