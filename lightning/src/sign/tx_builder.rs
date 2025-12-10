@@ -213,6 +213,7 @@ impl TxBuilder for SpecTxBuilder {
 				holder_channel_constraints.dust_limit_satoshis,
 				channel_type,
 			)
+			// TODO: should `get_available_balances` be fallible ?
 			.unwrap();
 		let local_stats_min_fee = SpecTxBuilder {}
 			.get_next_commitment_stats(
