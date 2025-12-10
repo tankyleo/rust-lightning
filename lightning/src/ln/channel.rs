@@ -73,7 +73,9 @@ use crate::ln::LN_MAX_MSG_LEN;
 use crate::offers::static_invoice::StaticInvoice;
 use crate::routing::gossip::NodeId;
 use crate::sign::ecdsa::EcdsaChannelSigner;
-use crate::sign::tx_builder::{HTLCAmountDirection, ChannelConstraints, NextCommitmentStats, SpecTxBuilder, TxBuilder};
+use crate::sign::tx_builder::{
+	ChannelConstraints, HTLCAmountDirection, NextCommitmentStats, SpecTxBuilder, TxBuilder,
+};
 use crate::sign::{ChannelSigner, EntropySource, NodeSigner, Recipient, SignerProvider};
 use crate::types::features::{ChannelTypeFeatures, InitFeatures};
 use crate::types::payment::{PaymentHash, PaymentPreimage};
@@ -5530,7 +5532,9 @@ where
 	fn get_holder_channel_constraints(&self, funding: &FundingScope) -> ChannelConstraints {
 		ChannelConstraints {
 			dust_limit_satoshis: self.holder_dust_limit_satoshis,
-			channel_reserve_satoshis: funding.counterparty_selected_channel_reserve_satoshis.unwrap_or(0),
+			channel_reserve_satoshis: funding
+				.counterparty_selected_channel_reserve_satoshis
+				.unwrap_or(0),
 			htlc_minimum_msat: self.holder_htlc_minimum_msat,
 			max_accepted_htlcs: self.holder_max_accepted_htlcs as u64,
 			max_htlc_value_in_flight_msat: self.holder_max_htlc_value_in_flight_msat,
