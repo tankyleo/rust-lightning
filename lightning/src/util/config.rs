@@ -62,17 +62,13 @@ pub struct ChannelHandshakeConfig {
 	/// Default value: `1` (If the value is less than `1`, it is ignored and set to `1`, as is
 	/// required by the protocol.
 	pub our_htlc_minimum_msat: u64,
-	/// Sets the percentage of the channel value we will cap the total value of outstanding inbound
-	/// HTLCs to.
+	/// Sets the maximum percentage of the total channel value that can be allocated to inbound
+	/// HTLCs in announced channels.
 	///
 	/// This can be set to a value between 1-100, where the value corresponds to the percent of the
 	/// channel value in whole percentages.
 	///
 	/// Note that:
-	/// * If configured to another value than the default value `10`, any new channels created with
-	///   the non default value will cause versions of LDK prior to 0.0.104 to refuse to read the
-	///   `ChannelManager`.
-	///
 	/// * This caps the total value for inbound HTLCs in-flight only, and there's currently
 	///   no way to configure the cap for the total value of outbound HTLCs in-flight.
 	///
@@ -87,7 +83,29 @@ pub struct ChannelHandshakeConfig {
 	/// Minimum value: `1` (Any values less will be treated as `1` instead.)
 	///
 	/// Maximum value: `100` (Any values larger will be treated as `100` instead.)
-	pub max_inbound_htlc_value_in_flight_percent_of_channel: u8,
+	pub announced_channel_max_inbound_htlc_value_in_flight_percentage: u8,
+	/// Sets the maximum percentage of the total channel value that can be allocated to inbound
+	/// HTLCs in unannounced channels.
+	///
+	/// This can be set to a value between 1-100, where the value corresponds to the percent of the
+	/// channel value in whole percentages.
+	///
+	/// Note that:
+	/// * This caps the total value for inbound HTLCs in-flight only, and there's currently
+	///   no way to configure the cap for the total value of outbound HTLCs in-flight.
+	///
+	/// * The requirements for your node being online to ensure the safety of HTLC-encumbered funds
+	///   are different from the non-HTLC-encumbered funds. This makes this an important knob to
+	///   restrict exposure to loss due to being offline for too long.
+	///   See [`ChannelHandshakeConfig::our_to_self_delay`] and [`ChannelConfig::cltv_expiry_delta`]
+	///   for more information.
+	///
+	/// Default value: `25`
+	///
+	/// Minimum value: `1` (Any values less will be treated as `1` instead.)
+	///
+	/// Maximum value: `100` (Any values larger will be treated as `100` instead.)
+	pub unannounced_channel_max_inbound_htlc_value_in_flight_percentage: u8,
 	/// If set, we attempt to negotiate the `scid_privacy` (referred to as `scid_alias` in the
 	/// BOLTs) option for outbound private channels. This provides better privacy by not including
 	/// our real on-chain channel UTXO in each invoice and requiring that our counterparty only
@@ -246,7 +264,8 @@ impl Default for ChannelHandshakeConfig {
 			minimum_depth: 6,
 			our_to_self_delay: BREAKDOWN_TIMEOUT,
 			our_htlc_minimum_msat: 1,
-			max_inbound_htlc_value_in_flight_percent_of_channel: 10,
+			announced_channel_max_inbound_htlc_value_in_flight_percentage: 10,
+			unannounced_channel_max_inbound_htlc_value_in_flight_percentage: 25,
 			negotiate_scid_privacy: false,
 			announce_for_forwarding: false,
 			commit_upfront_shutdown_pubkey: true,
@@ -268,7 +287,10 @@ impl Readable for ChannelHandshakeConfig {
 			minimum_depth: Readable::read(reader)?,
 			our_to_self_delay: Readable::read(reader)?,
 			our_htlc_minimum_msat: Readable::read(reader)?,
-			max_inbound_htlc_value_in_flight_percent_of_channel: Readable::read(reader)?,
+			announced_channel_max_inbound_htlc_value_in_flight_percentage: Readable::read(reader)?,
+			unannounced_channel_max_inbound_htlc_value_in_flight_percentage: Readable::read(
+				reader,
+			)?,
 			negotiate_scid_privacy: Readable::read(reader)?,
 			announce_for_forwarding: Readable::read(reader)?,
 			commit_upfront_shutdown_pubkey: Readable::read(reader)?,
@@ -1171,9 +1193,15 @@ impl UserConfig {
 /// Config structure for overriding channel handshake parameters.
 #[derive(Default)]
 pub struct ChannelHandshakeConfigUpdate {
-	/// Overrides the percentage of the channel value we will cap the total value of outstanding inbound HTLCs to. See
-	/// [`ChannelHandshakeConfig::max_inbound_htlc_value_in_flight_percent_of_channel`].
-	pub max_inbound_htlc_value_in_flight_percent_of_channel: Option<u8>,
+	/// Overrides the maximum percentage of the total channel value that can be allocated to inbound
+	/// HTLCs in announced channels. See
+	/// [`ChannelHandshakeConfig::announced_channel_max_inbound_htlc_value_in_flight_percentage`].
+	pub announced_channel_max_inbound_htlc_value_in_flight_percentage: Option<u8>,
+
+	/// Overrides the maximum percentage of the total channel value that can be allocated to inbound
+	/// HTLCs in unannounced channels. See
+	/// [`ChannelHandshakeConfig::unannounced_channel_max_inbound_htlc_value_in_flight_percentage`].
+	pub unannounced_channel_max_inbound_htlc_value_in_flight_percentage: Option<u8>,
 
 	/// Overrides the smallest value HTLC we will accept to process. See [`ChannelHandshakeConfig::our_htlc_minimum_msat`].
 	pub htlc_minimum_msat: Option<u64>,
@@ -1199,9 +1227,17 @@ impl ChannelHandshakeConfig {
 	/// Applies the provided handshake config update.
 	pub fn apply(&mut self, config: &ChannelHandshakeConfigUpdate) {
 		if let Some(max_in_flight_percent) =
-			config.max_inbound_htlc_value_in_flight_percent_of_channel
+			config.announced_channel_max_inbound_htlc_value_in_flight_percentage
 		{
-			self.max_inbound_htlc_value_in_flight_percent_of_channel = max_in_flight_percent;
+			self.announced_channel_max_inbound_htlc_value_in_flight_percentage =
+				max_in_flight_percent;
+		}
+
+		if let Some(max_in_flight_percent) =
+			config.unannounced_channel_max_inbound_htlc_value_in_flight_percentage
+		{
+			self.unannounced_channel_max_inbound_htlc_value_in_flight_percentage =
+				max_in_flight_percent;
 		}
 
 		if let Some(htlc_minimum_msat) = config.htlc_minimum_msat {

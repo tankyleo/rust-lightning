@@ -212,7 +212,9 @@ fn mpp_retry_overpay() {
 	let node_cfgs = create_node_cfgs(4, &chanmon_cfgs);
 
 	let mut user_config = test_legacy_channel_config();
-	user_config.channel_handshake_config.max_inbound_htlc_value_in_flight_percent_of_channel = 100;
+	user_config
+		.channel_handshake_config
+		.announced_channel_max_inbound_htlc_value_in_flight_percentage = 100;
 	let mut limited_1 = user_config.clone();
 	limited_1.channel_handshake_config.our_htlc_minimum_msat = 35_000_000;
 	let mut limited_2 = user_config.clone();
@@ -1702,7 +1704,8 @@ fn preflight_probes_yield_event_skip_private_hop() {
 
 	// We alleviate the HTLC max-in-flight limit, as otherwise we'd always be limited through that.
 	let mut config = test_default_channel_config();
-	config.channel_handshake_config.max_inbound_htlc_value_in_flight_percent_of_channel = 100;
+	config.channel_handshake_config.announced_channel_max_inbound_htlc_value_in_flight_percentage =
+		100;
 	let config = Some(config);
 
 	let configs = [config.clone(), config.clone(), config.clone(), config.clone(), config];
@@ -1749,7 +1752,8 @@ fn preflight_probes_yield_event() {
 
 	// We alleviate the HTLC max-in-flight limit, as otherwise we'd always be limited through that.
 	let mut config = test_default_channel_config();
-	config.channel_handshake_config.max_inbound_htlc_value_in_flight_percent_of_channel = 100;
+	config.channel_handshake_config.announced_channel_max_inbound_htlc_value_in_flight_percentage =
+		100;
 	let config = Some(config);
 
 	let configs = [config.clone(), config.clone(), config.clone(), config];
@@ -1800,7 +1804,8 @@ fn preflight_probes_yield_event_and_skip() {
 
 	// We alleviate the HTLC max-in-flight limit, as otherwise we'd always be limited through that.
 	let mut config = test_default_channel_config();
-	config.channel_handshake_config.max_inbound_htlc_value_in_flight_percent_of_channel = 100;
+	config.channel_handshake_config.announced_channel_max_inbound_htlc_value_in_flight_percentage =
+		100;
 	let config = Some(config);
 
 	let configs =
@@ -2429,11 +2434,12 @@ fn do_accept_underpaying_htlcs_config(num_mpp_parts: usize) {
 		HTLCInterceptionFlags::ToInterceptSCIDs as u8;
 	intercept_forwards_config
 		.channel_handshake_config
-		.max_inbound_htlc_value_in_flight_percent_of_channel = max_in_flight_percent;
+		.announced_channel_max_inbound_htlc_value_in_flight_percentage = max_in_flight_percent;
 	let mut underpay_config = test_default_channel_config();
 	underpay_config.channel_config.accept_underpaying_htlcs = true;
-	underpay_config.channel_handshake_config.max_inbound_htlc_value_in_flight_percent_of_channel =
-		max_in_flight_percent;
+	underpay_config
+		.channel_handshake_config
+		.unannounced_channel_max_inbound_htlc_value_in_flight_percentage = max_in_flight_percent;
 
 	let configs = [None, Some(intercept_forwards_config), Some(underpay_config)];
 	let node_chanmgrs = create_node_chanmgrs(3, &node_cfgs, &configs);
@@ -4788,7 +4794,8 @@ fn do_test_payment_metadata_consistency(do_reload: bool, do_modify: bool) {
 	let chain_mon;
 
 	let mut config = test_default_channel_config();
-	config.channel_handshake_config.max_inbound_htlc_value_in_flight_percent_of_channel = 50;
+	config.channel_handshake_config.announced_channel_max_inbound_htlc_value_in_flight_percentage =
+		50;
 	let configs = [None, Some(config.clone()), Some(config.clone()), Some(config.clone())];
 	let node_chanmgrs = create_node_chanmgrs(4, &node_cfgs, &configs);
 	let node_d_reload;
@@ -5147,7 +5154,8 @@ fn test_non_strict_forwarding() {
 	let node_cfgs = create_node_cfgs(3, &chanmon_cfgs);
 
 	let mut config = test_legacy_channel_config();
-	config.channel_handshake_config.max_inbound_htlc_value_in_flight_percent_of_channel = 100;
+	config.channel_handshake_config.announced_channel_max_inbound_htlc_value_in_flight_percentage =
+		100;
 	let configs = [Some(config.clone()), Some(config.clone()), Some(config)];
 
 	let node_chanmgrs = create_node_chanmgrs(3, &node_cfgs, &configs);
@@ -5386,11 +5394,15 @@ fn max_out_mpp_path() {
 
 	let mut user_cfg = test_default_channel_config();
 	user_cfg.channel_config.forwarding_fee_base_msat = 0;
-	user_cfg.channel_handshake_config.max_inbound_htlc_value_in_flight_percent_of_channel = 100;
+	user_cfg
+		.channel_handshake_config
+		.unannounced_channel_max_inbound_htlc_value_in_flight_percentage = 100;
 	let mut lsp_cfg = test_default_channel_config();
 	lsp_cfg.channel_config.forwarding_fee_base_msat = 0;
 	lsp_cfg.channel_config.forwarding_fee_proportional_millionths = 3000;
-	lsp_cfg.channel_handshake_config.max_inbound_htlc_value_in_flight_percent_of_channel = 100;
+	lsp_cfg
+		.channel_handshake_config
+		.unannounced_channel_max_inbound_htlc_value_in_flight_percentage = 100;
 
 	let chanmon_cfgs = create_chanmon_cfgs(3);
 	let node_cfgs = create_node_cfgs(3, &chanmon_cfgs);

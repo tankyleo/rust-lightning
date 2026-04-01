@@ -504,6 +504,9 @@ fn often_offline_node_cfg() -> UserConfig {
 	cfg.channel_handshake_config.announce_for_forwarding = false;
 	cfg.channel_handshake_limits.force_announced_channel_preference = true;
 	cfg.hold_outbound_htlcs_at_next_hop = true;
+	// Use the setting that matches the default at the time these tests were written
+	cfg.channel_handshake_config.unannounced_channel_max_inbound_htlc_value_in_flight_percentage =
+		10;
 	cfg
 }
 
