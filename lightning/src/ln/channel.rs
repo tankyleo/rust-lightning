@@ -122,6 +122,8 @@ pub struct AvailableBalances {
 	pub next_outbound_htlc_limit_msat: u64,
 	/// The minimum value we can assign to the next outbound HTLC
 	pub next_outbound_htlc_minimum_msat: u64,
+	/// The maximum value of the next splice-out
+	pub next_splice_out_limit_sat: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -13338,7 +13340,19 @@ where
 			) / 1000,
 		);
 
-		Ok((holder_balance_floor, counterparty_balance_floor))
+		let (splice_stats, _remote_htlcs) = self
+			.context
+			.get_next_remote_commitment_stats(
+				funding,
+				None, // htlc_candidate
+				include_counterparty_unknown_htlcs,
+				0,
+				self.context.feerate_per_kw,
+				dust_exposure_limiting_feerate,
+			)
+			.map_err(|()| "Balance exhausted on remote commitment")?;
+
+		Ok((Amount::from_sat(splice_stats.available_balances.next_splice_out_limit_sat), counterparty_balance_floor))
 	}
 
 	pub fn splice_locked<NS: NodeSigner, L: Logger>(
@@ -13566,6 +13580,7 @@ where
 				next_outbound_htlc_minimum_msat: acc
 					.next_outbound_htlc_minimum_msat
 					.max(e.next_outbound_htlc_minimum_msat),
+				next_splice_out_limit_sat: acc.next_splice_out_limit_sat.min(e.next_splice_out_limit_sat),
 			})
 		})
 	}

@@ -6650,7 +6650,6 @@ fn test_splice_rbf_rejects_own_low_feerate_after_several_attempts() {
 
 #[test]
 fn test_0reserve_splice() {
-	use bitcoin::SignedAmount;
 	let chanmon_cfgs = create_chanmon_cfgs(2);
 	let node_cfgs = create_node_cfgs(2, &chanmon_cfgs);
 	let node_chanmgrs = create_node_chanmgrs(2, &node_cfgs, &[None, None]);
@@ -6674,7 +6673,5 @@ fn test_0reserve_splice() {
 		value: splice_out_value,
 		script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 	}];
-	let contribution = initiate_splice_out(&nodes[0], &nodes[1], channel_id, outputs).unwrap();
-	assert_eq!(contribution.net_value(), SignedAmount::from_sat(-99013));
-	let (_splice_tx, _) = splice_channel(&nodes[0], &nodes[1], channel_id, contribution);
+	assert!(initiate_splice_out(&nodes[0], &nodes[1], channel_id, outputs).is_err());
 }

@@ -410,6 +410,26 @@ fn get_available_balances(
 			total_anchors_sat.saturating_mul(1000),
 		);
 
+	let mut next_splice_out_limit_sat = (local_balance_before_fee_msat / 1000).saturating_sub(if is_outbound_from_holder { local_min_commit_tx_fee_sat } else { 0 });
+	if !has_output(
+		is_outbound_from_holder,
+		local_balance_before_fee_msat.saturating_sub(next_splice_out_limit_sat * 1000),
+		remote_balance_before_fee_msat,
+		spiked_feerate,
+		local_nondust_htlc_count,
+		channel_constraints.holder_dust_limit_satoshis,
+		channel_type
+	) {
+		let dust_limit_satoshis = channel_constraints.holder_dust_limit_satoshis;
+		let current_spiked_tx_fee_sat = commit_tx_fee_sat(spiked_feerate, 0, channel_type);
+		let min_balance_sat = if is_outbound_from_holder {
+			dust_limit_satoshis + current_spiked_tx_fee_sat
+		} else {
+			dust_limit_satoshis
+		};
+		next_splice_out_limit_sat = local_balance_before_fee_msat / 1000 - min_balance_sat;
+	}
+
 	let outbound_capacity_msat = local_balance_before_fee_msat
 		.saturating_sub(channel_constraints.counterparty_selected_channel_reserve_satoshis * 1000);
 
@@ -582,6 +602,7 @@ fn get_available_balances(
 		outbound_capacity_msat,
 		next_outbound_htlc_limit_msat: available_capacity_msat,
 		next_outbound_htlc_minimum_msat,
+		next_splice_out_limit_sat,
 	}
 }
 
