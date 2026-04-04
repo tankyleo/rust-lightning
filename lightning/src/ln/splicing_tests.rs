@@ -16,7 +16,7 @@ use crate::chain::ChannelMonitorUpdateStatus;
 use crate::events::{ClosureReason, Event, FundingInfo, HTLCHandlingFailureType};
 use crate::ln::chan_utils;
 use crate::ln::channel::{
-	CHANNEL_ANNOUNCEMENT_PROPAGATION_DELAY, FEE_SPIKE_BUFFER_FEE_INCREASE_MULTIPLE,
+	ANCHOR_OUTPUT_VALUE_SATOSHI, CHANNEL_ANNOUNCEMENT_PROPAGATION_DELAY, FEE_SPIKE_BUFFER_FEE_INCREASE_MULTIPLE
 };
 use crate::ln::channelmanager::{provided_init_features, PaymentId, BREAKDOWN_TIMEOUT};
 use crate::ln::functional_test_utils::*;
@@ -6646,4 +6646,35 @@ fn test_splice_rbf_rejects_own_low_feerate_after_several_attempts() {
 		Event::SpliceFailed { channel_id: cid, .. } => assert_eq!(*cid, channel_id),
 		other => panic!("Expected SpliceFailed, got {:?}", other),
 	}
+}
+
+#[test]
+fn test_0reserve_splice() {
+	use bitcoin::SignedAmount;
+	let chanmon_cfgs = create_chanmon_cfgs(2);
+	let node_cfgs = create_node_cfgs(2, &chanmon_cfgs);
+	let node_chanmgrs = create_node_chanmgrs(2, &node_cfgs, &[None, None]);
+	let nodes = create_network(2, &node_cfgs, &node_chanmgrs);
+
+	let _node_id_0 = nodes[0].node.get_our_node_id();
+	let _node_id_1 = nodes[1].node.get_our_node_id();
+
+	let channel_value_sat = 100_000;
+	let dust_limit_satoshis = 546;
+
+	use crate::ln::htlc_reserve_unit_tests::setup_0reserve_no_outputs_channels;
+	let (channel_id, _tx) = setup_0reserve_no_outputs_channels(&nodes, channel_value_sat, dust_limit_satoshis);
+
+	let commit_tx_fee_sat = chan_utils::commit_tx_fee_sat(253, 1, &ChannelTypeFeatures::anchors_zero_htlc_fee_and_dependencies());
+	let anchors_sat = ANCHOR_OUTPUT_VALUE_SATOSHI * 2;
+
+	let estimated_fees = 183;
+	let splice_out_value = Amount::from_sat(channel_value_sat - commit_tx_fee_sat - anchors_sat - estimated_fees);
+	let outputs = vec![TxOut {
+		value: splice_out_value,
+		script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
+	}];
+	let contribution = initiate_splice_out(&nodes[0], &nodes[1], channel_id, outputs).unwrap();
+	assert_eq!(contribution.net_value(), SignedAmount::from_sat(-99013));
+	let (_splice_tx, _) = splice_channel(&nodes[0], &nodes[1], channel_id, contribution);
 }
