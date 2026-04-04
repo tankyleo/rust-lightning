@@ -12426,8 +12426,7 @@ where
 		);
 		let prior = self.pending_splice.as_ref()?.contributions.last()?;
 		let holder_balance = self
-			.get_holder_counterparty_balances_floor_incl_fee(&self.funding)
-			.map(|(h, _)| h)
+			.get_available_splice_out_limit_msat(&self.funding)
 			.ok();
 		Some(PriorContribution::new(prior.clone(), holder_balance))
 	}
@@ -12504,8 +12503,7 @@ where
 		}
 
 		let holder_balance = match self
-			.get_holder_counterparty_balances_floor_incl_fee(&self.funding)
-			.map(|(holder, _)| holder)
+			.get_available_splice_out_limit_msat(&self.funding)
 		{
 			Ok(balance) => balance,
 			Err(_) => return contribution,
@@ -12913,8 +12911,7 @@ where
 		&self, feerate: FeeRate, logger: &L,
 	) -> Result<(Option<SignedAmount>, Option<Amount>), ChannelError> {
 		let holder_balance = self
-			.get_holder_counterparty_balances_floor_incl_fee(&self.funding)
-			.map(|(holder, _)| holder)
+			.get_available_splice_out_limit_msat(&self.funding)
 			.map_err(|e| {
 				log_info!(
 					logger,
@@ -13346,61 +13343,10 @@ where
 		))
 	}
 
-	fn get_holder_counterparty_balances_floor_incl_fee(
-		&self, funding: &FundingScope,
-	) -> Result<(Amount, Amount), String> {
+	fn get_available_splice_out_limit_msat(&self, funding: &FundingScope) -> Result<Amount, String> {
 		let include_counterparty_unknown_htlcs = true;
-		// Make sure that that the funder of the channel can pay the transaction fees for an additional
-		// nondust HTLC on the channel.
-		let addl_nondust_htlc_count = 1;
 		// We are not interested in dust exposure
 		let dust_exposure_limiting_feerate = None;
-
-		// Note that the feerate is 0 in zero-fee commitment channels, so this statement is a noop
-		let feerate_per_kw = if !funding.get_channel_type().supports_anchors_zero_fee_htlc_tx() {
-			// Similar to HTLC additions, require the funder to have enough funds reserved for
-			// fees such that the feerate can jump without rendering the channel useless.
-			self.context.feerate_per_kw * FEE_SPIKE_BUFFER_FEE_INCREASE_MULTIPLE as u32
-		} else {
-			self.context.feerate_per_kw
-		};
-
-		let (local_stats, _local_htlcs) = self
-			.context
-			.get_next_local_commitment_stats(
-				funding,
-				None, // htlc_candidate
-				include_counterparty_unknown_htlcs,
-				addl_nondust_htlc_count,
-				feerate_per_kw,
-				dust_exposure_limiting_feerate,
-			)
-			.map_err(|()| "Balance exhausted on local commitment")?;
-
-		let (remote_stats, _remote_htlcs) = self
-			.context
-			.get_next_remote_commitment_stats(
-				funding,
-				None, // htlc_candidate
-				include_counterparty_unknown_htlcs,
-				addl_nondust_htlc_count,
-				feerate_per_kw,
-				dust_exposure_limiting_feerate,
-			)
-			.map_err(|()| "Balance exhausted on remote commitment")?;
-
-		let holder_balance_floor = Amount::from_sat(
-			cmp::min(
-				local_stats.commitment_stats.holder_balance_msat,
-				remote_stats.commitment_stats.holder_balance_msat,
-			) / 1000,
-		);
-		let counterparty_balance_floor = Amount::from_sat(
-			cmp::min(
-				local_stats.commitment_stats.counterparty_balance_msat,
-				remote_stats.commitment_stats.counterparty_balance_msat,
-			) / 1000,
-		);
 
 		let (splice_stats, _remote_htlcs) = self
 			.context
@@ -13414,10 +13360,7 @@ where
 			)
 			.map_err(|()| "Balance exhausted on remote commitment")?;
 
-		Ok((
-			Amount::from_sat(splice_stats.available_balances.next_splice_out_limit_sat),
-			counterparty_balance_floor,
-		))
+		Ok(Amount::from_sat(splice_stats.available_balances.next_splice_out_limit_sat))
 	}
 
 	pub fn splice_locked<NS: NodeSigner, L: Logger>(
