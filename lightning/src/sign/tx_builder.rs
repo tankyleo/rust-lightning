@@ -436,6 +436,15 @@ fn get_available_balances(
 			break;
 		}
 	}
+	let estimate = {
+		let x = (local_balance_before_fee_msat / 1000).saturating_sub(channel_constraints.holder_dust_limit_satoshis).saturating_sub(post_splice_min_balance_sat);
+		let y = (local_balance_before_fee_msat / 10).saturating_sub(channel_value_satoshis).saturating_sub(100 * post_splice_min_balance_sat) / 99;
+		cmp::min(x, y)
+	};
+	assert!(estimate <= next_splice_out_limit_sat);
+	dbg!(estimate, next_splice_out_limit_sat);
+	assert!(estimate + 10_000 >= next_splice_out_limit_sat);
+
 	if !has_output(
 		is_outbound_from_holder,
 		local_balance_before_fee_msat.saturating_sub(next_splice_out_limit_sat * 1000),
