@@ -410,7 +410,32 @@ fn get_available_balances(
 			total_anchors_sat.saturating_mul(1000),
 		);
 
-	let mut next_splice_out_limit_sat = (local_balance_before_fee_msat / 1000).saturating_sub(if is_outbound_from_holder { local_min_commit_tx_fee_sat } else { 0 });
+	let post_splice_min_balance_sat = if is_outbound_from_holder {
+		local_min_commit_tx_fee_sat
+	} else {
+		0
+	};
+	let mut next_splice_out_limit_sat = (local_balance_before_fee_msat / 1000).saturating_sub(post_splice_min_balance_sat);
+	loop {
+		use crate::ln::channel::get_v2_channel_reserve_satoshis;
+		let new_value_sat = channel_value_satoshis.saturating_sub(next_splice_out_limit_sat);
+		let post_splice_counterparty_selected_reserve_satoshis = get_v2_channel_reserve_satoshis(
+			new_value_sat,
+			channel_constraints.holder_dust_limit_satoshis,
+			channel_constraints.counterparty_selected_channel_reserve_satoshis == 0,
+		);
+		if (local_balance_before_fee_msat / 1000).saturating_sub(next_splice_out_limit_sat)
+			< post_splice_min_balance_sat.saturating_add(post_splice_counterparty_selected_reserve_satoshis)
+		{
+			assert_ne!(post_splice_counterparty_selected_reserve_satoshis, 0);
+			next_splice_out_limit_sat = next_splice_out_limit_sat.saturating_sub(1);
+			if next_splice_out_limit_sat == 0 {
+				break;
+			}
+		} else {
+			break;
+		}
+	}
 	if !has_output(
 		is_outbound_from_holder,
 		local_balance_before_fee_msat.saturating_sub(next_splice_out_limit_sat * 1000),

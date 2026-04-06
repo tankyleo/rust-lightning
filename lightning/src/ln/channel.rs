@@ -6829,7 +6829,7 @@ pub(crate) fn get_legacy_default_holder_selected_channel_reserve_satoshis(
 ///
 /// This is used both for outbound and inbound channels and has lower bound
 /// of `dust_limit_satoshis`.
-fn get_v2_channel_reserve_satoshis(
+pub(crate) fn get_v2_channel_reserve_satoshis(
 	channel_value_satoshis: u64, dust_limit_satoshis: u64, is_0reserve: bool,
 ) -> u64 {
 	if is_0reserve {
