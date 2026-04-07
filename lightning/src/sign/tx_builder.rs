@@ -416,7 +416,8 @@ fn get_available_balances(
 		0
 	};
 	let mut next_splice_out_limit_sat = (local_balance_before_fee_msat / 1000).saturating_sub(post_splice_min_balance_sat);
-	loop {
+	let mut count = 0;
+	let exhausted = loop {
 		use crate::ln::channel::get_v2_channel_reserve_satoshis;
 		let new_value_sat = channel_value_satoshis.saturating_sub(next_splice_out_limit_sat);
 		let post_splice_counterparty_selected_reserve_satoshis = get_v2_channel_reserve_satoshis(
@@ -424,32 +425,54 @@ fn get_available_balances(
 			channel_constraints.holder_dust_limit_satoshis,
 			channel_constraints.counterparty_selected_channel_reserve_satoshis == 0,
 		);
+		dbg!(channel_constraints.holder_dust_limit_satoshis);
+		dbg!(channel_constraints.counterparty_selected_channel_reserve_satoshis);
 		if (local_balance_before_fee_msat / 1000).saturating_sub(next_splice_out_limit_sat)
 			< post_splice_min_balance_sat.saturating_add(post_splice_counterparty_selected_reserve_satoshis)
 		{
 			assert_ne!(post_splice_counterparty_selected_reserve_satoshis, 0);
 			next_splice_out_limit_sat = next_splice_out_limit_sat.saturating_sub(1);
 			if next_splice_out_limit_sat == 0 {
-				break;
+				break false;
 			}
 		} else {
-			break;
+			break false;
 		}
-	}
+		if count > 10_000 {
+			dbg!("Exhausted the tries!");
+			break true;
+		} else {
+			count += 1;
+		}
+	};
 	let estimate = {
 		let local_balance_before_fee_sat = local_balance_before_fee_msat / 1000;
 		dbg!(local_balance_before_fee_sat);
 		dbg!(post_splice_min_balance_sat);
 		dbg!(channel_value_satoshis);
-		let x = local_balance_before_fee_sat.saturating_mul(100).saturating_add(100).saturating_sub(post_splice_min_balance_sat.saturating_mul(100)).saturating_sub(channel_value_satoshis) / 99;
+		let mut x = local_balance_before_fee_sat.saturating_mul(100).saturating_add(100).saturating_sub(post_splice_min_balance_sat.saturating_mul(100)).saturating_sub(channel_value_satoshis);
+		x = if x % 99 == 0 {
+			(x / 99).saturating_sub(1)
+		} else {
+			x / 99
+		};
 		dbg!(x);
-		assert_eq!(local_balance_before_fee_sat.saturating_sub(x), channel_value_satoshis.saturating_sub(x) / 100 + post_splice_min_balance_sat);
+		if x != 0 {
+			assert_eq!(local_balance_before_fee_sat.saturating_sub(x), channel_value_satoshis.saturating_sub(x) / 100 + post_splice_min_balance_sat);
+		}
 		let y = local_balance_before_fee_sat.saturating_sub(channel_constraints.holder_dust_limit_satoshis).saturating_sub(post_splice_min_balance_sat);
-		cmp::min(x, y)
+		dbg!(y);
+		if channel_constraints.counterparty_selected_channel_reserve_satoshis != 0 {
+			cmp::min(x, y)
+		} else {
+			local_balance_before_fee_sat.checked_sub(post_splice_min_balance_sat).unwrap()
+		}
 	};
-	assert!(estimate <= next_splice_out_limit_sat);
-	dbg!(estimate, next_splice_out_limit_sat);
-	assert!(estimate + 10_000 >= next_splice_out_limit_sat);
+	if !exhausted {
+		assert_eq!(estimate, next_splice_out_limit_sat);
+		dbg!(estimate, next_splice_out_limit_sat);
+		assert!(estimate + 10_000 >= next_splice_out_limit_sat);
+	}
 
 	if !has_output(
 		is_outbound_from_holder,
