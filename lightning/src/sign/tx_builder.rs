@@ -437,8 +437,14 @@ fn get_available_balances(
 		}
 	}
 	let estimate = {
-		let x = (local_balance_before_fee_msat / 1000).saturating_sub(channel_constraints.holder_dust_limit_satoshis).saturating_sub(post_splice_min_balance_sat);
-		let y = (local_balance_before_fee_msat / 10).saturating_sub(channel_value_satoshis).saturating_sub(100 * post_splice_min_balance_sat) / 99;
+		let local_balance_before_fee_sat = local_balance_before_fee_msat / 1000;
+		dbg!(local_balance_before_fee_sat);
+		dbg!(post_splice_min_balance_sat);
+		dbg!(channel_value_satoshis);
+		let x = local_balance_before_fee_sat.saturating_mul(100).saturating_add(100).saturating_sub(post_splice_min_balance_sat.saturating_mul(100)).saturating_sub(channel_value_satoshis) / 99;
+		dbg!(x);
+		assert_eq!(local_balance_before_fee_sat.saturating_sub(x), channel_value_satoshis.saturating_sub(x) / 100 + post_splice_min_balance_sat);
+		let y = local_balance_before_fee_sat.saturating_sub(channel_constraints.holder_dust_limit_satoshis).saturating_sub(post_splice_min_balance_sat);
 		cmp::min(x, y)
 	};
 	assert!(estimate <= next_splice_out_limit_sat);
