@@ -420,13 +420,20 @@ fn get_available_balances(
 	let exhausted = loop {
 		use crate::ln::channel::get_v2_channel_reserve_satoshis;
 		let new_value_sat = channel_value_satoshis.saturating_sub(next_splice_out_limit_sat);
-		let post_splice_counterparty_selected_reserve_satoshis = get_v2_channel_reserve_satoshis(
+		let mut post_splice_counterparty_selected_reserve_satoshis = get_v2_channel_reserve_satoshis(
 			new_value_sat,
 			channel_constraints.holder_dust_limit_satoshis,
 			channel_constraints.counterparty_selected_channel_reserve_satoshis == 0,
 		);
+		if channel_constraints.counterparty_selected_channel_reserve_satoshis != 0 {
+			post_splice_counterparty_selected_reserve_satoshis = core::cmp::max(channel_constraints.holder_dust_limit_satoshis, post_splice_counterparty_selected_reserve_satoshis);
+		}
 		dbg!(channel_constraints.holder_dust_limit_satoshis);
 		dbg!(channel_constraints.counterparty_selected_channel_reserve_satoshis);
+		dbg!(local_balance_before_fee_msat / 1000);
+		dbg!(next_splice_out_limit_sat);
+		dbg!(post_splice_min_balance_sat);
+		dbg!(post_splice_counterparty_selected_reserve_satoshis);
 		if (local_balance_before_fee_msat / 1000).saturating_sub(next_splice_out_limit_sat)
 			< post_splice_min_balance_sat.saturating_add(post_splice_counterparty_selected_reserve_satoshis)
 		{
@@ -438,7 +445,7 @@ fn get_available_balances(
 		} else {
 			break false;
 		}
-		if count > 10_000 {
+		if count > 3_000 {
 			dbg!("Exhausted the tries!");
 			break true;
 		} else {
@@ -471,7 +478,6 @@ fn get_available_balances(
 	if !exhausted {
 		assert_eq!(estimate, next_splice_out_limit_sat);
 		dbg!(estimate, next_splice_out_limit_sat);
-		assert!(estimate + 10_000 >= next_splice_out_limit_sat);
 	}
 
 	if !has_output(
