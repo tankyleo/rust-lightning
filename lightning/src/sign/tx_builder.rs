@@ -365,7 +365,8 @@ fn get_next_splice_out_maximum_sat(
 				channel_value_satoshis,
 				channel_constraints.holder_dust_limit_satoshis,
 				false,
-			);
+			)
+			.unwrap();
 			// If the holder cannot splice out anything, they must be at or
 			// below the v2 reserve
 			debug_assert!(current_balance_sat <= v2_reserve_sat);
@@ -374,7 +375,8 @@ fn get_next_splice_out_maximum_sat(
 				channel_value_satoshis.saturating_sub(max_splice_out_sat),
 				channel_constraints.holder_dust_limit_satoshis,
 				false,
-			);
+			)
+			.unwrap();
 			// If the holder can splice out some maximum, splicing out that
 			// maximum lands them at exactly the new v2 reserve + the
 			// `post_splice_delta_above_reserve_sat`
