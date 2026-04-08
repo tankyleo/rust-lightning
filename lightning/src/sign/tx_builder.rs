@@ -9,7 +9,7 @@ use crate::ln::chan_utils::{
 	second_stage_tx_fees_sat, ChannelTransactionParameters, CommitmentTransaction,
 	HTLCOutputInCommitment,
 };
-use crate::ln::channel::{CommitmentStats, ANCHOR_OUTPUT_VALUE_SATOSHI};
+use crate::ln::channel::{get_v2_channel_reserve_satoshis, CommitmentStats, ANCHOR_OUTPUT_VALUE_SATOSHI};
 use crate::prelude::*;
 use crate::types::features::ChannelTypeFeatures;
 use crate::util::logger::Logger;
@@ -315,7 +315,7 @@ fn get_next_commitment_stats(
 	})
 }
 
-fn get_next_splice_out_max(
+fn get_next_splice_out_maximum_sat(
 	is_outbound_from_holder: bool, channel_value_satoshis: u64, local_balance_before_fee_msat: u64,
 	remote_balance_before_fee_msat: u64, spiked_feerate: u32, local_nondust_htlc_count: usize,
 	local_min_commit_tx_fee_sat: u64, channel_constraints: &ChannelConstraints,
@@ -324,26 +324,40 @@ fn get_next_splice_out_max(
 	let post_splice_min_balance_sat =
 		if is_outbound_from_holder { local_min_commit_tx_fee_sat } else { 0 };
 	let local_balance_before_fee_sat = local_balance_before_fee_msat / 1000;
-	let dividend = local_balance_before_fee_sat
-		.saturating_mul(100)
-		.saturating_add(100)
-		.saturating_sub(post_splice_min_balance_sat.saturating_mul(100))
-		.saturating_sub(channel_value_satoshis);
-	let percent_max_splice_out_sat =
-		if dividend % 99 == 0 { (dividend / 99).saturating_sub(1) } else { dividend / 99 };
-	let dust_limit_max_splice_out_sat = local_balance_before_fee_sat
-		.saturating_sub(channel_constraints.holder_dust_limit_satoshis)
-		.saturating_sub(post_splice_min_balance_sat);
-	let mut next_splice_out_maximum =
+	let mut next_splice_out_maximum_sat =
 		if channel_constraints.counterparty_selected_channel_reserve_satoshis != 0 {
-			cmp::min(percent_max_splice_out_sat, dust_limit_max_splice_out_sat)
+			let dividend = local_balance_before_fee_sat
+				.saturating_mul(100)
+				.saturating_add(100)
+				.saturating_sub(post_splice_min_balance_sat.saturating_mul(100))
+				.saturating_sub(channel_value_satoshis);
+			let percent_max_splice_out_sat = dividend.saturating_sub(1) / 99;
+			let dust_limit_max_splice_out_sat = local_balance_before_fee_sat
+				.saturating_sub(channel_constraints.holder_dust_limit_satoshis)
+				.saturating_sub(post_splice_min_balance_sat);
+			let splice_out_max_sat = cmp::min(percent_max_splice_out_sat, dust_limit_max_splice_out_sat);
+			#[cfg(debug_assertions)]
+			if splice_out_max_sat == 0 {
+				let current_balance_sat = local_balance_before_fee_sat.saturating_sub(if is_outbound_from_holder { local_min_commit_tx_fee_sat } else { 0 });
+				let v2_reserve_sat = get_v2_channel_reserve_satoshis(channel_value_satoshis, channel_constraints.holder_dust_limit_satoshis, false);
+				debug_assert!(current_balance_sat <= channel_constraints.counterparty_selected_channel_reserve_satoshis || current_balance_sat <= v2_reserve_sat);
+			} else {
+				let post_splice_reserve_sat = get_v2_channel_reserve_satoshis(channel_value_satoshis - splice_out_max_sat, channel_constraints.holder_dust_limit_satoshis, false);
+				debug_assert_eq!(local_balance_before_fee_sat - splice_out_max_sat, post_splice_reserve_sat + post_splice_min_balance_sat);
+				if local_balance_before_fee_sat - splice_out_max_sat > channel_constraints.holder_dust_limit_satoshis {
+					let offline_splice_out_sat = splice_out_max_sat + 1;
+					let post_splice_reserve_sat = get_v2_channel_reserve_satoshis(channel_value_satoshis - offline_splice_out_sat, channel_constraints.holder_dust_limit_satoshis, false);
+					debug_assert!(local_balance_before_fee_sat - offline_splice_out_sat < post_splice_reserve_sat + post_splice_min_balance_sat);
+				}
+			}
+			splice_out_max_sat
 		} else {
-			local_balance_before_fee_sat.checked_sub(post_splice_min_balance_sat).unwrap()
+			local_balance_before_fee_sat.saturating_sub(post_splice_min_balance_sat)
 		};
 
 	if !has_output(
 		is_outbound_from_holder,
-		local_balance_before_fee_msat.saturating_sub(next_splice_out_maximum * 1000),
+		local_balance_before_fee_msat.saturating_sub(next_splice_out_maximum_sat * 1000),
 		remote_balance_before_fee_msat,
 		spiked_feerate,
 		local_nondust_htlc_count,
@@ -353,13 +367,13 @@ fn get_next_splice_out_max(
 		let dust_limit_satoshis = channel_constraints.holder_dust_limit_satoshis;
 		let current_spiked_tx_fee_sat = commit_tx_fee_sat(spiked_feerate, 0, channel_type);
 		let min_balance_sat = if is_outbound_from_holder {
-			dust_limit_satoshis + current_spiked_tx_fee_sat
+			dust_limit_satoshis.saturating_add(current_spiked_tx_fee_sat)
 		} else {
 			dust_limit_satoshis
 		};
-		next_splice_out_maximum = local_balance_before_fee_msat / 1000 - min_balance_sat;
+		next_splice_out_maximum_sat = (local_balance_before_fee_msat / 1000).saturating_sub(min_balance_sat);
 	}
-	next_splice_out_maximum
+	next_splice_out_maximum_sat
 }
 
 fn get_available_balances(
@@ -457,7 +471,7 @@ fn get_available_balances(
 			total_anchors_sat.saturating_mul(1000),
 		);
 
-	let next_splice_out_maximum_sat = get_next_splice_out_max(
+	let next_splice_out_maximum_sat = get_next_splice_out_maximum_sat(
 		is_outbound_from_holder,
 		channel_value_satoshis,
 		local_balance_before_fee_msat,
