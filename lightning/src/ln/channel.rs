@@ -12577,12 +12577,10 @@ where
 			// For splice-out, our_funding_contribution is adjusted to cover fees if there
 			// aren't any inputs.
 			let our_funding_contribution = contribution.net_value();
-			self.validate_splice_contributions(
-				our_funding_contribution,
-				SignedAmount::ZERO,
-				self.funding.get_counterparty_pubkeys().funding_pubkey,
-				self.funding.get_holder_pubkeys().clone(),
-			)
+			let next_splice_out_maximum = self.get_next_splice_out_maximum(&self.funding)?;
+			let unsigned_contribution = our_funding_contribution.unsigned_abs();
+			next_splice_out_maximum.to_sat().checked_add_signed(our_funding_contribution.to_sat())
+				.ok_or(format!("Our splice-out value of {unsigned_contribution} is greater than the maximum {next_splice_out_maximum}"))
 		}) {
 			log_error!(logger, "Channel {} cannot be funded: {}", self.context.channel_id(), e);
 
@@ -14210,12 +14208,10 @@ where
 					// the user can reclaim their inputs.
 					if let Err(e) = contribution.validate().and_then(|()| {
 						let our_funding_contribution = contribution.net_value();
-						self.validate_splice_contributions(
-							our_funding_contribution,
-							SignedAmount::ZERO,
-							self.funding.get_counterparty_pubkeys().funding_pubkey,
-							self.funding.get_holder_pubkeys().clone(),
-						)
+						let next_splice_out_maximum = self.get_next_splice_out_maximum(&self.funding)?;
+						let unsigned_contribution = our_funding_contribution.unsigned_abs();
+						next_splice_out_maximum.to_sat().checked_add_signed(our_funding_contribution.to_sat())
+							.ok_or(format!("Our splice-out value of {unsigned_contribution} is greater than the maximum {next_splice_out_maximum}"))
 					}) {
 						let failed = self.splice_funding_failed_for(contribution);
 						return Err((
