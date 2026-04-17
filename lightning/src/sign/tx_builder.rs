@@ -453,6 +453,17 @@ fn get_available_balances(
 			1
 		});
 
+	let local_nondust_htlc_count = pending_htlcs
+		.iter()
+		.filter(|htlc| {
+			!htlc.is_dust(
+				true,
+				feerate_per_kw,
+				channel_constraints.holder_dust_limit_satoshis,
+				channel_type,
+			)
+		})
+		.count();
 	let local_spiked_nondust_htlc_count = pending_htlcs
 		.iter()
 		.filter(|htlc| {
@@ -464,14 +475,18 @@ fn get_available_balances(
 			)
 		})
 		.count();
+
+	// Note here we use the htlc count at the current feerate together with the spiked feerate;
+	// this makes sure that the holder can afford any fee bump between 1x to 2x from the current
+	// feerate.
 	let local_max_commit_tx_fee_sat = commit_tx_fee_sat(
 		spiked_feerate,
-		local_spiked_nondust_htlc_count + fee_spike_buffer_htlc + 1,
+		local_nondust_htlc_count + fee_spike_buffer_htlc + 1,
 		channel_type,
 	);
 	let local_min_commit_tx_fee_sat = commit_tx_fee_sat(
 		spiked_feerate,
-		local_spiked_nondust_htlc_count + fee_spike_buffer_htlc,
+		local_nondust_htlc_count + fee_spike_buffer_htlc,
 		channel_type,
 	);
 	let (local_dust_exposure_msat, _) = get_dust_exposure_stats(
