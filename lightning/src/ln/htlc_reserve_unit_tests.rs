@@ -1052,10 +1052,10 @@ pub fn test_chan_reserve_dust_inbound_htlcs_outbound_chan() {
 		get_holder_selected_channel_reserve_satoshis(100_000, 0, &default_config, false) * 1000;
 	create_announced_chan_between_nodes_with_value(&nodes, 0, 1, 100000, push_amt);
 
-	let (htlc_success_tx_fee_sat, _) =
+	let (_htlc_success_tx_fee_sat, htlc_timeout_tx_fee_sat) =
 		second_stage_tx_fees_sat(&channel_type_features, feerate_per_kw);
 	let dust_amt = crate::ln::channel::MIN_CHAN_DUST_LIMIT_SATOSHIS * 1000
-		+ htlc_success_tx_fee_sat * 1000
+		+ htlc_timeout_tx_fee_sat * 1000
 		- 1;
 	// In the previous code, routing this dust payment would cause nodes[0] to perceive a channel
 	// reserve violation even though it's a dust HTLC and therefore shouldn't count towards the
