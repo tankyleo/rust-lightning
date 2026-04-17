@@ -373,6 +373,50 @@ fn adjust_capacity_for_reserved_fee(
 	}
 }
 
+fn adjust_capacity_for_counterparty_reserved_fee(
+	outbound_capacity_msat: u64,
+	remote_balance_before_fee_msat: u64,
+	pending_htlcs: &[HTLCAmountDirection],
+	feerate_per_kw: u32,
+	channel_constraints: &ChannelConstraints,
+	channel_type: &ChannelTypeFeatures,
+) -> u64 {
+	let (real_htlc_success_tx_fee_sat, _real_htlc_timeout_tx_fee_sat) =
+		second_stage_tx_fees_sat(channel_type, feerate_per_kw);
+
+	let remote_nondust_htlc_count = pending_htlcs
+		.iter()
+		.filter(|htlc| {
+			!htlc.is_dust(
+				false,
+				feerate_per_kw,
+				channel_constraints.counterparty_dust_limit_satoshis,
+				channel_type,
+			)
+		})
+		.count();
+	let remote_commit_tx_fee_sat =
+		commit_tx_fee_sat(feerate_per_kw, remote_nondust_htlc_count + 1, channel_type);
+
+	// If the channel is inbound (i.e. counterparty pays the fee), we need to make sure
+	// sending a new HTLC won't reduce their balance below our reserve threshold.
+	let real_dust_limit_success_sat =
+		real_htlc_success_tx_fee_sat + channel_constraints.counterparty_dust_limit_satoshis;
+	let max_reserved_commit_tx_fee_msat = remote_commit_tx_fee_sat * 1000;
+
+	let holder_selected_chan_reserve_msat =
+		channel_constraints.holder_selected_channel_reserve_satoshis * 1000;
+	if remote_balance_before_fee_msat
+		< max_reserved_commit_tx_fee_msat + holder_selected_chan_reserve_msat
+	{
+		// If another HTLC's fee would reduce the remote's balance below the reserve limit
+		// we've selected for them, we can only send dust HTLCs.
+		cmp::min(outbound_capacity_msat, real_dust_limit_success_sat * 1000 - 1)
+	} else {
+		outbound_capacity_msat
+	}
+}
+
 fn get_available_balances(
 	is_outbound_from_holder: bool, channel_value_satoshis: u64, value_to_holder_msat: u64,
 	pending_htlcs: &[HTLCAmountDirection], feerate_per_kw: u32,
@@ -398,19 +442,6 @@ fn get_available_balances(
 		channel_constraints.holder_dust_limit_satoshis,
 		channel_type,
 	);
-	let remote_nondust_htlc_count = pending_htlcs
-		.iter()
-		.filter(|htlc| {
-			!htlc.is_dust(
-				false,
-				feerate_per_kw,
-				channel_constraints.counterparty_dust_limit_satoshis,
-				channel_type,
-			)
-		})
-		.count();
-	let remote_commit_tx_fee_sat =
-		commit_tx_fee_sat(feerate_per_kw, remote_nondust_htlc_count + 1, channel_type);
 	let (remote_dust_exposure_msat, extra_htlc_remote_dust_exposure_msat) = get_dust_exposure_stats(
 		false,
 		pending_htlcs,
@@ -439,9 +470,6 @@ fn get_available_balances(
 	let outbound_capacity_msat = local_balance_before_fee_msat
 		.saturating_sub(channel_constraints.counterparty_selected_channel_reserve_satoshis * 1000);
 
-	let (real_htlc_success_tx_fee_sat, _real_htlc_timeout_tx_fee_sat) =
-		second_stage_tx_fees_sat(channel_type, feerate_per_kw);
-
 	let mut available_capacity_msat = if is_outbound_from_holder {
 		let local_max = adjust_capacity_for_reserved_fee(
 			true,
@@ -461,23 +489,14 @@ fn get_available_balances(
 		);
 		cmp::min(local_max, remote_max)
 	} else {
-		// If the channel is inbound (i.e. counterparty pays the fee), we need to make sure
-		// sending a new HTLC won't reduce their balance below our reserve threshold.
-		let real_dust_limit_success_sat =
-			real_htlc_success_tx_fee_sat + channel_constraints.counterparty_dust_limit_satoshis;
-		let max_reserved_commit_tx_fee_msat = remote_commit_tx_fee_sat * 1000;
-
-		let holder_selected_chan_reserve_msat =
-			channel_constraints.holder_selected_channel_reserve_satoshis * 1000;
-		if remote_balance_before_fee_msat
-			< max_reserved_commit_tx_fee_msat + holder_selected_chan_reserve_msat
-		{
-			// If another HTLC's fee would reduce the remote's balance below the reserve limit
-			// we've selected for them, we can only send dust HTLCs.
-			cmp::min(outbound_capacity_msat, real_dust_limit_success_sat * 1000 - 1)
-		} else {
-			outbound_capacity_msat
-		}
+		adjust_capacity_for_counterparty_reserved_fee(
+			outbound_capacity_msat,
+			remote_balance_before_fee_msat,
+			pending_htlcs,
+			feerate_per_kw,
+			&channel_constraints,
+			channel_type
+		)
 	};
 
 	let mut next_outbound_htlc_minimum_msat = channel_constraints.counterparty_htlc_minimum_msat;
