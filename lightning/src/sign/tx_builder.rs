@@ -315,7 +315,7 @@ fn get_next_commitment_stats(
 	})
 }
 
-fn adjust_capacity_for_reserved_fee(
+fn adjust_capacity_for_holder_reserved_fee(
 	local: bool, outbound_capacity_msat: u64, pending_htlcs: &[HTLCAmountDirection],
 	feerate_per_kw: u32, channel_constraints: &ChannelConstraints,
 	channel_type: &ChannelTypeFeatures,
@@ -471,7 +471,7 @@ fn get_available_balances(
 		.saturating_sub(channel_constraints.counterparty_selected_channel_reserve_satoshis * 1000);
 
 	let mut available_capacity_msat = if is_outbound_from_holder {
-		let local_max = adjust_capacity_for_reserved_fee(
+		let local_max = adjust_capacity_for_holder_reserved_fee(
 			true,
 			outbound_capacity_msat,
 			pending_htlcs,
@@ -479,7 +479,7 @@ fn get_available_balances(
 			&channel_constraints,
 			channel_type,
 		);
-		let remote_max = adjust_capacity_for_reserved_fee(
+		let remote_max = adjust_capacity_for_holder_reserved_fee(
 			false,
 			outbound_capacity_msat,
 			pending_htlcs,
