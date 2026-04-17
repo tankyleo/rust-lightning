@@ -536,27 +536,14 @@ fn get_available_balances(
 
 	// Now adjust our min and max size HTLC to make sure both the local and the remote commitments still have
 	// at least one output at the spiked feerate.
-
-	let remote_nondust_htlc_count = pending_htlcs
-		.iter()
-		.filter(|htlc| {
-			!htlc.is_dust(
-				false,
-				spiked_feerate,
-				channel_constraints.counterparty_dust_limit_satoshis,
-				channel_type,
-			)
-		})
-		.count();
-
 	let (next_outbound_htlc_minimum_msat, available_capacity_msat) =
 		adjust_boundaries_if_max_dust_htlc_produces_no_output(
 			true,
 			is_outbound_from_holder,
 			local_balance_before_fee_msat,
 			remote_balance_before_fee_msat,
-			local_nondust_htlc_count,
-			spiked_feerate,
+			pending_htlcs,
+			feerate_per_kw,
 			channel_constraints.holder_dust_limit_satoshis,
 			channel_type,
 			next_outbound_htlc_minimum_msat,
@@ -569,8 +556,8 @@ fn get_available_balances(
 			is_outbound_from_holder,
 			local_balance_before_fee_msat,
 			remote_balance_before_fee_msat,
-			remote_nondust_htlc_count,
-			spiked_feerate,
+			pending_htlcs,
+			feerate_per_kw,
 			channel_constraints.counterparty_dust_limit_satoshis,
 			channel_type,
 			next_outbound_htlc_minimum_msat,
@@ -588,10 +575,23 @@ fn get_available_balances(
 
 fn adjust_boundaries_if_max_dust_htlc_produces_no_output(
 	local: bool, is_outbound_from_holder: bool, holder_balance_before_fee_msat: u64,
-	counterparty_balance_before_fee_msat: u64, nondust_htlc_count: usize, spiked_feerate: u32,
-	dust_limit_satoshis: u64, channel_type: &ChannelTypeFeatures,
+	counterparty_balance_before_fee_msat: u64, pending_htlcs: &[HTLCAmountDirection],
+	feerate_per_kw: u32, dust_limit_satoshis: u64, channel_type: &ChannelTypeFeatures,
 	next_outbound_htlc_minimum_msat: u64, available_capacity_msat: u64,
 ) -> (u64, u64) {
+	// Note that the feerate is 0 in zero-fee commitment channels, so this statement is a noop
+	let spiked_feerate =
+		feerate_per_kw.saturating_mul(if !channel_type.supports_anchors_zero_fee_htlc_tx() {
+			crate::ln::channel::FEE_SPIKE_BUFFER_FEE_INCREASE_MULTIPLE as u32
+		} else {
+			1
+		});
+
+	let nondust_htlc_count = pending_htlcs
+		.iter()
+		.filter(|htlc| !htlc.is_dust(local, spiked_feerate, dust_limit_satoshis, channel_type))
+		.count();
+
 	// First, determine the biggest dust HTLC we could send
 	let (htlc_success_tx_fee_sat, htlc_timeout_tx_fee_sat) =
 		second_stage_tx_fees_sat(channel_type, spiked_feerate);
