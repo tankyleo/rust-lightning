@@ -349,7 +349,7 @@ fn get_available_balances(
 		.filter(|htlc| {
 			!htlc.is_dust(
 				true,
-				spiked_feerate,
+				feerate_per_kw,
 				channel_constraints.holder_dust_limit_satoshis,
 				channel_type,
 			)
