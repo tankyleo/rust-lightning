@@ -11,6 +11,7 @@ use crate::ln::channel::{
 	FEE_SPIKE_BUFFER_FEE_INCREASE_MULTIPLE, MIN_AFFORDABLE_HTLC_COUNT,
 	MIN_CHAN_DUST_LIMIT_SATOSHIS,
 };
+use crate::ln::channel_state::ChannelDetails;
 use crate::ln::channelmanager::{PaymentId, RAACommitmentOrder, TrustedChannelFeatures};
 use crate::ln::functional_test_utils::*;
 use crate::ln::msgs::{self, BaseMessageHandler, ChannelMessageHandler, MessageSendEvent};
@@ -3405,4 +3406,237 @@ fn test_0reserve_zero_conf_combined() {
 	assert_eq!(node_1_reserve, 1000);
 	assert_eq!(node_1_max_htlc, node_0_max_htlc - node_1_reserve * 1000);
 	send_payment(&nodes[1], &[&nodes[0]], node_1_max_htlc);
+}
+
+#[xtest(feature = "_externalize_tests")]
+fn test_0reserve_outbound_vs_available_capacity_outbound_htlc_limit() {
+	let mut config = test_default_channel_config();
+	config.channel_handshake_config.negotiate_anchors_zero_fee_htlc_tx = false;
+	config.channel_handshake_config.negotiate_anchor_zero_fee_commitments = false;
+
+	let chanmon_cfgs = create_chanmon_cfgs(2);
+	let node_cfgs = create_node_cfgs(2, &chanmon_cfgs);
+	config.channel_handshake_config.announced_channel_max_inbound_htlc_value_in_flight_percentage =
+		100;
+
+	let channel_type = ChannelTypeFeatures::only_static_remote_key();
+
+	let node_chanmgrs = create_node_chanmgrs(2, &node_cfgs, &[Some(config.clone()), Some(config)]);
+	let nodes = create_network(2, &node_cfgs, &node_chanmgrs);
+
+	let _node_a_id = nodes[0].node.get_our_node_id();
+	let _node_b_id = nodes[1].node.get_our_node_id();
+
+	const FEERATE: u32 = 253;
+	const MULTIPLE: u32 = FEE_SPIKE_BUFFER_FEE_INCREASE_MULTIPLE as u32;
+	const SPIKED_FEERATE: u32 = FEERATE * MULTIPLE;
+	const DUST_LIMIT_MSAT: u64 = 546 * 1000;
+	const CHANNEL_VALUE_MSAT: u64 = 10_000 * 1000;
+	const NODE_0_VALUE_TO_SELF_MSAT: u64 = 5000 * 1000;
+	const NODE_1_VALUE_TO_SELF_MSAT: u64 = 5000 * 1000;
+
+	// Find the HTLC amount that will be non-dust at the current feerate, but dust at the spiked feerate
+	const SPIKED_DUST_HTLC_MSAT: u64 = 880 * 1000;
+	const HTLC_SPIKE_DUST_LIMIT_MSAT: u64 = 881 * 1000;
+	let htlc_timeout_spike_tx_fee_msat =
+		second_stage_tx_fees_sat(&channel_type, SPIKED_FEERATE).1 * 1000;
+	assert_eq!(HTLC_SPIKE_DUST_LIMIT_MSAT, DUST_LIMIT_MSAT + htlc_timeout_spike_tx_fee_msat);
+
+	let real_htlc_timeout_tx_fee_msat = second_stage_tx_fees_sat(&channel_type, FEERATE).1 * 1000;
+	let real_htlc_timeout_dust_limit_msat = DUST_LIMIT_MSAT + real_htlc_timeout_tx_fee_msat;
+
+	let (channel_id, _funding_tx) = setup_0reserve_no_outputs_channels(
+		&nodes,
+		CHANNEL_VALUE_MSAT / 1000,
+		DUST_LIMIT_MSAT / 1000,
+	);
+	assert_eq!(nodes[0].node.list_channels()[0].channel_type.as_ref().unwrap(), &channel_type);
+
+	// Balance the channel so each side has 5_000 sats
+	send_payment(&nodes[0], &[&nodes[1]], NODE_1_VALUE_TO_SELF_MSAT);
+
+	let count_total_htlcs = |details: &ChannelDetails| {
+		details.pending_outbound_htlcs.len() + details.pending_inbound_htlcs.len()
+	};
+	let count_node_0_nondust_htlcs = || {
+		let mut txs = get_local_commitment_txn!(nodes[0], channel_id);
+		let commitment_tx = &txs[0];
+		commitment_tx
+			.output
+			.iter()
+			.filter(|output| output.value.to_sat() * 1000 == SPIKED_DUST_HTLC_MSAT)
+			.count()
+	};
+	let count_node_1_nondust_htlcs = || {
+		let mut txs = get_local_commitment_txn!(nodes[1], channel_id);
+		let commitment_tx = &txs[0];
+		commitment_tx
+			.output
+			.iter()
+			.filter(|output| output.value.to_sat() * 1000 == SPIKED_DUST_HTLC_MSAT)
+			.count()
+	};
+
+	// Sanity check
+	{
+		let reserved_fee_sat = commit_tx_fee_sat(SPIKED_FEERATE, 2, &channel_type);
+		let node_0_outbound_capacity_msat = NODE_0_VALUE_TO_SELF_MSAT;
+		let node_0_available_capacity_msat =
+			node_0_outbound_capacity_msat - reserved_fee_sat * 1000;
+		let node_0_details = &nodes[0].node.list_channels()[0];
+		assert_eq!(node_0_details.outbound_capacity_msat, node_0_outbound_capacity_msat);
+		assert_eq!(node_0_details.next_outbound_htlc_limit_msat, node_0_available_capacity_msat);
+		assert_eq!(count_total_htlcs(&node_0_details), 0);
+		assert_eq!(count_node_0_nondust_htlcs(), 0);
+	}
+
+	// Route 3 880sat HTLCs from node 0 to node 1
+	for i in 1..4 {
+		route_payment(&nodes[0], &[&nodes[1]], SPIKED_DUST_HTLC_MSAT);
+
+		let max_reserved_fee_msat = commit_tx_fee_sat(SPIKED_FEERATE, 2 + i, &channel_type) * 1000;
+		let node_0_outbound_capacity_msat =
+			NODE_0_VALUE_TO_SELF_MSAT - SPIKED_DUST_HTLC_MSAT * i as u64;
+		let node_0_available_capacity_msat = node_0_outbound_capacity_msat - max_reserved_fee_msat;
+		// Node 0 can send non-dust HTLCs throughout
+		assert!(node_0_available_capacity_msat >= HTLC_SPIKE_DUST_LIMIT_MSAT);
+		let node_0_details = &nodes[0].node.list_channels()[0];
+		assert_eq!(node_0_details.outbound_capacity_msat, node_0_outbound_capacity_msat);
+		assert_eq!(node_0_details.next_outbound_htlc_limit_msat, node_0_available_capacity_msat);
+		assert_eq!(count_total_htlcs(&node_0_details), i);
+		assert_eq!(count_node_0_nondust_htlcs(), i);
+	}
+
+	// Route one last 880sat HTLC, after which node 0 can only send dust HTLCs
+	route_payment(&nodes[0], &[&nodes[1]], SPIKED_DUST_HTLC_MSAT);
+
+	let node_0_details = &nodes[0].node.list_channels()[0];
+	let local_nondust_htlc_count = 4;
+	assert_eq!(count_total_htlcs(&node_0_details), local_nondust_htlc_count);
+	assert_eq!(count_node_0_nondust_htlcs(), local_nondust_htlc_count);
+
+	let node_0_outbound_capacity_msat =
+		NODE_0_VALUE_TO_SELF_MSAT - SPIKED_DUST_HTLC_MSAT * local_nondust_htlc_count as u64;
+	let node_0_details = &nodes[0].node.list_channels()[0];
+	assert_eq!(node_0_details.outbound_capacity_msat, node_0_outbound_capacity_msat);
+
+	// Node 0 can only send dust HTLCs
+	let min_reserved_fee_msat =
+		commit_tx_fee_sat(SPIKED_FEERATE, local_nondust_htlc_count + 1, &channel_type) * 1000;
+	let node_0_available_capacity_msat = node_0_outbound_capacity_msat - min_reserved_fee_msat;
+	let node_0_details = &nodes[0].node.list_channels()[0];
+	assert!(node_0_details.next_outbound_htlc_limit_msat < real_htlc_timeout_dust_limit_msat);
+	assert_eq!(node_0_details.next_outbound_htlc_limit_msat, node_0_available_capacity_msat);
+
+	// Route a dust HTLC, and confirm node 0's main output is now below its dust limit
+	let current_commit_tx_fee_msat =
+		commit_tx_fee_sat(FEERATE, local_nondust_htlc_count, &channel_type) * 1000;
+	let to_local_msat = NODE_0_VALUE_TO_SELF_MSAT
+		- SPIKED_DUST_HTLC_MSAT * local_nondust_htlc_count as u64
+		- current_commit_tx_fee_msat;
+	assert!(to_local_msat > DUST_LIMIT_MSAT);
+	assert!(to_local_msat - 600_000 < DUST_LIMIT_MSAT);
+	assert!(600_000 <= node_0_available_capacity_msat);
+
+	route_payment(&nodes[0], &[&nodes[1]], 600_000);
+
+	let node_0_balance_before_fee_msat =
+		NODE_0_VALUE_TO_SELF_MSAT - SPIKED_DUST_HTLC_MSAT * 4 - 600_000;
+	assert_eq!(
+		nodes[0].node.list_channels()[0].outbound_capacity_msat,
+		node_0_balance_before_fee_msat
+	);
+	assert_eq!(
+		nodes[0].node.list_channels()[0].next_outbound_htlc_limit_msat,
+		node_0_balance_before_fee_msat - min_reserved_fee_msat
+	);
+	assert_eq!(count_node_0_nondust_htlcs(), local_nondust_htlc_count);
+	assert_eq!(count_node_1_nondust_htlcs(), local_nondust_htlc_count);
+
+	// Route 4 880sat HTLCs from node 1 to node 0
+	for i in 1..5 {
+		route_payment(&nodes[1], &[&nodes[0]], SPIKED_DUST_HTLC_MSAT);
+
+		let node_1_outbound_capacity_msat =
+			NODE_1_VALUE_TO_SELF_MSAT - SPIKED_DUST_HTLC_MSAT * i as u64;
+		assert!(node_1_outbound_capacity_msat >= HTLC_SPIKE_DUST_LIMIT_MSAT);
+		let node_1_details = &nodes[1].node.list_channels()[0];
+		assert_eq!(node_1_details.outbound_capacity_msat, node_1_outbound_capacity_msat);
+		assert_eq!(node_1_details.next_outbound_htlc_limit_msat, node_1_outbound_capacity_msat);
+
+		// Sending the greatest dust HTLC still lands node 1's main output above its dust limit
+		assert!(
+			node_1_outbound_capacity_msat - (HTLC_SPIKE_DUST_LIMIT_MSAT - 1) >= DUST_LIMIT_MSAT
+		);
+
+		let nondust_htlc_count = 4 + i;
+		// At the current feerate, 880sat HTLCs are present on both commitments
+		assert_eq!(count_node_0_nondust_htlcs(), nondust_htlc_count);
+		assert_eq!(count_node_1_nondust_htlcs(), nondust_htlc_count);
+
+		// Node 0's outbound capacity does not budge, and its available capacity is 0
+		// TODO: Node 0 should really be rejecting HTLCs here, but it only checks against the spiked buffer
+		// if it is the fundee, and here it is the funder.
+		assert!(
+			node_0_balance_before_fee_msat
+				>= commit_tx_fee_sat(FEERATE, nondust_htlc_count, &channel_type)
+		);
+		assert_eq!(
+			nodes[0].node.list_channels()[0].outbound_capacity_msat,
+			node_0_balance_before_fee_msat
+		);
+		assert_eq!(nodes[0].node.list_channels()[0].next_outbound_htlc_limit_msat, 0);
+	}
+
+	// Route another 880sat HTLC
+	let (preimage, _hash, _secret, _id) =
+		route_payment(&nodes[1], &[&nodes[0]], SPIKED_DUST_HTLC_MSAT);
+
+	let node_1_outbound_capacity_msat = NODE_1_VALUE_TO_SELF_MSAT - 5 * SPIKED_DUST_HTLC_MSAT;
+	let node_1_details = &nodes[1].node.list_channels()[0];
+	assert_eq!(node_1_details.outbound_capacity_msat, node_1_outbound_capacity_msat);
+	// At this point, sending the greatest dust HTLC pushes node 1's main output below the dust limit
+	assert!(
+		node_1_outbound_capacity_msat.saturating_sub(HTLC_SPIKE_DUST_LIMIT_MSAT - 1)
+			< DUST_LIMIT_MSAT
+	);
+	// So we subtract the dust limit from node 1's outbound capacity to arrive at node 1's available capacity
+	let node_1_available_capacity_msat = node_1_outbound_capacity_msat - DUST_LIMIT_MSAT;
+	assert_eq!(
+		nodes[1].node.list_channels()[0].next_outbound_htlc_limit_msat,
+		node_1_available_capacity_msat
+	);
+
+	// A few sanity checks
+	let nondust_htlc_count = 9;
+	assert_eq!(count_node_0_nondust_htlcs(), nondust_htlc_count);
+	assert_eq!(count_node_1_nondust_htlcs(), nondust_htlc_count);
+	// Node 0, the funder, can still afford all the HTLCs on the commitments
+	let node_0_balance_before_fee_msat = nodes[0].node.list_channels()[0].outbound_capacity_msat;
+	assert!(
+		node_0_balance_before_fee_msat
+			>= commit_tx_fee_sat(FEERATE, nondust_htlc_count, &channel_type)
+	);
+
+	// Node 0 claims an 880sat HTLC, which brings its output back above its dust limit
+	claim_payment(&nodes[1], &[&nodes[0]], preimage);
+	let node_0_details = &nodes[0].node.list_channels()[0];
+	assert_eq!(
+		node_0_details.outbound_capacity_msat,
+		node_0_balance_before_fee_msat + SPIKED_DUST_HTLC_MSAT
+	);
+
+	// Node 1 is now free to withdraw all of its channel balance
+	let node_1_details = &nodes[1].node.list_channels()[0];
+	assert_eq!(node_1_details.outbound_capacity_msat, node_1_outbound_capacity_msat);
+	assert_eq!(
+		nodes[1].node.list_channels()[0].next_outbound_htlc_limit_msat,
+		node_1_outbound_capacity_msat
+	);
+
+	send_payment(&nodes[1], &[&nodes[0]], node_1_outbound_capacity_msat);
+
+	let node_1_details = &nodes[1].node.list_channels()[0];
+	assert_eq!(node_1_details.outbound_capacity_msat, 0);
+	assert_eq!(nodes[1].node.list_channels()[0].next_outbound_htlc_limit_msat, 0);
 }
