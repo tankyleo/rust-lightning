@@ -2337,7 +2337,7 @@ pub fn check_closed_broadcast(
 		.collect()
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct ExpectedCloseEvent {
 	pub channel_capacity_sats: Option<u64>,
 	pub channel_id: Option<ChannelId>,
@@ -2378,6 +2378,7 @@ pub fn check_closed_events(node: &Node, expected_close_events: &[ExpectedCloseEv
 		"{:?}",
 		events
 	);
+
 	for expected_event in expected_close_events {
 		assert!(events.iter().any(|e| matches!(
 			e,
