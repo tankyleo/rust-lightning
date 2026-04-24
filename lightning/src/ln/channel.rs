@@ -14922,35 +14922,22 @@ impl<SP: SignerProvider> OutboundV1Channel<SP> {
 			self.context.counterparty_next_commitment_transaction_number,
 			&self.context.counterparty_next_commitment_point.unwrap(), false, false, logger);
 		let counterparty_initial_commitment_tx = commitment_data.tx;
-		let signature = {
-			let channel_parameters = &self.funding.channel_transaction_parameters;
-			self.context
-				.holder_signer
-				.sign_counterparty_commitment(
-					channel_parameters,
-					&counterparty_initial_commitment_tx,
-					Vec::new(),
-					Vec::new(),
-					&self.context.secp_ctx,
-				)
-				.map(|(sig, _)| sig)
-				.ok()
-		};
+		let message = self.context.holder_signer.create_funding_created(
+			self.context.temporary_channel_id.unwrap(),
+			&self.funding.channel_transaction_parameters,
+			&counterparty_initial_commitment_tx,
+			&self.context.secp_ctx,
+		);
 
-		if signature.is_some() && self.context.signer_pending_funding {
+		if message.is_ok() && self.context.signer_pending_funding {
 			log_trace!(logger, "Counterparty commitment signature ready for funding_created message: clearing signer_pending_funding");
 			self.context.signer_pending_funding = false;
-		} else if signature.is_none() {
+		} else if message.is_err() {
 			log_trace!(logger, "funding_created awaiting signer; setting signer_pending_funding");
 			self.context.signer_pending_funding = true;
 		};
 
-		signature.map(|signature| msgs::FundingCreated {
-			temporary_channel_id: self.context.temporary_channel_id.unwrap(),
-			funding_txid: self.funding.channel_transaction_parameters.funding_outpoint.as_ref().unwrap().txid,
-			funding_output_index: self.funding.channel_transaction_parameters.funding_outpoint.as_ref().unwrap().index,
-			signature,
-		})
+		message.ok()
 	}
 
 	/// Updates channel state with knowledge of the funding transaction's txid/index, and generates

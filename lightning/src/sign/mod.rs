@@ -1767,6 +1767,31 @@ impl EcdsaChannelSigner for InMemorySigner {
 		})
 	}
 
+	fn create_funding_created(
+		&self, temporary_channel_id: ChannelId, channel_parameters: &ChannelTransactionParameters,
+		commitment_tx: &CommitmentTransaction, secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<crate::ln::msgs::FundingCreated, ()> {
+		let signature = self
+			.sign_counterparty_commitment(
+				channel_parameters,
+				commitment_tx,
+				Vec::new(),
+				Vec::new(),
+				secp_ctx,
+			)
+			.map(|(sig, _)| sig)?;
+
+		let funding_txid = channel_parameters.funding_outpoint.unwrap().txid;
+		let funding_output_index = channel_parameters.funding_outpoint.unwrap().index;
+
+		Ok(crate::ln::msgs::FundingCreated {
+			temporary_channel_id,
+			funding_txid,
+			funding_output_index,
+			signature,
+		})
+	}
+
 	fn sign_holder_commitment(
 		&self, channel_parameters: &ChannelTransactionParameters,
 		commitment_tx: &HolderCommitmentTransaction, secp_ctx: &Secp256k1<secp256k1::All>,
