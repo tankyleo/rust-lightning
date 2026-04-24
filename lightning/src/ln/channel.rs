@@ -14310,44 +14310,14 @@ where
 		);
 		let counterparty_commitment_tx = commitment_data.tx;
 
-		let (signature, htlc_signatures);
-
-		{
-			let res = self.context.holder_signer
-				.sign_counterparty_commitment(
-					&funding.channel_transaction_parameters,
-					&counterparty_commitment_tx,
-					commitment_data.inbound_htlc_preimages,
-					commitment_data.outbound_htlc_preimages,
-					&self.context.secp_ctx,
-				)
-				.map_err(|_| ChannelError::Ignore("Failed to get signatures for new commitment_signed".to_owned()))?;
-			signature = res.0;
-			htlc_signatures = res.1;
-
-			let trusted_tx = counterparty_commitment_tx.trust();
-			log_trace!(logger, "Signed remote commitment tx {} (txid {}) with redeemscript {} -> {}",
-				encode::serialize_hex(&trusted_tx.built_transaction().transaction),
-				&trusted_tx.txid(), encode::serialize_hex(&funding.get_funding_redeemscript()),
-				log_bytes!(signature.serialize_compact()[..]));
-
-			let counterparty_keys = trusted_tx.keys();
-			debug_assert_eq!(htlc_signatures.len(), trusted_tx.nondust_htlcs().len());
-			for (ref htlc_sig, ref htlc) in htlc_signatures.iter().zip(trusted_tx.nondust_htlcs()) {
-				log_trace!(logger, "Signed remote HTLC tx {} with redeemscript {} with pubkey {} -> {}",
-					encode::serialize_hex(&chan_utils::build_htlc_transaction(&trusted_tx.txid(), trusted_tx.negotiated_feerate_per_kw(), funding.get_holder_selected_contest_delay(), htlc, funding.get_channel_type(), &counterparty_keys.broadcaster_delayed_payment_key, &counterparty_keys.revocation_key)),
-					encode::serialize_hex(&chan_utils::get_htlc_redeemscript(&htlc, funding.get_channel_type(), &counterparty_keys)),
-					log_bytes!(counterparty_keys.broadcaster_htlc_key.to_public_key().serialize()),
-					log_bytes!(htlc_sig.serialize_compact()[..]));
-			}
-		}
-
-		Ok(msgs::CommitmentSigned {
-			channel_id: self.context.channel_id,
-			signature,
-			htlc_signatures,
-			funding_txid: funding.get_funding_txo().map(|funding_txo| funding_txo.txid),
-		})
+		self.context.holder_signer.create_commitment_signed(
+			self.context.channel_id,
+			&funding.channel_transaction_parameters,
+			&counterparty_commitment_tx,
+			commitment_data.inbound_htlc_preimages,
+			commitment_data.outbound_htlc_preimages,
+			&self.context.secp_ctx,
+		).map_err(|()| ChannelError::Ignore(String::from("Signer failed to create the commitment")))
 	}
 
 	/// Adds a pending outbound HTLC to this channel, and builds a new remote commitment

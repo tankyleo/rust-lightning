@@ -53,6 +53,7 @@ use crate::ln::channel_keys::{
 use crate::ln::inbound_payment::ExpandedKey;
 use crate::ln::msgs::{UnsignedChannelAnnouncement, UnsignedGossipMessage};
 use crate::ln::script::ShutdownScript;
+use crate::ln::types::ChannelId;
 use crate::offers::invoice::UnsignedBolt12Invoice;
 use crate::types::features::ChannelTypeFeatures;
 use crate::types::payment::PaymentPreimage;
@@ -1737,6 +1738,33 @@ impl EcdsaChannelSigner for InMemorySigner {
 		}
 
 		Ok((commitment_sig, htlc_sigs))
+	}
+
+	fn create_commitment_signed(
+		&self, channel_id: ChannelId, channel_parameters: &ChannelTransactionParameters,
+		commitment_tx: &CommitmentTransaction, inbound_htlc_preimages: Vec<PaymentPreimage>,
+		outbound_htlc_preimages: Vec<PaymentPreimage>, secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<crate::ln::msgs::CommitmentSigned, ()> {
+		let signature;
+		let htlc_signatures;
+		let res = self.sign_counterparty_commitment(
+			channel_parameters,
+			commitment_tx,
+			inbound_htlc_preimages,
+			outbound_htlc_preimages,
+			secp_ctx,
+		)?;
+		signature = res.0;
+		htlc_signatures = res.1;
+
+		let txid = channel_parameters.funding_outpoint.unwrap().txid;
+
+		Ok(crate::ln::msgs::CommitmentSigned {
+			channel_id,
+			signature,
+			htlc_signatures,
+			funding_txid: Some(txid),
+		})
 	}
 
 	fn sign_holder_commitment(

@@ -11,6 +11,7 @@ use crate::ln::chan_utils::{
 	HTLCOutputInCommitment, HolderCommitmentTransaction,
 };
 use crate::ln::msgs::UnsignedChannelAnnouncement;
+use crate::ln::types::ChannelId;
 use crate::types::payment::PaymentPreimage;
 
 #[allow(unused_imports)]
@@ -58,6 +59,13 @@ pub trait EcdsaChannelSigner: ChannelSigner {
 		commitment_tx: &CommitmentTransaction, inbound_htlc_preimages: Vec<PaymentPreimage>,
 		outbound_htlc_preimages: Vec<PaymentPreimage>, secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<(Signature, Vec<Signature>), ()>;
+
+	/// Create the commitment signed message
+	fn create_commitment_signed(
+		&self, channel_id: ChannelId, channel_parameters: &ChannelTransactionParameters,
+		commitment_tx: &CommitmentTransaction, inbound_htlc_preimages: Vec<PaymentPreimage>,
+		outbound_htlc_preimages: Vec<PaymentPreimage>, secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<crate::ln::msgs::CommitmentSigned, ()>;
 	/// Creates a signature for a holder's commitment transaction.
 	///
 	/// This will be called
