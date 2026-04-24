@@ -6412,9 +6412,9 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 		}
 	}
 
-	fn get_initial_counterparty_commitment_signatures<L: Logger>(
-		&self, funding: &FundingScope, logger: &L,
-	) -> Option<(Signature, Vec<Signature>)> {
+	fn get_initial_commitment_signed_v2<L: Logger>(
+		&mut self, funding: &FundingScope, logger: &L,
+	) -> Option<msgs::CommitmentSigned> {
 		let mut commitment_number = self.counterparty_next_commitment_transaction_number;
 		let mut commitment_point = self.counterparty_next_commitment_point.unwrap();
 
@@ -6423,7 +6423,6 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 			commitment_number += 1;
 			commitment_point = self.counterparty_current_commitment_point.unwrap();
 		}
-
 		let commitment_data = self.build_commitment_transaction(
 			funding,
 			commitment_number,
@@ -6433,35 +6432,25 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 			logger,
 		);
 		let counterparty_initial_commitment_tx = commitment_data.tx;
-		let channel_parameters = &funding.channel_transaction_parameters;
-		self.holder_signer
-			.sign_counterparty_commitment(
-				channel_parameters,
+		let msg = self
+			.holder_signer
+			.create_commitment_signed(
+				self.channel_id,
+				&funding.channel_transaction_parameters,
 				&counterparty_initial_commitment_tx,
 				Vec::new(),
 				Vec::new(),
 				&self.secp_ctx,
 			)
-			.ok()
-	}
-
-	fn get_initial_commitment_signed_v2<L: Logger>(
-		&mut self, funding: &FundingScope, logger: &L,
-	) -> Option<msgs::CommitmentSigned> {
-		let signatures = self.get_initial_counterparty_commitment_signatures(funding, logger);
-		if let Some((signature, htlc_signatures)) = signatures {
+			.ok();
+		if let Some(msg) = msg {
 			log_info!(logger, "Generated commitment_signed for peer",);
 			if matches!(self.channel_state, ChannelState::FundingNegotiated(_)) {
 				// We shouldn't expect any HTLCs before `ChannelReady`.
-				debug_assert!(htlc_signatures.is_empty());
+				debug_assert!(msg.htlc_signatures.is_empty());
 			}
 			self.signer_pending_funding = false;
-			Some(msgs::CommitmentSigned {
-				channel_id: self.channel_id,
-				htlc_signatures,
-				signature,
-				funding_txid: funding.get_funding_txo().map(|funding_txo| funding_txo.txid),
-			})
+			Some(msg)
 		} else {
 			log_debug!(
 				logger,
