@@ -2675,20 +2675,6 @@ impl FundingScope {
 		self.channel_transaction_parameters.funding_outpoint
 	}
 
-	/// Gets the funding output for this channel, if available.
-	///
-	/// When a channel is spliced, this continues to refer to the original funding output (which
-	/// was spent by the splice transaction) until the splice transaction reaches sufficient
-	/// confirmations to be locked (and we exchange `splice_locked` messages with our peer).
-	pub fn get_funding_output(&self) -> Option<TxOut> {
-		self.channel_transaction_parameters.make_funding_redeemscript_opt().map(|redeem_script| {
-			TxOut {
-				value: Amount::from_sat(self.get_value_satoshis()),
-				script_pubkey: redeem_script.to_p2wsh(),
-			}
-		})
-	}
-
 	fn get_funding_txid(&self) -> Option<Txid> {
 		self.channel_transaction_parameters.funding_outpoint.map(|txo| txo.txid)
 	}
@@ -3699,6 +3685,17 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 		self.holder_signer
 			.get_funding_script_pubkey(&funding.channel_transaction_parameters, &self.secp_ctx)
 			.unwrap()
+	}
+	pub fn get_funding_output(&self, funding: &FundingScope) -> TxOut {
+		// TODO: fix this unwrap
+		let spk = self
+			.holder_signer
+			.get_funding_script_pubkey(&funding.channel_transaction_parameters, &self.secp_ctx)
+			.unwrap();
+
+		let value = funding.get_value_satoshis();
+
+		TxOut { value: Amount::from_sat(value), script_pubkey: spk }
 	}
 	fn new_for_inbound_channel<'a, ES: EntropySource, F: FeeEstimator, L: Logger>(
 		fee_estimator: &'a LowerBoundedFeeEstimator<F>, entropy_source: &'a ES,
@@ -12924,8 +12921,7 @@ where
 		};
 
 		let funding_txo = self.funding.get_funding_txo().expect("funding_txo should be set");
-		let previous_utxo =
-			self.funding.get_funding_output().expect("funding_output should be set");
+		let previous_utxo = self.context.get_funding_output(&self.funding);
 		let shared_input = Input {
 			outpoint: funding_txo.into_bitcoin_outpoint(),
 			previous_utxo,
