@@ -193,6 +193,13 @@ impl ChannelSigner for TestChannelSigner {
 		self.inner.get_per_commitment_point(idx, secp_ctx)
 	}
 
+	fn get_funding_script_pubkey(
+		&self, channel_parameters: &ChannelTransactionParameters,
+		secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<bitcoin::ScriptBuf, ()> {
+		self.inner.get_funding_script_pubkey(channel_parameters, secp_ctx)
+	}
+
 	fn release_commitment_secret(&self, idx: u64) -> Result<[u8; 32], ()> {
 		#[cfg(any(test, feature = "_test_utils"))]
 		if !self.is_signer_available(SignerOp::ReleaseCommitmentSecret) {
@@ -303,6 +310,30 @@ impl EcdsaChannelSigner for TestChannelSigner {
 				secp_ctx,
 			)
 			.unwrap())
+	}
+
+	fn create_commitment_signed(
+		&self, channel_id: crate::ln::types::ChannelId,
+		channel_parameters: &ChannelTransactionParameters, commitment_tx: &CommitmentTransaction,
+		inbound_htlc_preimages: Vec<PaymentPreimage>,
+		outbound_htlc_preimages: Vec<PaymentPreimage>, secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<crate::ln::msgs::CommitmentSigned, ()> {
+		self.inner.create_commitment_signed(
+			channel_id,
+			channel_parameters,
+			commitment_tx,
+			inbound_htlc_preimages,
+			outbound_htlc_preimages,
+			secp_ctx,
+		)
+	}
+
+	fn create_funding_created(
+		&self, channel_id: crate::ln::types::ChannelId,
+		channel_parameters: &ChannelTransactionParameters, commitment_tx: &CommitmentTransaction,
+		secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<crate::ln::msgs::FundingCreated, ()> {
+		self.inner.create_funding_created(channel_id, channel_parameters, commitment_tx, secp_ctx)
 	}
 
 	fn sign_holder_commitment(

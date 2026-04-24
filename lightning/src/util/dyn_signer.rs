@@ -69,6 +69,15 @@ delegate!(DynSigner, EcdsaChannelSigner, inner,
 		commitment_tx: &CommitmentTransaction, inbound_htlc_preimages: Vec<PaymentPreimage>,
 		outbound_htlc_preimages: Vec<PaymentPreimage>,
 		secp_ctx: &Secp256k1<secp256k1::All>) -> Result<(Signature, Vec<Signature>), ()>,
+	fn create_commitment_signed(
+		, channel_id: crate::ln::types::ChannelId, channel_parameters: &ChannelTransactionParameters,
+		commitment_tx: &CommitmentTransaction, inbound_htlc_preimages: Vec<PaymentPreimage>,
+		outbound_htlc_preimages: Vec<PaymentPreimage>, secp_ctx: &Secp256k1<secp256k1::All>
+	) -> Result<crate::ln::msgs::CommitmentSigned, ()>,
+	fn create_funding_created(
+		, channel_id: crate::ln::types::ChannelId, channel_parameters: &ChannelTransactionParameters,
+		commitment_tx: &CommitmentTransaction, secp_ctx: &Secp256k1<secp256k1::All>
+	) -> Result<crate::ln::msgs::FundingCreated, ()>,
 	fn sign_justice_revoked_output(, channel_parameters: &ChannelTransactionParameters,
 		justice_tx: &Transaction, input: usize, amount: u64, per_commitment_key: &SecretKey,
 		secp_ctx: &Secp256k1<secp256k1::All>) -> Result<Signature, ()>,
@@ -99,6 +108,10 @@ delegate!(DynSigner, ChannelSigner,
 		idx: u64,
 		secp_ctx: &Secp256k1<secp256k1::All>
 	) -> Result<PublicKey, ()>,
+	fn get_funding_script_pubkey(
+		, channel_parameters: &ChannelTransactionParameters,
+		secp_ctx: &Secp256k1<secp256k1::All>
+	) -> Result<ScriptBuf, ()>,
 	fn release_commitment_secret(, idx: u64) -> Result<[u8; 32], ()>,
 	fn validate_holder_commitment(,
 		channel_parameters: &ChannelTransactionParameters,
