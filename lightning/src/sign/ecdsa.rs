@@ -72,6 +72,12 @@ pub trait EcdsaChannelSigner: ChannelSigner {
 		&self, channel_id: ChannelId, channel_parameters: &ChannelTransactionParameters,
 		commitment_tx: &CommitmentTransaction, secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<crate::ln::msgs::FundingCreated, ()>;
+
+	/// Create the funding signed
+	fn create_funding_signed(
+		&self, channel_id: ChannelId, channel_parameters: &ChannelTransactionParameters,
+		commitment_tx: &CommitmentTransaction, secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<crate::ln::msgs::FundingSigned, ()>;
 	/// Creates a signature for a holder's commitment transaction.
 	///
 	/// This will be called

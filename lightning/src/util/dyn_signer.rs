@@ -78,6 +78,10 @@ delegate!(DynSigner, EcdsaChannelSigner, inner,
 		, channel_id: crate::ln::types::ChannelId, channel_parameters: &ChannelTransactionParameters,
 		commitment_tx: &CommitmentTransaction, secp_ctx: &Secp256k1<secp256k1::All>
 	) -> Result<crate::ln::msgs::FundingCreated, ()>,
+	fn create_funding_signed(
+		, channel_id: crate::ln::types::ChannelId, channel_parameters: &ChannelTransactionParameters,
+		commitment_tx: &CommitmentTransaction, secp_ctx: &Secp256k1<secp256k1::All>
+	) -> Result<crate::ln::msgs::FundingSigned, ()>,
 	fn sign_justice_revoked_output(, channel_parameters: &ChannelTransactionParameters,
 		justice_tx: &Transaction, input: usize, amount: u64, per_commitment_key: &SecretKey,
 		secp_ctx: &Secp256k1<secp256k1::All>) -> Result<Signature, ()>,

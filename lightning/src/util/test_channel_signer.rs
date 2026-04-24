@@ -336,6 +336,14 @@ impl EcdsaChannelSigner for TestChannelSigner {
 		self.inner.create_funding_created(channel_id, channel_parameters, commitment_tx, secp_ctx)
 	}
 
+	fn create_funding_signed(
+		&self, channel_id: crate::ln::types::ChannelId,
+		channel_parameters: &ChannelTransactionParameters, commitment_tx: &CommitmentTransaction,
+		secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<crate::ln::msgs::FundingSigned, ()> {
+		self.inner.create_funding_signed(channel_id, channel_parameters, commitment_tx, secp_ctx)
+	}
+
 	fn sign_holder_commitment(
 		&self, channel_parameters: &ChannelTransactionParameters,
 		commitment_tx: &HolderCommitmentTransaction, secp_ctx: &Secp256k1<secp256k1::All>,

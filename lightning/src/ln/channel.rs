@@ -6325,29 +6325,22 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 			&self.channel_id(), counterparty_initial_bitcoin_tx.txid, encode::serialize_hex(&counterparty_initial_bitcoin_tx.transaction));
 
 		// We sign "counterparty" commitment transaction, allowing them to broadcast the tx if they wish.
-		let signature = self
-			.holder_signer
-			.sign_counterparty_commitment(
-				channel_parameters,
-				&counterparty_initial_commitment_tx,
-				Vec::new(),
-				Vec::new(),
-				&self.secp_ctx,
-			)
-			.ok();
+		let msg = self.holder_signer.create_funding_signed(
+			self.channel_id(),
+			channel_parameters,
+			&counterparty_initial_commitment_tx,
+			&self.secp_ctx,
+		).ok();
 
-		if signature.is_some() && self.signer_pending_funding {
+		if msg.is_some() && self.signer_pending_funding {
 			log_trace!(logger, "Counterparty commitment signature available for funding_signed message; clearing signer_pending_funding");
 			self.signer_pending_funding = false;
-		} else if signature.is_none() {
+		} else if msg.is_none() {
 			log_trace!(logger, "Counterparty commitment signature not available for funding_signed message; setting signer_pending_funding");
 			self.signer_pending_funding = true;
 		}
 
-		signature.map(|(signature, _)| msgs::FundingSigned {
-			channel_id: self.channel_id(),
-			signature,
-		})
+		msg
 	}
 
 	/// If we receive an error message when attempting to open a channel, it may only be a rejection
