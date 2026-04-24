@@ -793,6 +793,12 @@ pub trait ChannelSigner {
 		secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<(), ()>;
 
+	/// Gets the script pubkey of the funding output for the channel
+	fn get_funding_script_pubkey(
+		&self, channel_parameters: &ChannelTransactionParameters,
+		secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<ScriptBuf, ()>;
+
 	/// Validate the counterparty's revocation.
 	///
 	/// This is required in order for the signer to make sure that the state has moved
@@ -1539,6 +1545,12 @@ impl EntropySource for InMemorySigner {
 }
 
 impl ChannelSigner for InMemorySigner {
+	fn get_funding_script_pubkey(
+		&self, channel_parameters: &ChannelTransactionParameters,
+		_secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<ScriptBuf, ()> {
+		Ok(channel_parameters.make_funding_redeemscript())
+	}
 	fn get_per_commitment_point(
 		&self, idx: u64, secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<PublicKey, ()> {

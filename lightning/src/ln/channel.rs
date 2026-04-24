@@ -3695,7 +3695,10 @@ impl<SP: SignerProvider> InitialRemoteCommitmentReceiver<SP> for FundedChannel<S
 
 impl<SP: SignerProvider> ChannelContext<SP> {
 	pub fn get_funding_spk(&self, funding: &FundingScope) -> ScriptBuf {
-		funding.channel_transaction_parameters.make_funding_redeemscript().to_p2wsh()
+		// TODO: fix this unwrap
+		self.holder_signer
+			.get_funding_script_pubkey(&funding.channel_transaction_parameters, &self.secp_ctx)
+			.unwrap()
 	}
 	fn new_for_inbound_channel<'a, ES: EntropySource, F: FeeEstimator, L: Logger>(
 		fee_estimator: &'a LowerBoundedFeeEstimator<F>, entropy_source: &'a ES,
