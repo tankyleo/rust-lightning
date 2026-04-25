@@ -21,7 +21,7 @@ use crate::ln::channel::{
 use crate::ln::channelmanager::{provided_init_features, PaymentId, BREAKDOWN_TIMEOUT};
 use crate::ln::functional_test_utils::*;
 use crate::ln::funding::FundingContribution;
-use crate::ln::msgs::{self, BaseMessageHandler, ChannelMessageHandler, MessageSendEvent};
+use crate::ln::msgs::{self, BaseMessageHandler, ChannelMessageHandler, MessageSendEvent, PartialSignatureWithNonce};
 use crate::ln::outbound_payment::RecipientOnionFields;
 use crate::ln::types::ChannelId;
 use crate::routing::router::{PaymentParameters, RouteParameters};
@@ -36,13 +36,14 @@ use crate::util::wallet_utils::{
 use crate::sync::Arc;
 
 use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::ecdsa::Signature;
 use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 use bitcoin::transaction::Version;
 use bitcoin::{
 	Amount, FeeRate, OutPoint as BitcoinOutPoint, Psbt, ScriptBuf, Transaction, TxOut, Txid,
 	WPubkeyHash,
 };
+
+use musig_secp::musig::{PartialSignature, PublicNonce};
 
 #[test]
 fn test_splicing_not_supported_api_error() {
@@ -2049,7 +2050,7 @@ fn do_test_splice_reestablish(reload: bool, async_monitor_update: bool) {
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
 	let prev_funding_outpoint = get_monitor!(nodes[0], channel_id).get_funding_txo();
-	let prev_funding_script = get_monitor!(nodes[0], channel_id).get_funding_script();
+	let prev_funding_script = get_monitor!(nodes[0], channel_id).get_funding_script(&Secp256k1::new());
 
 	// Keep a pending HTLC throughout the reestablish flow to make sure we can handle them.
 	route_payment(&nodes[0], &[&nodes[1]], 1_000_000);
@@ -2373,7 +2374,7 @@ fn do_test_propose_splice_while_disconnected(use_0conf: bool) {
 		.chain_monitor
 		.chain_monitor
 		.get_monitor(channel_id)
-		.map(|monitor| (monitor.get_funding_txo(), monitor.get_funding_script()))
+		.map(|monitor| (monitor.get_funding_txo(), monitor.get_funding_script(&Secp256k1::new())))
 		.unwrap();
 
 	// Negotiate the splice to completion. Node 1's quiescent action should be consumed by
@@ -3356,8 +3357,10 @@ fn test_splice_buffer_invalid_commitment_signed_closes_channel() {
 	let original_sig = acceptor_commit_sig.commitment_signed[0].signature;
 	let mut sig_bytes = original_sig.serialize_compact();
 	sig_bytes[0] ^= 0x01; // Flip a bit to corrupt the signature
+	let partial_signature = PartialSignature::from_byte_array((&sig_bytes[..32]).try_into().unwrap()).unwrap();
+	let public_nonce = PublicNonce::from_byte_array((&sig_bytes[32..]).try_into().unwrap()).unwrap();
 	acceptor_commit_sig.commitment_signed[0].signature =
-		Signature::from_compact(&sig_bytes).unwrap();
+		PartialSignatureWithNonce { partial_signature, public_nonce };
 
 	// Deliver the acceptor's invalid commitment_signed to the initiator BEFORE the initiator has
 	// called funding_transaction_signed. The message should be buffered, not processed.
