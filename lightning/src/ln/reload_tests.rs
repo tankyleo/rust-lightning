@@ -475,7 +475,7 @@ fn test_manager_serialize_deserialize_inconsistent_monitor() {
 		let txn = nodes[0].tx_broadcaster.txn_broadcasted.lock().unwrap();
 		assert_eq!(txn.len(), 1);
 		check_spends!(txn[0], funding_tx);
-		assert_eq!(txn[0].input[0].previous_output.txid, funding_tx.compute_txid());
+		assert_eq!(txn[0].inputs[0].previous_output.txid, funding_tx.compute_txid());
 	}
 	check_added_monitors(&nodes[0], 1);
 
@@ -1522,8 +1522,8 @@ fn test_reload_partial_funding_batch() {
 		let broadcasted_txs = nodes[0].tx_broadcaster.txn_broadcast();
 		assert_eq!(broadcasted_txs.len(), 1);
 		assert!(broadcasted_txs[0].compute_txid() != tx.compute_txid());
-		assert_eq!(broadcasted_txs[0].input.len(), 1);
-		assert_eq!(broadcasted_txs[0].input[0].previous_output.txid, tx.compute_txid());
+		assert_eq!(broadcasted_txs[0].inputs.len(), 1);
+		assert_eq!(broadcasted_txs[0].inputs[0].previous_output.txid, tx.compute_txid());
 	}
 
 	// Ensure the channels don't exist anymore.

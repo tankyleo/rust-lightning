@@ -11,7 +11,8 @@
 
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::{Amount, FeeRate, OutPoint, ScriptBuf, SignedAmount, TxOut, WScriptHash, Weight};
+use bitcoin::script::{ScriptPubKeyBuf as ScriptBuf, WScriptHash};
+use bitcoin::{Amount, FeeRate, OutPoint, SignedAmount, TxOut, Weight};
 
 use crate::ln::chan_utils::{
 	make_funding_redeemscript, BASE_INPUT_WEIGHT, EMPTY_SCRIPT_SIG_WEIGHT,
@@ -72,7 +73,7 @@ impl core::fmt::Display for FeeRateAdjustmentError {
 					f,
 					"Target feerate {} is below our minimum {}; \
 					 proceeding without contribution, will RBF later",
-					target_feerate, min_feerate,
+					target_feerate.to_sat_per_kwu_floor(), min_feerate.to_sat_per_kwu_floor(),
 				)
 			},
 			FeeRateAdjustmentError::FeeRateTooHigh {
@@ -84,7 +85,10 @@ impl core::fmt::Display for FeeRateAdjustmentError {
 				write!(
 					f,
 					"Target feerate {} exceeds our maximum {} and target fee {} exceeds original fee estimate {}",
-					target_feerate, max_feerate, target_fee, original_fee,
+					target_feerate.to_sat_per_kwu_floor(),
+					max_feerate.to_sat_per_kwu_floor(),
+					target_fee,
+					original_fee,
 				)
 			},
 			FeeRateAdjustmentError::FeeBufferOverflow => {
@@ -143,10 +147,20 @@ impl core::fmt::Display for FundingContributionError {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		match self {
 			FundingContributionError::FeeRateExceedsMaximum { feerate, max_feerate } => {
-				write!(f, "Feerate {} exceeds maximum {}", feerate, max_feerate)
+				write!(
+					f,
+					"Feerate {} exceeds maximum {}",
+					feerate.to_sat_per_kwu_floor(),
+					max_feerate.to_sat_per_kwu_floor()
+				)
 			},
 			FundingContributionError::FeeRateBelowRbfMinimum { feerate, min_rbf_feerate } => {
-				write!(f, "Feerate {} is below minimum RBF feerate {}", feerate, min_rbf_feerate)
+				write!(
+					f,
+					"Feerate {} is below minimum RBF feerate {}",
+					feerate.to_sat_per_kwu_floor(),
+					min_rbf_feerate.to_sat_per_kwu_floor()
+				)
 			},
 			FundingContributionError::InvalidSpliceValue => {
 				write!(f, "Invalid splice value (zero, empty, or exceeds limit)")
@@ -307,7 +321,7 @@ macro_rules! build_funding_contribution {
 
 		let mut value_removed = Amount::ZERO;
 		for txout in outputs.iter() {
-			value_removed = match value_removed.checked_add(txout.value) {
+			value_removed = match value_removed.checked_add(txout.amount) {
 				Some(sum) if sum <= Amount::MAX_MONEY => sum,
 				_ => return Err(FundingContributionError::InvalidSpliceValue),
 			};
@@ -324,9 +338,9 @@ macro_rules! build_funding_contribution {
 			let dummy_pubkey = PublicKey::from_slice(&[2; 33]).unwrap();
 
 			let shared_output = bitcoin::TxOut {
-				value: shared_input
+				amount: shared_input
 					.as_ref()
-					.map(|shared_input| shared_input.previous_utxo.value)
+					.map(|shared_input| shared_input.previous_utxo.amount)
 					.unwrap_or(Amount::ZERO)
 					.checked_add(value_added)
 					.ok_or(FundingContributionError::InvalidSpliceValue)?
@@ -339,10 +353,10 @@ macro_rules! build_funding_contribution {
 			let must_spend = shared_input.map(|input| vec![input]).unwrap_or_default();
 			if outputs.is_empty() {
 				let must_pay_to = &[shared_output];
-				$wallet.select_confirmed_utxos(claim_id, must_spend, must_pay_to, feerate.to_sat_per_kwu() as u32, u64::MAX)$(.$await)*.map_err(|_| FundingContributionError::CoinSelectionFailed)?
+				$wallet.select_confirmed_utxos(claim_id, must_spend, must_pay_to, feerate.to_sat_per_kwu_ceil() as u32, u64::MAX)$(.$await)*.map_err(|_| FundingContributionError::CoinSelectionFailed)?
 			} else {
 				let must_pay_to: Vec<_> = outputs.iter().cloned().chain(core::iter::once(shared_output)).collect();
-				$wallet.select_confirmed_utxos(claim_id, must_spend, &must_pay_to, feerate.to_sat_per_kwu() as u32, u64::MAX)$(.$await)*.map_err(|_| FundingContributionError::CoinSelectionFailed)?
+				$wallet.select_confirmed_utxos(claim_id, must_spend, &must_pay_to, feerate.to_sat_per_kwu_ceil() as u32, u64::MAX)$(.$await)*.map_err(|_| FundingContributionError::CoinSelectionFailed)?
 			}
 		};
 
@@ -642,10 +656,8 @@ fn estimate_transaction_fee(
 			//
 			// TODO(taproot): Needs to consider different weights based on channel type
 			.saturating_add(
-				get_output_weight(&ScriptBuf::new_p2wsh(&WScriptHash::from_raw_hash(
-					Hash::all_zeros(),
-				)))
-				.to_wu(),
+					get_output_weight(&ScriptBuf::new_p2wsh(WScriptHash::from_byte_array([0; 32])))
+					.to_wu(),
 			);
 
 		// The splice initiator pays for the input spending the previous funding output.
@@ -662,7 +674,7 @@ fn estimate_transaction_fee(
 		}
 	}
 
-	Weight::from_wu(weight) * feerate
+	feerate.to_fee(Weight::from_wu(weight))
 }
 
 /// The components of a funding transaction contributed by one party.
@@ -811,7 +823,7 @@ impl FundingContribution {
 			let mut total_input_value = Amount::ZERO;
 			for FundingTxInput { utxo, .. } in self.inputs.iter() {
 				total_input_value = total_input_value
-					.checked_add(utxo.output.value)
+					.checked_add(utxo.output.amount)
 					.ok_or("Sum of input values is greater than the total bitcoin supply")?;
 			}
 
@@ -845,7 +857,7 @@ impl FundingContribution {
 	/// transaction fields, the shared input, and the shared output, while the acceptor only pays
 	/// for their own contributed inputs and outputs.
 	///
-	/// On success, returns the new estimated fee and, if applicable, the new change output value:
+	/// On success, returns the new estimated fee and, if applicable, the new change output amount:
 	/// - `Some(change)` — the adjusted change output value
 	/// - `None` — no change output (no inputs or change fell below dust)
 	///
@@ -885,7 +897,7 @@ impl FundingContribution {
 
 		if !self.inputs.is_empty() {
 			if let Some(ref change_output) = self.change_output {
-				let old_change_value = change_output.value;
+				let old_change_value = change_output.amount;
 				let dust_limit = change_output.script_pubkey.minimal_non_dust();
 
 				// Target fee including the change output's weight.
@@ -942,9 +954,12 @@ impl FundingContribution {
 				// This is estimated_fee plus the coin selection surplus (dust burned to
 				// fees), ensuring we never silently reduce value_added beyond the small
 				// surplus from coin selection.
-				let total_input_value: Amount =
-					self.inputs.iter().map(|i| i.utxo.output.value).sum();
-				let output_values: Amount = self.outputs.iter().map(|o| o.value).sum();
+				let total_input_value = self.inputs.iter().fold(Amount::ZERO, |total, i| {
+					(total + i.utxo.output.amount).expect("input value total must fit in Amount")
+				});
+				let output_values = self.outputs.iter().fold(Amount::ZERO, |total, o| {
+					(total + o.amount).expect("output value total must fit in Amount")
+				});
 				let fee_buffer = total_input_value
 					.checked_sub(self.value_added)
 					.and_then(|v| v.checked_sub(output_values))
@@ -970,7 +985,9 @@ impl FundingContribution {
 			);
 
 			// Check that the channel balance can cover the withdrawal outputs plus fees.
-			let value_removed: Amount = self.outputs.iter().map(|o| o.value).sum();
+			let value_removed = self.outputs.iter().fold(Amount::ZERO, |total, o| {
+				(total + o.amount).expect("removed output value total must fit in Amount")
+			});
 			let total_cost = target_fee
 				.checked_add(value_removed)
 				.ok_or(FeeRateAdjustmentError::FeeBufferOverflow)?;
@@ -996,10 +1013,10 @@ impl FundingContribution {
 			self.compute_feerate_adjustment(feerate, holder_balance, is_initiator)?;
 		let surplus = self.fee_buffer_surplus(new_estimated_fee, &new_change);
 		match new_change {
-			Some(value) => self.change_output.as_mut().unwrap().value = value,
+			Some(value) => self.change_output.as_mut().unwrap().amount = value,
 			None => self.change_output = None,
 		}
-		self.value_added += surplus;
+		self.value_added = (self.value_added + surplus).expect("value added plus surplus must fit in Amount");
 		self.estimated_fee = new_estimated_fee;
 		self.feerate = feerate;
 		Ok(self)
@@ -1038,10 +1055,7 @@ impl FundingContribution {
 	) -> Result<SignedAmount, FeeRateAdjustmentError> {
 		let (new_estimated_fee, new_change) =
 			self.compute_feerate_adjustment(target_feerate, holder_balance, is_initiator)?;
-		let surplus = self
-			.fee_buffer_surplus(new_estimated_fee, &new_change)
-			.to_signed()
-			.expect("surplus does not exceed Amount::MAX_MONEY");
+			let surplus = self.fee_buffer_surplus(new_estimated_fee, &new_change).to_signed();
 		let net_value = self
 			.net_value_with_fee(new_estimated_fee)
 			.checked_add(surplus)
@@ -1076,11 +1090,16 @@ impl FundingContribution {
 	/// Returns [`Amount::ZERO`] when there are no inputs or the change output is kept.
 	fn fee_buffer_surplus(&self, new_estimated_fee: Amount, new_change: &Option<Amount>) -> Amount {
 		if !self.inputs.is_empty() && new_change.is_none() {
-			let total_input_value: Amount = self.inputs.iter().map(|i| i.utxo.output.value).sum();
-			let output_values: Amount = self.outputs.iter().map(|o| o.value).sum();
-			let fee_buffer = total_input_value - self.value_added - output_values;
+			let total_input_value = self.inputs.iter().fold(Amount::ZERO, |total, i| {
+				(total + i.utxo.output.amount).expect("input value total must fit in Amount")
+			});
+			let output_values = self.outputs.iter().fold(Amount::ZERO, |total, o| {
+				(total + o.amount).expect("output value total must fit in Amount")
+			});
+			let fee_buffer = (total_input_value - self.value_added - output_values)
+				.expect("fee buffer must fit in Amount");
 			debug_assert!(fee_buffer >= new_estimated_fee);
-			fee_buffer - new_estimated_fee
+			(fee_buffer - new_estimated_fee).expect("fee buffer surplus must fit in Amount")
 		} else {
 			Amount::ZERO
 		}
@@ -1097,21 +1116,18 @@ impl FundingContribution {
 	/// case. For splice-in, fees are paid by inputs so `estimated_fee` is not deducted.
 	fn net_value_with_fee(&self, estimated_fee: Amount) -> SignedAmount {
 		let unpaid_fees = if self.inputs.is_empty() { estimated_fee } else { Amount::ZERO }
-			.to_signed()
-			.expect("estimated_fee is validated to not exceed Amount::MAX_MONEY");
-		let value_added = self
-			.value_added
-			.to_signed()
-			.expect("value_added is validated to not exceed Amount::MAX_MONEY");
+			.to_signed();
+		let value_added = self.value_added.to_signed();
 		let value_removed = self
 			.outputs
 			.iter()
-			.map(|txout| txout.value)
-			.sum::<Amount>()
-			.to_signed()
-			.expect("value_removed is validated to not exceed Amount::MAX_MONEY");
+			.fold(Amount::ZERO, |total, txout| {
+				(total + txout.amount).expect("removed output value total must fit in Amount")
+			})
+			.to_signed();
 
-		let contribution_amount = value_added - value_removed;
+		let contribution_amount =
+			(value_added - value_removed).expect("contribution amount must fit in SignedAmount");
 		contribution_amount
 			.checked_sub(unpaid_fees)
 			.expect("all amounts are validated to not exceed Amount::MAX_MONEY")
@@ -1132,7 +1148,9 @@ mod tests {
 	use crate::util::wallet_utils::{CoinSelection, CoinSelectionSourceSync, Input};
 	use bitcoin::hashes::Hash;
 	use bitcoin::transaction::{Transaction, TxOut, Version};
-	use bitcoin::{Amount, FeeRate, Psbt, ScriptBuf, SignedAmount, WPubkeyHash};
+	use bitcoin::key::WPubkeyHash;
+	use bitcoin::script::{ScriptBufExt, ScriptPubKeyBuf as ScriptBuf, ScriptPubKeyExt};
+	use bitcoin::{Amount, FeeRate, Psbt, SignedAmount};
 
 	#[test]
 	#[rustfmt::skip]
@@ -1143,80 +1161,80 @@ mod tests {
 		// 2 inputs, initiator, 2000 sat/kw feerate
 		assert_eq!(
 			estimate_transaction_fee(&two_inputs, &[], None, true, false, FeeRate::from_sat_per_kwu(2000)),
-			Amount::from_sat(if cfg!(feature = "grind_signatures") { 1512 } else { 1516 }),
+			Amount::from_sat(if cfg!(feature = "grind_signatures") { 1512 } else { 1516 }).expect("amount must fit"),
 		);
 
 		// higher feerate
 		assert_eq!(
 			estimate_transaction_fee(&two_inputs, &[], None, true, false, FeeRate::from_sat_per_kwu(3000)),
-			Amount::from_sat(if cfg!(feature = "grind_signatures") { 2268 } else { 2274 }),
+			Amount::from_sat(if cfg!(feature = "grind_signatures") { 2268 } else { 2274 }).expect("amount must fit"),
 		);
 
 		// only 1 input
 		assert_eq!(
 			estimate_transaction_fee(&one_input, &[], None, true, false, FeeRate::from_sat_per_kwu(2000)),
-			Amount::from_sat(if cfg!(feature = "grind_signatures") { 970 } else { 972 }),
+			Amount::from_sat(if cfg!(feature = "grind_signatures") { 970 } else { 972 }).expect("amount must fit"),
 		);
 
 		// 0 inputs
 		assert_eq!(
 			estimate_transaction_fee(&[], &[], None, true, false, FeeRate::from_sat_per_kwu(2000)),
-			Amount::from_sat(428),
+			Amount::from_sat(428).expect("amount must fit"),
 		);
 
 		// not initiator
 		assert_eq!(
 			estimate_transaction_fee(&[], &[], None, false, false, FeeRate::from_sat_per_kwu(2000)),
-			Amount::from_sat(0),
+			Amount::from_sat(0).expect("amount must fit"),
 		);
 
 		// splice initiator
 		assert_eq!(
 			estimate_transaction_fee(&one_input, &[], None, true, true, FeeRate::from_sat_per_kwu(2000)),
-			Amount::from_sat(if cfg!(feature = "grind_signatures") { 1736 } else { 1740 }),
+			Amount::from_sat(if cfg!(feature = "grind_signatures") { 1736 } else { 1740 }).expect("amount must fit"),
 		);
 
 		// splice acceptor
 		assert_eq!(
 			estimate_transaction_fee(&one_input, &[], None, false, true, FeeRate::from_sat_per_kwu(2000)),
-			Amount::from_sat(if cfg!(feature = "grind_signatures") { 542 } else { 544 }),
+			Amount::from_sat(if cfg!(feature = "grind_signatures") { 542 } else { 544 }).expect("amount must fit"),
 		);
 
 		// splice initiator, 1 input, 1 output
 		let outputs = [funding_output_sats(500)];
 		assert_eq!(
 			estimate_transaction_fee(&one_input, &outputs, None, true, true, FeeRate::from_sat_per_kwu(2000)),
-			Amount::from_sat(if cfg!(feature = "grind_signatures") { 1984 } else { 1988 }),
+			Amount::from_sat(if cfg!(feature = "grind_signatures") { 1984 } else { 1988 }).expect("amount must fit"),
 		);
 
 		// splice acceptor, 1 input, 1 output
 		assert_eq!(
 			estimate_transaction_fee(&one_input, &outputs, None, false, true, FeeRate::from_sat_per_kwu(2000)),
-			Amount::from_sat(if cfg!(feature = "grind_signatures") { 790 } else { 792 }),
+			Amount::from_sat(if cfg!(feature = "grind_signatures") { 790 } else { 792 }).expect("amount must fit"),
 		);
 
 		// splice initiator, 1 input, 1 output, 1 change via change_output parameter
 		let change = funding_output_sats(1_000);
 		assert_eq!(
 			estimate_transaction_fee(&one_input, &outputs, Some(&change), true, true, FeeRate::from_sat_per_kwu(2000)),
-			Amount::from_sat(if cfg!(feature = "grind_signatures") { 2232 } else { 2236 }),
+			Amount::from_sat(if cfg!(feature = "grind_signatures") { 2232 } else { 2236 }).expect("amount must fit"),
 		);
 
 		// splice acceptor, 1 input, 1 output, 1 change via change_output parameter
 		assert_eq!(
 			estimate_transaction_fee(&one_input, &outputs, Some(&change), false, true, FeeRate::from_sat_per_kwu(2000)),
-			Amount::from_sat(if cfg!(feature = "grind_signatures") { 1038 } else { 1040 }),
+			Amount::from_sat(if cfg!(feature = "grind_signatures") { 1038 } else { 1040 }).expect("amount must fit"),
 		);
 	}
 
 	#[rustfmt::skip]
 	fn funding_input_sats(input_value_sats: u64) -> FundingTxInput {
 		let prevout = TxOut {
-			value: Amount::from_sat(input_value_sats),
-			script_pubkey: ScriptBuf::new_p2wpkh(&WPubkeyHash::all_zeros()),
+			amount: Amount::from_sat(input_value_sats).expect("amount must fit"),
+			script_pubkey: ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array([0; 20])),
 		};
 		let prevtx = Transaction {
-			input: vec![], output: vec![prevout],
+			inputs: vec![], outputs: vec![prevout],
 			version: Version::TWO, lock_time: bitcoin::absolute::LockTime::ZERO,
 		};
 
@@ -1225,8 +1243,8 @@ mod tests {
 
 	fn funding_output_sats(output_value_sats: u64) -> TxOut {
 		TxOut {
-			value: Amount::from_sat(output_value_sats),
-			script_pubkey: ScriptBuf::new_p2wpkh(&WPubkeyHash::all_zeros()),
+			amount: Amount::from_sat(output_value_sats).expect("amount must fit"),
+			script_pubkey: ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array([0; 20])),
 		}
 	}
 
@@ -1237,8 +1255,8 @@ mod tests {
 		{
 			let expected_fee = if cfg!(feature = "grind_signatures") { 2278 } else { 2284 };
 			let contribution = FundingContribution {
-				value_added: Amount::from_sat(220_000),
-				estimated_fee: Amount::from_sat(expected_fee),
+				value_added: Amount::from_sat(220_000).expect("amount must fit"),
+				estimated_fee: Amount::from_sat(expected_fee).expect("amount must fit"),
 				inputs: vec![
 					funding_input_sats(200_000),
 					funding_input_sats(100_000),
@@ -1250,15 +1268,15 @@ mod tests {
 				max_feerate: FeeRate::MAX,
 			};
 			assert!(contribution.validate().is_ok());
-			assert_eq!(contribution.net_value(), contribution.value_added.to_signed().unwrap());
+			assert_eq!(contribution.net_value(), contribution.value_added.to_signed());
 		}
 
 		// Net splice-in
 		{
 			let expected_fee = if cfg!(feature = "grind_signatures") { 2526 } else { 2532 };
 			let contribution = FundingContribution {
-				value_added: Amount::from_sat(220_000),
-				estimated_fee: Amount::from_sat(expected_fee),
+				value_added: Amount::from_sat(220_000).expect("amount must fit"),
+				estimated_fee: Amount::from_sat(expected_fee).expect("amount must fit"),
 				inputs: vec![
 					funding_input_sats(200_000),
 					funding_input_sats(100_000),
@@ -1272,15 +1290,15 @@ mod tests {
 				max_feerate: FeeRate::MAX,
 			};
 			assert!(contribution.validate().is_ok());
-			assert_eq!(contribution.net_value(), SignedAmount::from_sat(220_000 - 200_000));
+			assert_eq!(contribution.net_value(), SignedAmount::from_sat(220_000 - 200_000).expect("amount must fit"));
 		}
 
 		// Net splice-out
 		{
 			let expected_fee = if cfg!(feature = "grind_signatures") { 2526 } else { 2532 };
 			let contribution = FundingContribution {
-				value_added: Amount::from_sat(220_000),
-				estimated_fee: Amount::from_sat(expected_fee),
+				value_added: Amount::from_sat(220_000).expect("amount must fit"),
+				estimated_fee: Amount::from_sat(expected_fee).expect("amount must fit"),
 				inputs: vec![
 					funding_input_sats(200_000),
 					funding_input_sats(100_000),
@@ -1294,15 +1312,15 @@ mod tests {
 				max_feerate: FeeRate::MAX,
 			};
 			assert!(contribution.validate().is_ok());
-			assert_eq!(contribution.net_value(), SignedAmount::from_sat(220_000 - 400_000));
+			assert_eq!(contribution.net_value(), SignedAmount::from_sat(220_000 - 400_000).expect("amount must fit"));
 		}
 
 		// Net splice-out, inputs insufficient to cover fees
 		{
 			let expected_fee = if cfg!(feature = "grind_signatures") { 113670 } else { 113940 };
 			let contribution = FundingContribution {
-				value_added: Amount::from_sat(220_000),
-				estimated_fee: Amount::from_sat(expected_fee),
+				value_added: Amount::from_sat(220_000).expect("amount must fit"),
+				estimated_fee: Amount::from_sat(expected_fee).expect("amount must fit"),
 				inputs: vec![
 					funding_input_sats(200_000),
 					funding_input_sats(100_000),
@@ -1319,7 +1337,7 @@ mod tests {
 				contribution.validate(),
 				Err(format!(
 					"Total input amount 0.00300000 BTC is lower than needed for splice-in contribution 0.00220000 BTC, considering fees of {}. Need more inputs.",
-					Amount::from_sat(expected_fee),
+					Amount::from_sat(expected_fee).expect("amount must fit"),
 				)),
 			);
 		}
@@ -1328,8 +1346,8 @@ mod tests {
 		{
 			let expected_fee = if cfg!(feature = "grind_signatures") { 1736 } else { 1740 };
 			let contribution = FundingContribution {
-				value_added: Amount::from_sat(220_000),
-				estimated_fee: Amount::from_sat(expected_fee),
+				value_added: Amount::from_sat(220_000).expect("amount must fit"),
+				estimated_fee: Amount::from_sat(expected_fee).expect("amount must fit"),
 				inputs: vec![
 					funding_input_sats(100_000),
 				],
@@ -1343,7 +1361,7 @@ mod tests {
 				contribution.validate(),
 				Err(format!(
 					"Total input amount 0.00100000 BTC is lower than needed for splice-in contribution 0.00220000 BTC, considering fees of {}. Need more inputs.",
-					Amount::from_sat(expected_fee),
+					Amount::from_sat(expected_fee).expect("amount must fit"),
 				)),
 			);
 		}
@@ -1352,8 +1370,8 @@ mod tests {
 		{
 			let expected_fee = if cfg!(feature = "grind_signatures") { 2278 } else { 2284 };
 			let contribution = FundingContribution {
-				value_added: Amount::from_sat(300_000 - expected_fee - 20),
-				estimated_fee: Amount::from_sat(expected_fee),
+				value_added: Amount::from_sat(300_000 - expected_fee - 20).expect("amount must fit"),
+				estimated_fee: Amount::from_sat(expected_fee).expect("amount must fit"),
 				inputs: vec![
 					funding_input_sats(200_000),
 					funding_input_sats(100_000),
@@ -1365,15 +1383,15 @@ mod tests {
 				max_feerate: FeeRate::MAX,
 			};
 			assert!(contribution.validate().is_ok());
-			assert_eq!(contribution.net_value(), contribution.value_added.to_signed().unwrap());
+			assert_eq!(contribution.net_value(), contribution.value_added.to_signed());
 		}
 
 		// higher fee rate, does not cover
 		{
 			let expected_fee = if cfg!(feature = "grind_signatures") { 2506 } else { 2513 };
 			let contribution = FundingContribution {
-				value_added: Amount::from_sat(298032),
-				estimated_fee: Amount::from_sat(expected_fee),
+				value_added: Amount::from_sat(298032).expect("amount must fit"),
+				estimated_fee: Amount::from_sat(expected_fee).expect("amount must fit"),
 				inputs: vec![
 					funding_input_sats(200_000),
 					funding_input_sats(100_000),
@@ -1388,7 +1406,7 @@ mod tests {
 				contribution.validate(),
 				Err(format!(
 					"Total input amount 0.00300000 BTC is lower than needed for splice-in contribution 0.00298032 BTC, considering fees of {}. Need more inputs.",
-					Amount::from_sat(expected_fee),
+					Amount::from_sat(expected_fee).expect("amount must fit"),
 				)),
 			);
 		}
@@ -1397,8 +1415,8 @@ mod tests {
 		{
 			let expected_fee = if cfg!(feature = "grind_signatures") { 1512 } else { 1516 };
 			let contribution = FundingContribution {
-				value_added: Amount::from_sat(300_000 - expected_fee - 20),
-				estimated_fee: Amount::from_sat(expected_fee),
+				value_added: Amount::from_sat(300_000 - expected_fee - 20).expect("amount must fit"),
+				estimated_fee: Amount::from_sat(expected_fee).expect("amount must fit"),
 				inputs: vec![
 					funding_input_sats(200_000),
 					funding_input_sats(100_000),
@@ -1410,7 +1428,7 @@ mod tests {
 				max_feerate: FeeRate::MAX,
 			};
 			assert!(contribution.validate().is_ok());
-			assert_eq!(contribution.net_value(), contribution.value_added.to_signed().unwrap());
+			assert_eq!(contribution.net_value(), contribution.value_added.to_signed());
 		}
 	}
 
@@ -1430,7 +1448,8 @@ mod tests {
 
 	#[test]
 	fn test_build_funding_contribution_validates_max_money() {
-		let over_max = Amount::MAX_MONEY + Amount::from_sat(1);
+		let over_max =
+			(Amount::MAX_MONEY + Amount::from_sat(1).expect("amount must fit")).expect("amount must fit");
 		let feerate = FeeRate::from_sat_per_kwu(2000);
 
 		// splice_in_sync with value_added > MAX_MONEY
@@ -1455,7 +1474,8 @@ mod tests {
 		// splice_out_sync with multiple outputs summing > MAX_MONEY
 		{
 			let template = FundingTemplate::new(None, None, None);
-			let half_over = Amount::MAX_MONEY / 2 + Amount::from_sat(1);
+			let half_over = ((Amount::MAX_MONEY / 2).expect("amount must fit")
+				+ Amount::from_sat(1).expect("amount must fit")).expect("amount must fit");
 			let outputs = vec![
 				funding_output_sats(half_over.to_sat()),
 				funding_output_sats(half_over.to_sat()),
@@ -1488,7 +1508,7 @@ mod tests {
 			let outputs = vec![funding_output_sats(over_max.to_sat())];
 			assert!(matches!(
 				template.splice_in_and_out_sync(
-					Amount::from_sat(1_000),
+					Amount::from_sat(1_000).expect("amount must fit"),
 					outputs,
 					feerate,
 					feerate,
@@ -1508,7 +1528,7 @@ mod tests {
 		{
 			let template = FundingTemplate::new(None, None, None);
 			assert!(matches!(
-				template.splice_in_sync(Amount::from_sat(10_000), high, low, UnreachableWallet),
+				template.splice_in_sync(Amount::from_sat(10_000).expect("amount must fit"), high, low, UnreachableWallet),
 				Err(FundingContributionError::FeeRateExceedsMaximum { .. }),
 			));
 		}
@@ -1518,7 +1538,7 @@ mod tests {
 			let template = FundingTemplate::new(None, Some(high), None);
 			assert!(matches!(
 				template.splice_in_sync(
-					Amount::from_sat(10_000),
+					Amount::from_sat(10_000).expect("amount must fit"),
 					low,
 					FeeRate::MAX,
 					UnreachableWallet
@@ -1544,7 +1564,7 @@ mod tests {
 			estimate_transaction_fee(&inputs, &[], Some(&change), true, true, original_feerate);
 
 		let contribution = FundingContribution {
-			value_added: Amount::from_sat(50_000),
+			value_added: Amount::from_sat(50_000).expect("amount must fit"),
 			estimated_fee,
 			inputs: inputs.clone(),
 			outputs: vec![],
@@ -1561,12 +1581,13 @@ mod tests {
 		// Target fee at target feerate for acceptor (is_initiator=false), including change weight.
 		let expected_target_fee =
 			estimate_transaction_fee(&inputs, &[], Some(&change), false, true, target_feerate);
-		let expected_change = estimated_fee + Amount::from_sat(10_000) - expected_target_fee;
+		let expected_change = (estimated_fee + Amount::from_sat(10_000).expect("amount must fit")
+			- expected_target_fee).expect("amount arithmetic must fit");
 
 		assert_eq!(contribution.estimated_fee, expected_target_fee);
 		assert!(contribution.change_output.is_some());
-		assert_eq!(contribution.change_output.as_ref().unwrap().value, expected_change);
-		assert!(expected_change < Amount::from_sat(10_000)); // Change reduced
+		assert_eq!(contribution.change_output.as_ref().unwrap().amount, expected_change);
+		assert!(expected_change < Amount::from_sat(10_000).expect("amount must fit")); // Change reduced
 		assert_eq!(contribution.net_value(), net_value_before);
 	}
 
@@ -1582,7 +1603,7 @@ mod tests {
 			estimate_transaction_fee(&inputs, &[], Some(&change), true, true, original_feerate);
 
 		let contribution = FundingContribution {
-			value_added: Amount::from_sat(50_000),
+			value_added: Amount::from_sat(50_000).expect("amount must fit"),
 			estimated_fee,
 			inputs,
 			outputs: vec![],
@@ -1602,8 +1623,8 @@ mod tests {
 		// but the fee buffer (estimated_fee + change) still covers the fee without the change output.
 		let original_feerate = FeeRate::from_sat_per_kwu(2000);
 		let target_feerate = FeeRate::from_sat_per_kwu(7000);
-		let value_added = Amount::from_sat(50_000);
-		let change_value = Amount::from_sat(500);
+		let value_added = Amount::from_sat(50_000).expect("amount must fit");
+		let change_value = Amount::from_sat(500).expect("amount must fit");
 
 		// Compute estimated_fee first (weight-based, independent of input value).
 		let dummy_inputs = vec![funding_input_sats(1)];
@@ -1617,8 +1638,9 @@ mod tests {
 			original_feerate,
 		);
 
-		// Realistic input: value_added + estimated_fee + change (what coin selection produces).
-		let input_value = value_added + estimated_fee + change_value;
+		// Realistic inputs: value_added + estimated_fee + change (what coin selection produces).
+		let input_value =
+			(value_added + estimated_fee + change_value).expect("amount arithmetic must fit");
 		let inputs = vec![funding_input_sats(input_value.to_sat())];
 		let change = funding_output_sats(change_value.to_sat());
 
@@ -1643,8 +1665,12 @@ mod tests {
 			estimate_transaction_fee(&inputs, &[], None, false, true, target_feerate);
 		assert_eq!(contribution.estimated_fee, expected_fee_no_change);
 		// The surplus (old fee buffer - new fee) goes to value_added, increasing net_value.
-		let surplus = estimated_fee + change_value - expected_fee_no_change;
-		assert_eq!(contribution.net_value(), net_value_before + surplus.to_signed().unwrap());
+		let surplus =
+			(estimated_fee + change_value - expected_fee_no_change).expect("amount arithmetic must fit");
+		assert_eq!(
+			contribution.net_value(),
+			(net_value_before + surplus.to_signed()).expect("amount arithmetic must fit"),
+		);
 	}
 
 	#[test]
@@ -1659,7 +1685,7 @@ mod tests {
 			estimate_transaction_fee(&inputs, &[], Some(&change), true, true, original_feerate);
 
 		let contribution = FundingContribution {
-			value_added: Amount::from_sat(50_000),
+			value_added: Amount::from_sat(50_000).expect("amount must fit"),
 			estimated_fee,
 			inputs,
 			outputs: vec![],
@@ -1726,7 +1752,7 @@ mod tests {
 		};
 
 		// Balance of 55,000 sats can't cover outputs (50,000) + target_fee at 50k sat/kwu.
-		let holder_balance = Amount::from_sat(55_000);
+		let holder_balance = Amount::from_sat(55_000).expect("amount must fit");
 		let result = contribution.for_acceptor_at_feerate(target_feerate, holder_balance);
 		assert!(matches!(result, Err(FeeRateAdjustmentError::FeeBufferInsufficient { .. })));
 	}
@@ -1744,7 +1770,7 @@ mod tests {
 			estimate_transaction_fee(&inputs, &[], Some(&change), true, true, original_feerate);
 
 		let contribution = FundingContribution {
-			value_added: Amount::from_sat(50_000),
+			value_added: Amount::from_sat(50_000).expect("amount must fit"),
 			estimated_fee,
 			inputs,
 			outputs: vec![],
@@ -1759,7 +1785,10 @@ mod tests {
 		let net_at_feerate =
 			contribution.net_value_for_acceptor_at_feerate(target_feerate, Amount::MAX).unwrap();
 		assert_eq!(net_at_feerate, contribution.net_value());
-		assert_eq!(net_at_feerate, Amount::from_sat(50_000).to_signed().unwrap());
+		assert_eq!(
+			net_at_feerate,
+			Amount::from_sat(50_000).expect("amount must fit").to_signed(),
+		);
 	}
 
 	#[test]
@@ -1789,9 +1818,9 @@ mod tests {
 
 		// The target fee at target feerate should be less than the initiator's fee estimate.
 		let target_fee = estimate_transaction_fee(&[], &outputs, None, false, true, target_feerate);
-		let expected_net = SignedAmount::ZERO
-			- Amount::from_sat(50_000).to_signed().unwrap()
-			- target_fee.to_signed().unwrap();
+		let expected_net = (SignedAmount::ZERO
+			- Amount::from_sat(50_000).expect("amount must fit").to_signed()
+			- target_fee.to_signed()).expect("amount arithmetic must fit");
 		assert_eq!(net_at_feerate, expected_net);
 
 		// Should be less negative than net_value() which uses the higher fee estimate.
@@ -1810,7 +1839,7 @@ mod tests {
 			estimate_transaction_fee(&inputs, &[], Some(&change), true, true, original_feerate);
 
 		let contribution = FundingContribution {
-			value_added: Amount::from_sat(50_000),
+			value_added: Amount::from_sat(50_000).expect("amount must fit"),
 			estimated_fee,
 			inputs,
 			outputs: vec![],
@@ -1822,14 +1851,14 @@ mod tests {
 
 		let net_before = contribution.net_value();
 		let fee_before = contribution.estimated_fee;
-		let change_before = contribution.change_output.as_ref().unwrap().value;
+		let change_before = contribution.change_output.as_ref().unwrap().amount;
 
 		let _ = contribution.net_value_for_acceptor_at_feerate(target_feerate, Amount::MAX);
 
 		// Nothing should have changed.
 		assert_eq!(contribution.net_value(), net_before);
 		assert_eq!(contribution.estimated_fee, fee_before);
-		assert_eq!(contribution.change_output.as_ref().unwrap().value, change_before);
+		assert_eq!(contribution.change_output.as_ref().unwrap().amount, change_before);
 	}
 
 	#[test]
@@ -1844,7 +1873,7 @@ mod tests {
 			estimate_transaction_fee(&inputs, &[], Some(&change), true, true, original_feerate);
 
 		let contribution = FundingContribution {
-			value_added: Amount::from_sat(50_000),
+			value_added: Amount::from_sat(50_000).expect("amount must fit"),
 			estimated_fee,
 			inputs,
 			outputs: vec![],
@@ -1872,7 +1901,7 @@ mod tests {
 			estimate_transaction_fee(&inputs, &[], Some(&change), true, true, original_feerate);
 
 		let contribution = FundingContribution {
-			value_added: Amount::from_sat(50_000),
+			value_added: Amount::from_sat(50_000).expect("amount must fit"),
 			estimated_fee,
 			inputs,
 			outputs: vec![],
@@ -1904,7 +1933,7 @@ mod tests {
 			estimate_transaction_fee(&inputs, &[], Some(&change), true, true, original_feerate);
 
 		let contribution = FundingContribution {
-			value_added: Amount::from_sat(50_000),
+			value_added: Amount::from_sat(50_000).expect("amount must fit"),
 			estimated_fee,
 			inputs,
 			outputs: vec![],
@@ -1922,7 +1951,7 @@ mod tests {
 		// fee estimate at original (2000, is_initiator=true) due to the ~2.5x weight ratio,
 		// so change increases despite the higher feerate.
 		assert!(adjusted.change_output.is_some());
-		assert!(adjusted.change_output.as_ref().unwrap().value > Amount::from_sat(10_000));
+		assert!(adjusted.change_output.as_ref().unwrap().amount > Amount::from_sat(10_000).expect("amount must fit"));
 	}
 
 	#[test]
@@ -1939,7 +1968,7 @@ mod tests {
 			estimate_transaction_fee(&inputs, &[], Some(&change), true, true, original_feerate);
 
 		let contribution = FundingContribution {
-			value_added: Amount::from_sat(50_000),
+			value_added: Amount::from_sat(50_000).expect("amount must fit"),
 			estimated_fee,
 			inputs,
 			outputs: vec![],
@@ -1966,15 +1995,17 @@ mod tests {
 		// so the shortfall cannot be absorbed and the contribution is dropped.
 		let original_feerate = FeeRate::from_sat_per_kwu(2000);
 		let target_feerate = FeeRate::from_sat_per_kwu(20_000);
-		let value_added = Amount::from_sat(50_000);
+		let value_added = Amount::from_sat(50_000).expect("amount must fit");
 
 		// Compute estimated_fee first (weight-based, independent of input value).
 		let dummy_inputs = vec![funding_input_sats(1)];
 		let estimated_fee =
 			estimate_transaction_fee(&dummy_inputs, &[], None, true, true, original_feerate);
 
-		// Realistic input: value_added + estimated_fee (what coin selection produces, no surplus).
-		let inputs = vec![funding_input_sats((value_added + estimated_fee).to_sat())];
+		// Realistic inputs: value_added + estimated_fee (what coin selection produces, no surplus).
+		let inputs = vec![funding_input_sats(
+			(value_added + estimated_fee).expect("amount arithmetic must fit").to_sat(),
+		)];
 		let target_fee = estimate_transaction_fee(&inputs, &[], None, false, true, target_feerate);
 
 		// Verify our setup: target_fee > estimated_fee (shortfall exists) and the fee buffer
@@ -2002,15 +2033,17 @@ mod tests {
 		// (total input value minus value_added) cannot cover the target fee.
 		let original_feerate = FeeRate::from_sat_per_kwu(2000);
 		let target_feerate = FeeRate::from_sat_per_kwu(20_000);
-		let value_added = Amount::from_sat(1);
+		let value_added = Amount::from_sat(1).expect("amount must fit");
 
 		// Compute estimated_fee first (weight-based, independent of input value).
 		let dummy_inputs = vec![funding_input_sats(1)];
 		let estimated_fee =
 			estimate_transaction_fee(&dummy_inputs, &[], None, true, true, original_feerate);
 
-		// Realistic input: value_added + estimated_fee (no surplus).
-		let inputs = vec![funding_input_sats((value_added + estimated_fee).to_sat())];
+		// Realistic inputs: value_added + estimated_fee (no surplus).
+		let inputs = vec![funding_input_sats(
+			(value_added + estimated_fee).expect("amount arithmetic must fit").to_sat(),
+		)];
 		let target_fee = estimate_transaction_fee(&inputs, &[], None, false, true, target_feerate);
 		assert!(target_fee > estimated_fee);
 
@@ -2050,11 +2083,12 @@ mod tests {
 
 		// Verify our setup: surplus is positive and below the P2WPKH dust limit (294 sats).
 		assert!(estimated_fee > target_fee);
-		let dust_limit = ScriptBuf::new_p2wpkh(&WPubkeyHash::all_zeros()).minimal_non_dust();
-		assert!(estimated_fee - target_fee < dust_limit);
+		let dust_limit =
+			ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array([0; 20])).minimal_non_dust();
+		assert!((estimated_fee - target_fee).expect("amount arithmetic must fit") < dust_limit);
 
 		let contribution = FundingContribution {
-			value_added: Amount::from_sat(50_000),
+			value_added: Amount::from_sat(50_000).expect("amount must fit"),
 			estimated_fee,
 			inputs,
 			outputs: vec![],
@@ -2077,14 +2111,16 @@ mod tests {
 		// target fee (is_initiator=false). The surplus stays in the channel balance rather than
 		// being burned as excess fees.
 		let feerate = FeeRate::from_sat_per_kwu(2000);
-		let value_added = Amount::from_sat(50_000);
+		let value_added = Amount::from_sat(50_000).expect("amount must fit");
 
 		// Compute estimated_fee first (weight-based, independent of input value).
 		let dummy_inputs = vec![funding_input_sats(1)];
 		let estimated_fee = estimate_transaction_fee(&dummy_inputs, &[], None, true, true, feerate);
 
-		// Realistic input: value_added + estimated_fee (no surplus).
-		let inputs = vec![funding_input_sats((value_added + estimated_fee).to_sat())];
+		// Realistic inputs: value_added + estimated_fee (no surplus).
+		let inputs = vec![funding_input_sats(
+			(value_added + estimated_fee).expect("amount arithmetic must fit").to_sat(),
+		)];
 
 		// Initiator fee estimate includes common TX fields + shared output + shared input weight,
 		// making it ~3x the acceptor's target fee at the same feerate.
@@ -2109,9 +2145,15 @@ mod tests {
 		let adjusted = result.unwrap();
 		assert!(adjusted.change_output.is_none());
 		assert_eq!(adjusted.estimated_fee, target_fee);
-		let surplus = estimated_fee - target_fee;
-		assert_eq!(adjusted.value_added, value_added + surplus);
-		assert_eq!(adjusted.net_value(), net_value_before + surplus.to_signed().unwrap());
+		let surplus = (estimated_fee - target_fee).expect("amount arithmetic must fit");
+		assert_eq!(
+			adjusted.value_added,
+			(value_added + surplus).expect("amount arithmetic must fit"),
+		);
+		assert_eq!(
+			adjusted.net_value(),
+			(net_value_before + surplus.to_signed()).expect("amount arithmetic must fit"),
+		);
 	}
 
 	#[test]
@@ -2121,7 +2163,7 @@ mod tests {
 		let inputs = vec![funding_input_sats(100_000)];
 
 		let contribution = FundingContribution {
-			value_added: Amount::from_sat(50_000),
+			value_added: Amount::from_sat(50_000).expect("amount must fit"),
 			estimated_fee: Amount::MAX,
 			inputs,
 			outputs: vec![],
@@ -2157,7 +2199,7 @@ mod tests {
 		};
 
 		// Balance of 40,000 sats is less than outputs (50,000) + target_fee.
-		let holder_balance = Amount::from_sat(40_000);
+		let holder_balance = Amount::from_sat(40_000).expect("amount must fit");
 		let result = contribution.for_acceptor_at_feerate(target_feerate, holder_balance);
 		assert!(matches!(result, Err(FeeRateAdjustmentError::FeeBufferInsufficient { .. })));
 	}
@@ -2184,7 +2226,7 @@ mod tests {
 		};
 
 		// Balance of 100,000 sats is more than outputs (50,000) + target_fee.
-		let holder_balance = Amount::from_sat(100_000);
+		let holder_balance = Amount::from_sat(100_000).expect("amount must fit");
 		let contribution =
 			contribution.for_acceptor_at_feerate(target_feerate, holder_balance).unwrap();
 		let expected_target_fee =
@@ -2215,7 +2257,7 @@ mod tests {
 		};
 
 		// Balance of 40,000 sats is less than outputs (50,000) + target_fee.
-		let holder_balance = Amount::from_sat(40_000);
+		let holder_balance = Amount::from_sat(40_000).expect("amount must fit");
 		let result = contribution.net_value_for_acceptor_at_feerate(target_feerate, holder_balance);
 		assert!(matches!(result, Err(FeeRateAdjustmentError::FeeBufferInsufficient { .. })));
 	}
@@ -2233,7 +2275,7 @@ mod tests {
 			estimate_transaction_fee(&inputs, &[], Some(&change), true, true, original_feerate);
 
 		let contribution = FundingContribution {
-			value_added: Amount::from_sat(50_000),
+			value_added: Amount::from_sat(50_000).expect("amount must fit"),
 			estimated_fee,
 			inputs,
 			outputs: vec![],
@@ -2251,8 +2293,8 @@ mod tests {
 		assert!(initiator.estimated_fee > acceptor.estimated_fee);
 		// Initiator has less change remaining.
 		assert!(
-			initiator.change_output.as_ref().unwrap().value
-				< acceptor.change_output.as_ref().unwrap().value
+			initiator.change_output.as_ref().unwrap().amount
+				< acceptor.change_output.as_ref().unwrap().amount
 		);
 		// Both have the adjusted feerate.
 		assert_eq!(initiator.feerate, target_feerate);
@@ -2268,8 +2310,8 @@ mod tests {
 		let max_feerate = FeeRate::from_sat_per_kwu(2020);
 
 		let prior = FundingContribution {
-			value_added: Amount::from_sat(50_000),
-			estimated_fee: Amount::from_sat(1_000),
+			value_added: Amount::from_sat(50_000).expect("amount must fit"),
+			estimated_fee: Amount::from_sat(1_000).expect("amount must fit"),
 			inputs: vec![funding_input_sats(100_000)],
 			outputs: vec![],
 			change_output: None,
@@ -2304,7 +2346,7 @@ mod tests {
 			estimate_transaction_fee(&inputs, &[], Some(&change), true, true, prior_feerate);
 
 		let prior = FundingContribution {
-			value_added: Amount::from_sat(50_000),
+			value_added: Amount::from_sat(50_000).expect("amount must fit"),
 			estimated_fee,
 			inputs,
 			outputs: vec![],
@@ -2347,10 +2389,10 @@ mod tests {
 
 	fn shared_input(value_sats: u64) -> Input {
 		Input {
-			outpoint: bitcoin::OutPoint::null(),
+			outpoint: bitcoin::OutPoint::COINBASE_PREVOUT,
 			previous_utxo: TxOut {
-				value: Amount::from_sat(value_sats),
-				script_pubkey: ScriptBuf::new_p2wpkh(&WPubkeyHash::all_zeros()),
+				amount: Amount::from_sat(value_sats).expect("amount must fit"),
+				script_pubkey: ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array([0; 20])),
 			},
 			satisfaction_weight: 107,
 		}
@@ -2367,7 +2409,7 @@ mod tests {
 
 		let prior = FundingContribution {
 			value_added: Amount::ZERO,
-			estimated_fee: Amount::from_sat(500),
+			estimated_fee: Amount::from_sat(500).expect("amount must fit"),
 			inputs: vec![],
 			outputs: vec![withdrawal.clone()],
 			change_output: None,
@@ -2428,7 +2470,7 @@ mod tests {
 
 		let prior = FundingContribution {
 			value_added: Amount::ZERO,
-			estimated_fee: Amount::from_sat(500),
+			estimated_fee: Amount::from_sat(500).expect("amount must fit"),
 			inputs: vec![],
 			outputs: vec![withdrawal.clone()],
 			change_output: None,

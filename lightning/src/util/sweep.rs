@@ -33,7 +33,8 @@ use crate::{log_debug, log_error};
 use bitcoin::block::Header;
 use bitcoin::locktime::absolute::LockTime;
 use bitcoin::secp256k1::{PublicKey, Secp256k1};
-use bitcoin::{BlockHash, ScriptBuf, Transaction, Txid};
+use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
+use bitcoin::{BlockHash, Transaction, Txid};
 
 use core::future::Future;
 use core::ops::Deref;
@@ -93,7 +94,7 @@ impl TrackedSpendableOutput {
 	/// Returns whether the output is spent in the given transaction.
 	pub fn is_spent_in(&self, tx: &Transaction) -> bool {
 		let prev_outpoint = self.descriptor.spendable_outpoint().into_bitcoin_outpoint();
-		tx.input.iter().any(|input| input.previous_output == prev_outpoint)
+		tx.inputs.iter().any(|input| input.previous_output == prev_outpoint)
 	}
 }
 

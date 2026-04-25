@@ -37,7 +37,7 @@ use crate::types::payment::{PaymentHash, PaymentSecret};
 use crate::util::config::{HTLCInterceptionFlags, UserConfig};
 use crate::util::ser::{WithoutLength, Writeable};
 use crate::util::test_utils::{self, bytes_from_hex, pubkey_from_hex, secret_from_hex};
-use bitcoin::hex::DisplayHex;
+use hex_conservative::DisplayHex;
 use bitcoin::secp256k1::ecdh::SharedSecret;
 use bitcoin::secp256k1::ecdsa::{RecoverableSignature, Signature};
 use bitcoin::secp256k1::{schnorr, All, PublicKey, Scalar, Secp256k1, SecretKey};
@@ -475,7 +475,7 @@ fn do_forward_checks_failure(check: ForwardCheckFail, intro_fails: bool) {
 				},
 				ForwardCheckFail::ForwardPayloadEncodedAsReceive => {
 					let recipient_onion_fields = RecipientOnionFields::spontaneous_empty(amt_msat);
-					let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+					let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 					let mut onion_keys = onion_utils::construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 					let cur_height = nodes[0].best_block_info().1;
 					let (mut onion_payloads, ..) = onion_utils::test_build_onion_payloads(
@@ -1057,7 +1057,7 @@ fn do_multi_hop_receiver_fail(check: ReceiveCheckFail) {
 			check_added_monitors(&nodes[2], 1);
 		},
 		ReceiveCheckFail::OnionDecodeFail => {
-			let session_priv = SecretKey::from_slice(&session_priv).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&session_priv).unwrap();
 			let mut onion_keys = onion_utils::construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 			let cur_height = nodes[0].best_block_info().1;
 			let recipient_onion_fields = RecipientOnionFields::spontaneous_empty(amt_msat);
@@ -1598,21 +1598,21 @@ fn update_add_msg(
 fn route_blinding_spec_test_vector() {
 	let mut secp_ctx = Secp256k1::new();
 	let bob_secret = secret_from_hex("4242424242424242424242424242424242424242424242424242424242424242");
-	let bob_node_id = PublicKey::from_secret_key(&secp_ctx, &bob_secret);
+	let bob_node_id = PublicKey::from_secret_key(&bob_secret);
 	let bob_unblinded_tlvs = bytes_from_hex("011a0000000000000000000000000000000000000000000000000000020800000000000006c10a0800240000009627100c06000b69e505dc0e00fd023103123456");
 	let carol_secret = secret_from_hex("4343434343434343434343434343434343434343434343434343434343434343");
-	let carol_node_id = PublicKey::from_secret_key(&secp_ctx, &carol_secret);
+	let carol_node_id = PublicKey::from_secret_key(&carol_secret);
 	let carol_unblinded_tlvs = bytes_from_hex("020800000000000004510821031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f0a0800300000006401f40c06000b69c105dc0e00");
 	let dave_secret = secret_from_hex("4444444444444444444444444444444444444444444444444444444444444444");
-	let dave_node_id = PublicKey::from_secret_key(&secp_ctx, &dave_secret);
+	let dave_node_id = PublicKey::from_secret_key(&dave_secret);
 	let dave_unblinded_tlvs = bytes_from_hex("01230000000000000000000000000000000000000000000000000000000000000000000000020800000000000002310a060090000000fa0c06000b699105dc0e00");
 	let eve_secret = secret_from_hex("4545454545454545454545454545454545454545454545454545454545454545");
-	let eve_node_id = PublicKey::from_secret_key(&secp_ctx, &eve_secret);
+	let eve_node_id = PublicKey::from_secret_key(&eve_secret);
 	let eve_unblinded_tlvs = bytes_from_hex("011a00000000000000000000000000000000000000000000000000000604deadbeef0c06000b690105dc0e0f020000000000000000000000000000fdffff0206c1");
 
 	// Eve creates a blinded path to herself through Dave:
 	let dave_eve_session_priv = secret_from_hex("0101010101010101010101010101010101010101010101010101010101010101");
-	let blinding_override = PublicKey::from_secret_key(&secp_ctx, &dave_eve_session_priv);
+	let blinding_override = PublicKey::from_secret_key(&dave_eve_session_priv);
 	assert_eq!(blinding_override, pubkey_from_hex("031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"));
 	// Can't use the public API here as the encrypted payloads contain unknown TLVs.
 	let path = [
@@ -1625,7 +1625,7 @@ fn route_blinding_spec_test_vector() {
 
 	// Concatenate an additional Bob -> Carol blinded path to the Eve -> Dave blinded path.
 	let bob_carol_session_priv = secret_from_hex("0202020202020202020202020202020202020202020202020202020202020202");
-	let bob_blinding_point = PublicKey::from_secret_key(&secp_ctx, &bob_carol_session_priv);
+	let bob_blinding_point = PublicKey::from_secret_key(&bob_carol_session_priv);
 	let path = [
 		((bob_node_id, None), WithoutLength(&bob_unblinded_tlvs)),
 		((carol_node_id, None), WithoutLength(&carol_unblinded_tlvs)),
@@ -1915,16 +1915,16 @@ fn test_trampoline_inbound_payment_decoding() {
 	let session_priv = secret_from_hex("0303030303030303030303030303030303030303030303030303030303030303");
 
 	let bob_secret = secret_from_hex("4242424242424242424242424242424242424242424242424242424242424242");
-	let bob_node_id = PublicKey::from_secret_key(&secp_ctx, &bob_secret);
+	let bob_node_id = PublicKey::from_secret_key(&bob_secret);
 	let _bob_unblinded_tlvs = bytes_from_hex("011a0000000000000000000000000000000000000000000000000000020800000000000006c10a0800240000009627100c06000b69e505dc0e00fd023103123456");
 	let carol_secret = secret_from_hex("4343434343434343434343434343434343434343434343434343434343434343");
-	let carol_node_id = PublicKey::from_secret_key(&secp_ctx, &carol_secret);
+	let carol_node_id = PublicKey::from_secret_key(&carol_secret);
 	let _carol_unblinded_tlvs = bytes_from_hex("020800000000000004510821031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f0a0800300000006401f40c06000b69c105dc0e00");
 	let dave_secret = secret_from_hex("4444444444444444444444444444444444444444444444444444444444444444");
-	let dave_node_id = PublicKey::from_secret_key(&secp_ctx, &dave_secret);
+	let dave_node_id = PublicKey::from_secret_key(&dave_secret);
 	let _dave_unblinded_tlvs = bytes_from_hex("01230000000000000000000000000000000000000000000000000000000000000000000000020800000000000002310a060090000000fa0c06000b699105dc0e00");
 	let eve_secret = secret_from_hex("4545454545454545454545454545454545454545454545454545454545454545");
-	let _eve_node_id = PublicKey::from_secret_key(&secp_ctx, &eve_secret);
+	let _eve_node_id = PublicKey::from_secret_key(&eve_secret);
 	let _eve_unblinded_tlvs = bytes_from_hex("011a00000000000000000000000000000000000000000000000000000604deadbeef0c06000b690105dc0e0f020000000000000000000000000000fdffff0206c1");
 
 	let path = Path {
@@ -2089,11 +2089,11 @@ fn test_trampoline_forward_payload_encoded_as_receive() {
 	let override_random_bytes = [3; 32];
 	*nodes[0].keys_manager.override_random_bytes.lock().unwrap() = Some(override_random_bytes);
 
-	let outer_session_priv = SecretKey::from_slice(&override_random_bytes).unwrap();
+	let outer_session_priv = crate::prelude::secret_key_from_slice(&override_random_bytes).unwrap();
 	let trampoline_session_priv = onion_utils::compute_trampoline_session_priv(&outer_session_priv);
 
 	// Create a blinded hop for the recipient that is encoded as a trampoline forward.
-	let carol_blinding_point = PublicKey::from_secret_key(&secp_ctx, &trampoline_session_priv);
+	let carol_blinding_point = PublicKey::from_secret_key(&trampoline_session_priv);
 	let carol_blinded_hops =  {
 		let payee_tlvs = blinded_path::payment::TrampolineForwardTlvs {
 			next_trampoline: alice_node_id,
@@ -2426,10 +2426,10 @@ fn create_blinded_tail(
 	carol_auth_key: ReceiveAuthKey, trampoline_cltv_expiry_delta: u32,
 	excess_final_cltv_delta: u32, final_value_msat: u64, payment_secret: PaymentSecret,
 ) -> BlindedTail {
-	let outer_session_priv = SecretKey::from_slice(&override_random_bytes).unwrap();
+	let outer_session_priv = crate::prelude::secret_key_from_slice(&override_random_bytes).unwrap();
 	let trampoline_session_priv = onion_utils::compute_trampoline_session_priv(&outer_session_priv);
 
-	let carol_blinding_point = PublicKey::from_secret_key(&secp_ctx, &trampoline_session_priv);
+	let carol_blinding_point = PublicKey::from_secret_key(&trampoline_session_priv);
 	let carol_blinded_hops = {
 		let payee_tlvs = ReceiveTlvs {
 			payment_secret,
@@ -2472,7 +2472,7 @@ fn replacement_onion(
 	original_trampoline_cltv: u32, payment_hash: PaymentHash, payment_secret: PaymentSecret,
 	blinded: bool,
 ) -> msgs::OnionPacket {
-	let outer_session_priv = SecretKey::from_slice(&override_random_bytes[..]).unwrap();
+	let outer_session_priv = crate::prelude::secret_key_from_slice(&override_random_bytes[..]).unwrap();
 	let trampoline_session_priv = onion_utils::compute_trampoline_session_priv(&outer_session_priv);
 	let recipient_onion_fields = RecipientOnionFields::spontaneous_empty(original_amt_msat);
 

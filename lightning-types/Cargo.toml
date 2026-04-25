@@ -18,7 +18,8 @@ rustdoc-args = ["--cfg", "docsrs"]
 _test_utils = []
 
 [dependencies]
-bitcoin = { version = "0.32.2", default-features = false }
+bitcoin = { version = "0.33.0-beta", default-features = false }
+hex-conservative = { version = "0.3.0", default-features = false }
 
 [lints]
 workspace = true

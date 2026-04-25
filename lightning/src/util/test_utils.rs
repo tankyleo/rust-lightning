@@ -70,7 +70,7 @@ use bitcoin::constants::ChainHash;
 use bitcoin::hash_types::Txid;
 use bitcoin::hashes::{hex::FromHex, Hash};
 use bitcoin::network::Network;
-use bitcoin::script::{Builder, Script, ScriptBuf};
+use bitcoin::script::{Builder, ScriptPubKey as Script, ScriptPubKeyBuf as ScriptBuf};
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
 use bitcoin::transaction::{Transaction, TxOut};
 use bitcoin::{opcodes, Witness};
@@ -102,15 +102,15 @@ use super::test_channel_signer::SignerOp;
 
 pub fn pubkey(byte: u8) -> PublicKey {
 	let secp_ctx = Secp256k1::new();
-	PublicKey::from_secret_key(&secp_ctx, &privkey(byte))
+	PublicKey::from_secret_key(&privkey(byte))
 }
 
 pub fn privkey(byte: u8) -> SecretKey {
-	SecretKey::from_slice(&[byte; 32]).unwrap()
+	crate::prelude::secret_key_from_slice(&[byte; 32]).unwrap()
 }
 
 pub fn secret_from_hex(hex: &str) -> SecretKey {
-	SecretKey::from_slice(&<Vec<u8>>::from_hex(hex).unwrap()).unwrap()
+	crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()).unwrap()
 }
 
 pub fn bytes_from_hex(hex: &str) -> Vec<u8> {
@@ -128,8 +128,8 @@ pub fn preimage_from_hex(hex: &str) -> PaymentPreimage {
 pub fn public_from_secret_hex(
 	secp_ctx: &Secp256k1<bitcoin::secp256k1::All>, hex: &str,
 ) -> PublicKey {
-	let secret = SecretKey::from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
-	PublicKey::from_secret_key(&secp_ctx, &secret)
+	let secret = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
+	PublicKey::from_secret_key(&secret)
 }
 
 pub fn payment_hash_from_hex(hex: &str) -> PaymentHash {
@@ -788,7 +788,7 @@ impl WatchtowerPersister {
 		let trusted_tx = counterparty_commitment_tx.trust();
 		let output_idx = trusted_tx.revokeable_output_index()?;
 		let built_tx = trusted_tx.built_transaction();
-		let value = built_tx.transaction.output[output_idx as usize].value;
+		let value = built_tx.transaction.outputs[output_idx as usize].amount;
 		let justice_tx = trusted_tx
 			.build_to_local_justice_tx(
 				FEERATE_FLOOR_SATS_PER_KW as u64,
@@ -854,7 +854,7 @@ impl<Signer: sign::ecdsa::EcdsaChannelSigner> Persist<Signer> for WatchtowerPers
 				channel_state.front()
 			{
 				let input_idx = 0;
-				let commitment_txid = justice_tx.input[input_idx].previous_output.txid;
+				let commitment_txid = justice_tx.inputs[input_idx].previous_output.txid;
 				match data.sign_to_local_justice_tx(
 					justice_tx.clone(),
 					input_idx,
@@ -1200,11 +1200,16 @@ pub struct TestBroadcaster {
 	pub blocks: Arc<Mutex<Vec<(Block, u32)>>>,
 }
 
+fn unchecked_genesis_block(network: Network) -> Block {
+	let genesis = genesis_block(network);
+	Block::new_unchecked(genesis.header().clone(), genesis.transactions().to_vec())
+}
+
 impl TestBroadcaster {
 	pub fn new(network: Network) -> Self {
 		let txn_broadcasted = Mutex::new(Vec::new());
 		let txn_types = Mutex::new(Vec::new());
-		let blocks = Arc::new(Mutex::new(vec![(genesis_block(network), 0)]));
+		let blocks = Arc::new(Mutex::new(vec![(unchecked_genesis_block(network), 0)]));
 		Self { txn_broadcasted, txn_types, blocks }
 	}
 
@@ -1257,14 +1262,14 @@ impl chaininterface::BroadcasterInterface for TestBroadcaster {
 			let parent_txid = txs[0].0.compute_txid();
 			assert!(txs[1]
 				.0
-				.input
+				.inputs
 				.iter()
 				.map(|input| input.previous_output.txid)
 				.any(|txid| txid == parent_txid));
 			let child_txid = txs[1].0.compute_txid();
 			assert!(txs[0]
 				.0
-				.input
+				.inputs
 				.iter()
 				.map(|input| input.previous_output.txid)
 				.all(|txid| txid != child_txid));
@@ -1276,7 +1281,7 @@ impl chaininterface::BroadcasterInterface for TestBroadcaster {
 			if tx.lock_time.is_block_height()
 				&& lock_time > self.blocks.lock().unwrap().last().unwrap().1
 			{
-				for inp in tx.input.iter() {
+				for inp in tx.inputs.iter() {
 					if inp.sequence != Sequence::MAX {
 						panic!(
 							"We should never broadcast a transaction before its locktime ({})!",
@@ -1561,19 +1566,19 @@ impl msgs::BaseMessageHandler for TestChannelMessageHandler {
 fn get_dummy_channel_announcement(short_chan_id: u64) -> msgs::ChannelAnnouncement {
 	use bitcoin::secp256k1::ffi::Signature as FFISignature;
 	let secp_ctx = Secp256k1::new();
-	let network = Network::Testnet;
-	let node_1_privkey = SecretKey::from_slice(&[42; 32]).unwrap();
-	let node_2_privkey = SecretKey::from_slice(&[41; 32]).unwrap();
-	let node_1_btckey = SecretKey::from_slice(&[40; 32]).unwrap();
-	let node_2_btckey = SecretKey::from_slice(&[39; 32]).unwrap();
+	let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
+	let node_1_privkey = crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+	let node_2_privkey = crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
+	let node_1_btckey = crate::prelude::secret_key_from_slice(&[40; 32]).unwrap();
+	let node_2_btckey = crate::prelude::secret_key_from_slice(&[39; 32]).unwrap();
 	let unsigned_ann = msgs::UnsignedChannelAnnouncement {
 		features: ChannelFeatures::empty(),
 		chain_hash: ChainHash::using_genesis_block(network),
 		short_channel_id: short_chan_id,
-		node_id_1: NodeId::from_pubkey(&PublicKey::from_secret_key(&secp_ctx, &node_1_privkey)),
-		node_id_2: NodeId::from_pubkey(&PublicKey::from_secret_key(&secp_ctx, &node_2_privkey)),
-		bitcoin_key_1: NodeId::from_pubkey(&PublicKey::from_secret_key(&secp_ctx, &node_1_btckey)),
-		bitcoin_key_2: NodeId::from_pubkey(&PublicKey::from_secret_key(&secp_ctx, &node_2_btckey)),
+		node_id_1: NodeId::from_pubkey(&PublicKey::from_secret_key(&node_1_privkey)),
+		node_id_2: NodeId::from_pubkey(&PublicKey::from_secret_key(&node_2_privkey)),
+		bitcoin_key_1: NodeId::from_pubkey(&PublicKey::from_secret_key(&node_1_btckey)),
+		bitcoin_key_2: NodeId::from_pubkey(&PublicKey::from_secret_key(&node_2_btckey)),
 		excess_data: Vec::new(),
 	};
 
@@ -1590,7 +1595,7 @@ fn get_dummy_channel_announcement(short_chan_id: u64) -> msgs::ChannelAnnounceme
 
 pub fn get_dummy_channel_update(short_chan_id: u64) -> msgs::ChannelUpdate {
 	use bitcoin::secp256k1::ffi::Signature as FFISignature;
-	let network = Network::Testnet;
+	let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 	msgs::ChannelUpdate {
 		signature: Signature::from(unsafe { FFISignature::new() }),
 		contents: msgs::UnsignedChannelUpdate {
@@ -1727,7 +1732,7 @@ impl BaseMessageHandler for TestRoutingMessageHandler {
 		pending_events.push(MessageSendEvent::SendGossipTimestampFilter {
 			node_id: their_node_id.clone(),
 			msg: msgs::GossipTimestampFilter {
-				chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+				chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 				first_timestamp: gossip_start_time as u32,
 				timestamp_range: u32::max_value(),
 			},
@@ -1880,7 +1885,7 @@ impl NodeSigner for TestNodeSigner {
 			Recipient::Node => Ok(&self.node_secret),
 			Recipient::PhantomNode => Err(()),
 		}?;
-		Ok(PublicKey::from_secret_key(&Secp256k1::signing_only(), node_secret))
+		Ok(PublicKey::from_secret_key(node_secret))
 	}
 
 	fn ecdh(
@@ -2091,7 +2096,7 @@ impl TestKeysInterface {
 		#[cfg(not(feature = "std"))]
 		let factory = DefaultSignerFactory();
 
-		let now = Duration::from_secs(genesis_block(network).header.time as u64);
+		let now = Duration::from_secs(genesis_block(network).header().time.to_u32() as u64);
 		let backing = factory.make_signer(seed, now, true, None);
 		Self::build(backing)
 	}
@@ -2103,7 +2108,7 @@ impl TestKeysInterface {
 		#[cfg(not(feature = "std"))]
 		let factory = DefaultSignerFactory();
 
-		let now = Duration::from_secs(genesis_block(network).header.time as u64);
+		let now = Duration::from_secs(genesis_block(network).header().time.to_u32() as u64);
 		let backing = factory.make_signer(seed, now, false, None);
 		Self::build(backing)
 	}
@@ -2117,7 +2122,7 @@ impl TestKeysInterface {
 		#[cfg(not(feature = "std"))]
 		let factory = DefaultSignerFactory();
 
-		let now = Duration::from_secs(genesis_block(network).header.time as u64);
+		let now = Duration::from_secs(genesis_block(network).header().time.to_u32() as u64);
 		let backing = factory.make_signer(seed, now, !v1_derivation, phantom_seed);
 		Self::build(backing)
 	}
@@ -2190,9 +2195,9 @@ pub struct TestChainSource {
 
 impl TestChainSource {
 	pub fn new(network: Network) -> Self {
-		let script_pubkey = Builder::new().push_opcode(opcodes::OP_TRUE).into_script();
+		let script_pubkey = Builder::new().push_opcode(opcodes::all::OP_TRUE).into_script();
 		let utxo_ret =
-			Mutex::new(UtxoResult::Sync(Ok(TxOut { value: Amount::MAX, script_pubkey })));
+			Mutex::new(UtxoResult::Sync(Ok(TxOut { amount: Amount::MAX, script_pubkey })));
 		Self {
 			chain_hash: ChainHash::using_genesis_block(network),
 			utxo_ret,
@@ -2347,30 +2352,30 @@ impl TestWalletSource {
 		&self, mut tx: Transaction,
 	) -> Result<Transaction, bitcoin::sighash::P2wpkhError> {
 		let utxos = self.utxos.lock().unwrap();
-		for i in 0..tx.input.len() {
+		for i in 0..tx.inputs.len() {
 			if let Some(utxo) =
-				utxos.iter().find(|utxo| utxo.outpoint() == tx.input[i].previous_output)
+				utxos.iter().find(|utxo| utxo.outpoint() == tx.inputs[i].previous_output)
 			{
 				let sighash = SighashCache::new(&tx).p2wpkh_signature_hash(
 					i,
 					&utxo.output().script_pubkey,
-					utxo.output().value,
-					EcdsaSighashType::All,
-				)?;
+				utxo.output().amount,
+				EcdsaSighashType::All,
+			)?;
 				#[cfg(not(feature = "grind_signatures"))]
 				let signature = self.secp.sign_ecdsa(
-					&secp256k1::Message::from_digest(sighash.to_byte_array()),
+					secp256k1::Message::from_digest(sighash.to_byte_array()),
 					&self.secret_key,
 				);
 				#[cfg(feature = "grind_signatures")]
 				let signature = self.secp.sign_ecdsa_low_r(
-					&secp256k1::Message::from_digest(sighash.to_byte_array()),
+					secp256k1::Message::from_digest(sighash.to_byte_array()),
 					&self.secret_key,
 				);
 				let bitcoin_sig =
 					bitcoin::ecdsa::Signature { signature, sighash_type: EcdsaSighashType::All };
-				tx.input[i].witness =
-					Witness::p2wpkh(&bitcoin_sig, &self.secret_key.public_key(&self.secp));
+				tx.inputs[i].witness =
+					Witness::p2wpkh(bitcoin_sig, self.secret_key.public_key());
 			}
 		}
 		Ok(tx)
@@ -2393,8 +2398,8 @@ impl WalletSourceSync for TestWalletSource {
 	}
 
 	fn get_change_script(&self) -> Result<ScriptBuf, ()> {
-		let public_key = bitcoin::PublicKey::new(self.secret_key.public_key(&self.secp));
-		Ok(ScriptBuf::new_p2wpkh(&public_key.wpubkey_hash().unwrap()))
+		let public_key = bitcoin::PublicKey::new(self.secret_key.public_key());
+		Ok(ScriptBuf::new_p2wpkh(public_key.wpubkey_hash().unwrap()))
 	}
 
 	fn sign_psbt(&self, psbt: Psbt) -> Result<Transaction, ()> {

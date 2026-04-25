@@ -189,7 +189,7 @@ impl<'a> StaticInvoiceBuilder<'a> {
 		let (unsigned_invoice, keys) = self.build()?;
 		let invoice = unsigned_invoice
 			.sign(|message: &UnsignedStaticInvoice| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.tagged_hash.as_digest(), &keys))
+				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.tagged_hash.as_digest_bytes(), &keys))
 			})
 			.unwrap();
 		Ok(invoice)
@@ -1195,7 +1195,7 @@ mod tests {
 			OfferBuilder::deriving_signing_pubkey(node_id, &expanded_key, nonce, &secp_ctx)
 				.path(blinded_path())
 				.chain(Network::Bitcoin)
-				.chain(Network::Testnet)
+				.chain(Network::Testnet(bitcoin::network::TestnetVersion::V3))
 				.build()
 				.unwrap();
 
@@ -1435,7 +1435,7 @@ mod tests {
 
 		let invoice = unsigned_invoice
 			.sign(|message: &UnsignedStaticInvoice| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 			})
 			.unwrap();
 
@@ -1474,7 +1474,7 @@ mod tests {
 
 		let invoice = unsigned_invoice
 			.sign(|message: &UnsignedStaticInvoice| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 			})
 			.unwrap();
 
@@ -1550,7 +1550,7 @@ mod tests {
 
 		let invoice = unsigned_invoice
 			.sign(|message: &UnsignedStaticInvoice| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 			})
 			.unwrap();
 
@@ -1591,7 +1591,7 @@ mod tests {
 
 		let invoice = unsigned_invoice
 			.sign(|message: &UnsignedStaticInvoice| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 			})
 			.unwrap();
 
@@ -1673,7 +1673,7 @@ mod tests {
 		let mut tlv_stream = invalid_offer_chains_invoice.as_tlv_stream();
 		let invalid_chains = vec![
 			ChainHash::using_genesis_block(Network::Bitcoin),
-			ChainHash::using_genesis_block(Network::Testnet),
+			ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		];
 		tlv_stream.0.chains = Some(&invalid_chains);
 		match StaticInvoice::try_from(tlv_stream_to_bytes(&tlv_stream)) {

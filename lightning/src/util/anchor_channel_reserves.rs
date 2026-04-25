@@ -237,14 +237,14 @@ pub fn get_supportable_anchor_channels(
 	// Get the reserve needed per channel, accounting for the actual satisfaction weight below.
 	let reserve_per_channel = get_reserve_per_channel_with_input(context, Weight::ZERO);
 
-	let mut total_fractional_amount = Amount::from_sat(0);
+	let mut total_fractional_amount = Amount::ZERO;
 	let mut num_whole_utxos = 0;
 	for utxo in utxos {
 		let satisfaction_fee = context
 			.upper_bound_fee_rate
 			.fee_wu(Weight::from_wu(utxo.satisfaction_weight))
 			.unwrap_or(Amount::MAX);
-		let amount = utxo.output.value.checked_sub(satisfaction_fee).unwrap_or(Amount::MIN);
+		let amount = utxo.output.amount.checked_sub(satisfaction_fee).unwrap_or(Amount::MIN);
 		if amount >= reserve_per_channel {
 			num_whole_utxos += 1;
 		} else {
@@ -315,7 +315,8 @@ where
 #[cfg(test)]
 mod test {
 	use super::*;
-	use bitcoin::{OutPoint, ScriptBuf, Sequence, TxOut, Txid};
+	use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
+	use bitcoin::{OutPoint, Sequence, TxOut, Txid};
 	use std::str::FromStr;
 
 	#[test]
@@ -328,7 +329,7 @@ mod test {
 				expected_accepted_htlcs: 1,
 				taproot_wallet: false,
 			}),
-			Amount::from_sat(4349)
+			Amount::from_sat(4349).expect("amount must fit")
 		);
 	}
 
@@ -341,10 +342,14 @@ mod test {
 				.unwrap(),
 				vout: 0,
 			},
-			output: TxOut { value: amount, script_pubkey: ScriptBuf::new() },
+			output: TxOut { amount, script_pubkey: ScriptBuf::new() },
 			satisfaction_weight: 1 * 4 + (1 + 1 + 72 + 1 + 33),
 			sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
 		}
+	}
+
+	fn scale_amount(amount: Amount, numerator: u64, denominator: u64) -> Amount {
+		Amount::from_sat(amount.to_sat() * numerator / denominator).expect("test amount must fit")
 	}
 
 	#[test]
@@ -353,11 +358,11 @@ mod test {
 		let reserve_per_channel = get_reserve_per_channel(&context);
 		// Only 3 disjoint sets with a value greater than the required reserve can be created.
 		let utxos = vec![
-			make_p2wpkh_utxo(reserve_per_channel * 3 / 2),
+			make_p2wpkh_utxo(scale_amount(reserve_per_channel, 3, 2)),
 			make_p2wpkh_utxo(reserve_per_channel),
-			make_p2wpkh_utxo(reserve_per_channel * 99 / 100),
-			make_p2wpkh_utxo(reserve_per_channel * 99 / 100),
-			make_p2wpkh_utxo(reserve_per_channel * 20 / 100),
+			make_p2wpkh_utxo(scale_amount(reserve_per_channel, 99, 100)),
+			make_p2wpkh_utxo(scale_amount(reserve_per_channel, 99, 100)),
+			make_p2wpkh_utxo(scale_amount(reserve_per_channel, 20, 100)),
 		];
 		assert_eq!(get_supportable_anchor_channels(&context, utxos.as_slice()), 3);
 	}

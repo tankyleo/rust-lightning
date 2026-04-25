@@ -2816,10 +2816,10 @@ mod tests {
 		assert!(followup.is_none());
 
 		let dummy_tx = Transaction {
-			version: Version(2),
+			version: Version::maybe_non_standard(2),
 			lock_time: LockTime::ZERO,
-			input: vec![],
-			output: vec![],
+			inputs: vec![],
+			outputs: vec![],
 		};
 		jit_channel.set_funding_tx(dummy_tx);
 		jit_channel.set_funding_tx_broadcast_safe(true);

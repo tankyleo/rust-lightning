@@ -48,7 +48,7 @@ use crate::types::string::UntrustedString;
 use crate::util::config::HTLCInterceptionFlags;
 use crate::util::errors::APIError;
 use crate::util::ser::Writeable;
-use bitcoin::hashes::sha256::Hash as Sha256;
+use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{Secp256k1, SecretKey};
 
@@ -925,7 +925,7 @@ fn do_retry_with_no_persist(confirm_before_reload: bool) {
 
 	if confirm_before_reload {
 		let best_block = nodes[0].blocks.lock().unwrap().last().unwrap().clone();
-		nodes[0].node.best_block_updated(&best_block.0.header, best_block.1);
+		nodes[0].node.best_block_updated(best_block.0.as_parts().0, best_block.1);
 	}
 
 	// Create a new channel on which to retry the payment before we fail the payment via the
@@ -959,7 +959,7 @@ fn do_retry_with_no_persist(confirm_before_reload: bool) {
 	};
 	check_spends!(first_htlc_timeout_tx, as_commitment_tx);
 	check_spends!(second_htlc_timeout_tx, as_commitment_tx);
-	if first_htlc_timeout_tx.input[0].previous_output == bs_htlc_claim_txn.input[0].previous_output
+	if first_htlc_timeout_tx.inputs[0].previous_output == bs_htlc_claim_txn.inputs[0].previous_output
 	{
 		confirm_transaction(&nodes[0], &second_htlc_timeout_tx);
 	} else {
@@ -2377,7 +2377,7 @@ fn do_test_intercepted_payment(test: InterceptTest) {
 		connect_block(&nodes[0], &block);
 		connect_block(&nodes[1], &block);
 		for _ in 0..TEST_FINAL_CLTV {
-			block.header.prev_blockhash = block.block_hash();
+			block = create_dummy_block(block.block_hash(), 42, Vec::new());
 			connect_block(&nodes[0], &block);
 			connect_block(&nodes[1], &block);
 		}
@@ -5087,7 +5087,7 @@ fn peel_payment_onion_custom_tlvs() {
 	let mut recipient_onion = RecipientOnionFields::spontaneous_empty(amt_msat)
 		.with_custom_tlvs(RecipientCustomTlvs::new(vec![(414141, vec![42; 1200])]).unwrap());
 	let prng_seed = chanmon_cfgs[0].keys_manager.get_secure_random_bytes();
-	let session_priv = SecretKey::from_slice(&prng_seed[..]).expect("RNG is busted");
+	let session_priv = crate::prelude::secret_key_from_slice(&prng_seed[..]).expect("RNG is busted");
 	let keysend_preimage = PaymentPreimage([42; 32]);
 	let payment_hash = PaymentHash(Sha256::hash(&keysend_preimage.0).to_byte_array());
 

@@ -55,10 +55,10 @@ fn test_p2a_anchor_values_under_trims_and_rounds() {
 			)*
 			let txn = get_local_commitment_txn!(nodes[0], chan_id);
 			assert_eq!(txn.len(), 1);
-			assert_eq!(txn[0].output.iter().find(|output| output.script_pubkey == chan_utils::shared_anchor_script_pubkey()).unwrap().value.to_sat(), $expected_p2a_value_sat);
+			assert_eq!(txn[0].outputs.iter().find(|output| output.script_pubkey == chan_utils::shared_anchor_script_pubkey()).unwrap().amount.to_sat(), $expected_p2a_value_sat);
 			let txn = get_local_commitment_txn!(nodes[1], chan_id);
 			assert_eq!(txn.len(), 1);
-			assert_eq!(txn[0].output.iter().find(|output| output.script_pubkey == chan_utils::shared_anchor_script_pubkey()).unwrap().value.to_sat(), $expected_p2a_value_sat);
+			assert_eq!(txn[0].outputs.iter().find(|output| output.script_pubkey == chan_utils::shared_anchor_script_pubkey()).unwrap().amount.to_sat(), $expected_p2a_value_sat);
 			for hash in node_0_1_hashes {
 				fail_payment(&nodes[0], &[&nodes[1]], hash);
 			}
@@ -129,7 +129,7 @@ fn test_htlc_claim_chunking() {
 	let node_chanmgrs = create_node_chanmgrs(2, &node_cfgs, &configs);
 	let nodes = create_network(2, &node_cfgs, &node_chanmgrs);
 
-	let coinbase_tx = provide_utxo_reserves(&nodes, 50, Amount::from_sat(500));
+	let coinbase_tx = provide_utxo_reserves(&nodes, 50, amount_from_sat(500));
 
 	const CHAN_CAPACITY: u64 = 10_000_000;
 	let (_, _, chan_id, _funding_tx) = create_announced_chan_between_nodes_with_value(
@@ -149,10 +149,10 @@ fn test_htlc_claim_chunking() {
 	}
 	let node_0_commit_tx = get_local_commitment_txn!(nodes[0], chan_id);
 	assert_eq!(node_0_commit_tx.len(), 1);
-	assert_eq!(node_0_commit_tx[0].output.len(), 75 + 2 + 1);
+	assert_eq!(node_0_commit_tx[0].outputs.len(), 75 + 2 + 1);
 	let node_1_commit_tx = get_local_commitment_txn!(nodes[1], chan_id);
 	assert_eq!(node_1_commit_tx.len(), 1);
-	assert_eq!(node_1_commit_tx[0].output.len(), 75 + 2 + 1);
+	assert_eq!(node_1_commit_tx[0].outputs.len(), 75 + 2 + 1);
 
 	for (preimage, payment_hash) in node_1_preimages {
 		nodes[1].node.claim_funds(preimage);
@@ -180,10 +180,10 @@ fn test_htlc_claim_chunking() {
 	check_spends!(htlc_claims[0], node_1_commit_tx[0], coinbase_tx);
 	check_spends!(htlc_claims[1], node_1_commit_tx[0], coinbase_tx);
 
-	assert_eq!(htlc_claims[0].input.len(), 71);
-	assert_eq!(htlc_claims[0].output.len(), 51);
-	assert_eq!(htlc_claims[1].input.len(), 34);
-	assert_eq!(htlc_claims[1].output.len(), 24);
+	assert_eq!(htlc_claims[0].inputs.len(), 71);
+	assert_eq!(htlc_claims[0].outputs.len(), 51);
+	assert_eq!(htlc_claims[1].inputs.len(), 34);
+	assert_eq!(htlc_claims[1].outputs.len(), 24);
 
 	check_closed_broadcast(&nodes[0], 1, true);
 	check_added_monitors(&nodes[0], 1);
@@ -214,8 +214,8 @@ fn test_htlc_claim_chunking() {
 	check_spends!(fresh_htlc_claims[0], node_1_commit_tx[0], coinbase_tx);
 	// We are targeting a higher feerate here,
 	// so we need more utxos here compared to `htlc_claims[1]` above.
-	assert_eq!(fresh_htlc_claims[0].input.len(), 37);
-	assert_eq!(fresh_htlc_claims[0].output.len(), 25);
+	assert_eq!(fresh_htlc_claims[0].inputs.len(), 37);
+	assert_eq!(fresh_htlc_claims[0].outputs.len(), 25);
 
 	let log_entries = nodes[1].logger.lines.lock().unwrap();
 	let batch_tx_id_assignments: Vec<_> = log_entries
@@ -319,7 +319,7 @@ fn test_anchor_tx_too_big() {
 
 	let node_a_id = nodes[0].node.get_our_node_id();
 
-	let _coinbase_tx_a = provide_utxo_reserves(&nodes, 50, Amount::from_sat(500));
+	let _coinbase_tx_a = provide_utxo_reserves(&nodes, 50, amount_from_sat(500));
 
 	const CHAN_CAPACITY: u64 = 10_000_000;
 	let (_, _, chan_id, _funding_tx) = create_announced_chan_between_nodes_with_value(
@@ -399,8 +399,8 @@ fn test_anchor_tx_too_big() {
 	assert!(txns[1].weight().to_wu() < TRUC_CHILD_MAX_WEIGHT);
 
 	assert_eq!(txns[0].compute_txid(), commitment_txid);
-	assert_eq!(txns[1].input.len(), 2);
-	assert_eq!(txns[1].output.len(), 1);
+	assert_eq!(txns[1].inputs.len(), 2);
+	assert_eq!(txns[1].outputs.len(), 1);
 	nodes[1].logger.assert_log(
 		"lightning::util::wallet_utils",
 		format!(

@@ -54,7 +54,7 @@
 //!     .parse::<Offer>()?
 //!     .request_invoice(&expanded_key, nonce, &secp_ctx, payment_id)?
 //! # )
-//!     .chain(Network::Testnet)?
+//!     .chain(Network::Testnet(bitcoin::network::TestnetVersion::V3))?
 //!     .amount_msats(1000)?
 //!     .quantity(5)?
 //!     .payer_note("foo".to_string())
@@ -169,7 +169,7 @@ macro_rules! invoice_request_derived_payer_signing_pubkey_builder_methods {
 			let keys = keys.unwrap();
 			let invoice_request = unsigned_invoice_request
 				.sign(|message: &UnsignedInvoiceRequest| {
-					Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+					Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 				})
 				.unwrap();
 			Ok(invoice_request)
@@ -394,7 +394,7 @@ macro_rules! invoice_request_builder_test_methods { (
 		let keys = keys.unwrap();
 		unsigned_invoice_request
 			.sign(|message: &UnsignedInvoiceRequest|
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 			)
 			.unwrap()
 	}
@@ -1826,7 +1826,7 @@ mod tests {
 		let payment_id = PaymentId([1; 32]);
 
 		let mainnet = ChainHash::using_genesis_block(Network::Bitcoin);
-		let testnet = ChainHash::using_genesis_block(Network::Testnet);
+		let testnet = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 
 		let invoice_request = OfferBuilder::new(recipient_pubkey())
 			.amount_msats(1000)
@@ -1844,12 +1844,12 @@ mod tests {
 
 		let invoice_request = OfferBuilder::new(recipient_pubkey())
 			.amount_msats(1000)
-			.chain(Network::Testnet)
+			.chain(Network::Testnet(bitcoin::network::TestnetVersion::V3))
 			.build()
 			.unwrap()
 			.request_invoice(&expanded_key, nonce, &secp_ctx, payment_id)
 			.unwrap()
-			.chain(Network::Testnet)
+			.chain(Network::Testnet(bitcoin::network::TestnetVersion::V3))
 			.unwrap()
 			.build_and_sign()
 			.unwrap();
@@ -1860,7 +1860,7 @@ mod tests {
 		let invoice_request = OfferBuilder::new(recipient_pubkey())
 			.amount_msats(1000)
 			.chain(Network::Bitcoin)
-			.chain(Network::Testnet)
+			.chain(Network::Testnet(bitcoin::network::TestnetVersion::V3))
 			.build()
 			.unwrap()
 			.request_invoice(&expanded_key, nonce, &secp_ctx, payment_id)
@@ -1876,14 +1876,14 @@ mod tests {
 		let invoice_request = OfferBuilder::new(recipient_pubkey())
 			.amount_msats(1000)
 			.chain(Network::Bitcoin)
-			.chain(Network::Testnet)
+			.chain(Network::Testnet(bitcoin::network::TestnetVersion::V3))
 			.build()
 			.unwrap()
 			.request_invoice(&expanded_key, nonce, &secp_ctx, payment_id)
 			.unwrap()
 			.chain(Network::Bitcoin)
 			.unwrap()
-			.chain(Network::Testnet)
+			.chain(Network::Testnet(bitcoin::network::TestnetVersion::V3))
 			.unwrap()
 			.build_and_sign()
 			.unwrap();
@@ -1893,7 +1893,7 @@ mod tests {
 
 		match OfferBuilder::new(recipient_pubkey())
 			.amount_msats(1000)
-			.chain(Network::Testnet)
+			.chain(Network::Testnet(bitcoin::network::TestnetVersion::V3))
 			.build()
 			.unwrap()
 			.request_invoice(&expanded_key, nonce, &secp_ctx, payment_id)
@@ -1906,7 +1906,7 @@ mod tests {
 
 		match OfferBuilder::new(recipient_pubkey())
 			.amount_msats(1000)
-			.chain(Network::Testnet)
+			.chain(Network::Testnet(bitcoin::network::TestnetVersion::V3))
 			.build()
 			.unwrap()
 			.request_invoice(&expanded_key, nonce, &secp_ctx, payment_id)
@@ -2382,7 +2382,7 @@ mod tests {
 			.unwrap()
 			.request_invoice(&expanded_key, nonce, &secp_ctx, payment_id)
 			.unwrap()
-			.chain_unchecked(Network::Testnet)
+			.chain_unchecked(Network::Testnet(bitcoin::network::TestnetVersion::V3))
 			.build_unchecked_and_sign();
 
 		let mut buffer = Vec::new();
@@ -2851,7 +2851,7 @@ mod tests {
 		assert!(UNKNOWN_ODD_TYPE % 2 == 1);
 
 		let secp_ctx = Secp256k1::new();
-		let keys = Keypair::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+		let keys = Keypair::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let (mut unsigned_invoice_request, payer_keys, _) = OfferBuilder::new(keys.public_key())
 			.amount_msats(1000)
 			.build()
@@ -2872,7 +2872,7 @@ mod tests {
 		let keys = payer_keys.unwrap();
 		let invoice_request = unsigned_invoice_request
 			.sign(|message: &UnsignedInvoiceRequest| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 			})
 			.unwrap();
 
@@ -2907,7 +2907,7 @@ mod tests {
 		let keys = payer_keys.unwrap();
 		let invoice_request = unsigned_invoice_request
 			.sign(|message: &UnsignedInvoiceRequest| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 			})
 			.unwrap();
 
@@ -2931,7 +2931,7 @@ mod tests {
 		assert!(UNKNOWN_ODD_TYPE % 2 == 1);
 
 		let secp_ctx = Secp256k1::new();
-		let keys = Keypair::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+		let keys = Keypair::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let (mut unsigned_invoice_request, payer_keys, _) = OfferBuilder::new(keys.public_key())
 			.amount_msats(1000)
 			.build()
@@ -2955,7 +2955,7 @@ mod tests {
 		let keys = payer_keys.unwrap();
 		let invoice_request = unsigned_invoice_request
 			.sign(|message: &UnsignedInvoiceRequest| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 			})
 			.unwrap();
 
@@ -2993,7 +2993,7 @@ mod tests {
 		let keys = payer_keys.unwrap();
 		let invoice_request = unsigned_invoice_request
 			.sign(|message: &UnsignedInvoiceRequest| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 			})
 			.unwrap();
 
@@ -3084,7 +3084,7 @@ mod tests {
 		#[cfg(c_bindings)]
 		use crate::offers::offer::OfferWithDerivedMetadataBuilder as OfferBuilder;
 		let offer = OfferBuilder::deriving_signing_pubkey(node_id, &expanded_key, nonce, &secp_ctx)
-			.chain(Network::Testnet)
+			.chain(Network::Testnet(bitcoin::network::TestnetVersion::V3))
 			.amount_msats(1000)
 			.supported_quantity(Quantity::Unbounded)
 			.build()
@@ -3100,7 +3100,7 @@ mod tests {
 		let invoice_request = offer
 			.request_invoice(&expanded_key, nonce, &secp_ctx, payment_id)
 			.unwrap()
-			.chain(Network::Testnet)
+			.chain(Network::Testnet(bitcoin::network::TestnetVersion::V3))
 			.unwrap()
 			.quantity(1)
 			.unwrap()

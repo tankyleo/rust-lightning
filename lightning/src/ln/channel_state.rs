@@ -14,9 +14,11 @@ use alloc::vec::Vec;
 use bitcoin::secp256k1::PublicKey;
 
 use crate::chain::chaininterface::{FeeEstimator, LowerBoundedFeeEstimator};
+use crate::prelude::*;
 use crate::chain::transaction::OutPoint;
 use crate::ln::channel::Channel;
 use crate::ln::types::ChannelId;
+use crate::prelude::LegacyScriptBufExt;
 use crate::sign::SignerProvider;
 use crate::types::features::{ChannelTypeFeatures, InitFeatures};
 use crate::types::payment::PaymentHash;
@@ -478,7 +480,7 @@ pub struct ChannelDetails {
 	/// confirmations to be locked (and we exchange `splice_locked` messages with our peer).
 	///
 	/// This field will be `None` for objects serialized with LDK versions prior to 0.2.0.
-	pub funding_redeem_script: Option<bitcoin::ScriptBuf>,
+	pub funding_redeem_script: Option<bitcoin::script::ScriptPubKeyBuf>,
 }
 
 impl ChannelDetails {
@@ -513,7 +515,8 @@ impl ChannelDetails {
 		match self.funding_redeem_script.as_ref() {
 			None => None,
 			Some(redeem_script) => Some(bitcoin::TxOut {
-				value: bitcoin::Amount::from_sat(self.channel_value_satoshis),
+				amount: bitcoin::Amount::from_sat(self.channel_value_satoshis)
+					.expect("channel value must fit in Amount"),
 				script_pubkey: redeem_script.to_p2wsh(),
 			}),
 		}
@@ -709,7 +712,7 @@ mod tests {
 				outbound_htlc_maximum_msat: None,
 			},
 			funding_txo: Some(OutPoint {
-				txid: bitcoin::Txid::from_slice(&[0; 32]).unwrap(),
+				txid: bitcoin::Txid::from_byte_array([0; 32]),
 				index: 1,
 			}),
 			funding_redeem_script: Some(make_funding_redeemscript(

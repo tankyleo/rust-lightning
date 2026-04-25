@@ -2624,21 +2624,21 @@ mod tests {
 	use std::rc::Rc;
 
 	fn source_privkey() -> SecretKey {
-		SecretKey::from_slice(&[42; 32]).unwrap()
+		crate::prelude::secret_key_from_slice(&[42; 32]).unwrap()
 	}
 
 	fn target_privkey() -> SecretKey {
-		SecretKey::from_slice(&[43; 32]).unwrap()
+		crate::prelude::secret_key_from_slice(&[43; 32]).unwrap()
 	}
 
 	fn source_pubkey() -> PublicKey {
 		let secp_ctx = Secp256k1::new();
-		PublicKey::from_secret_key(&secp_ctx, &source_privkey())
+		PublicKey::from_secret_key(&source_privkey())
 	}
 
 	fn target_pubkey() -> PublicKey {
 		let secp_ctx = Secp256k1::new();
-		PublicKey::from_secret_key(&secp_ctx, &target_privkey())
+		PublicKey::from_secret_key(&target_privkey())
 	}
 
 	fn source_node_id() -> NodeId {
@@ -2652,21 +2652,21 @@ mod tests {
 	// `ProbabilisticScorer` tests
 
 	fn sender_privkey() -> SecretKey {
-		SecretKey::from_slice(&[41; 32]).unwrap()
+		crate::prelude::secret_key_from_slice(&[41; 32]).unwrap()
 	}
 
 	fn recipient_privkey() -> SecretKey {
-		SecretKey::from_slice(&[45; 32]).unwrap()
+		crate::prelude::secret_key_from_slice(&[45; 32]).unwrap()
 	}
 
 	fn sender_pubkey() -> PublicKey {
 		let secp_ctx = Secp256k1::new();
-		PublicKey::from_secret_key(&secp_ctx, &sender_privkey())
+		PublicKey::from_secret_key(&sender_privkey())
 	}
 
 	fn recipient_pubkey() -> PublicKey {
 		let secp_ctx = Secp256k1::new();
-		PublicKey::from_secret_key(&secp_ctx, &recipient_privkey())
+		PublicKey::from_secret_key(&recipient_privkey())
 	}
 
 	fn recipient_node_id() -> NodeId {
@@ -2674,7 +2674,7 @@ mod tests {
 	}
 
 	fn network_graph(logger: &TestLogger) -> NetworkGraph<&TestLogger> {
-		let mut network_graph = NetworkGraph::new(Network::Testnet, logger);
+		let mut network_graph = NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), logger);
 		add_channel(&mut network_graph, 42, source_privkey(), target_privkey());
 		add_channel(&mut network_graph, 43, target_privkey(), recipient_privkey());
 
@@ -2686,26 +2686,26 @@ mod tests {
 		network_graph: &mut NetworkGraph<&TestLogger>, short_channel_id: u64, node_1_key: SecretKey,
 		node_2_key: SecretKey
 	) {
-		let genesis_hash = ChainHash::using_genesis_block(Network::Testnet);
-		let node_1_secret = &SecretKey::from_slice(&[39; 32]).unwrap();
-		let node_2_secret = &SecretKey::from_slice(&[40; 32]).unwrap();
+		let genesis_hash = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let node_1_secret = &crate::prelude::secret_key_from_slice(&[39; 32]).unwrap();
+		let node_2_secret = &crate::prelude::secret_key_from_slice(&[40; 32]).unwrap();
 		let secp_ctx = Secp256k1::new();
 		let unsigned_announcement = UnsignedChannelAnnouncement {
 			features: channelmanager::provided_channel_features(&UserConfig::default()),
 			chain_hash: genesis_hash,
 			short_channel_id,
-			node_id_1: NodeId::from_pubkey(&PublicKey::from_secret_key(&secp_ctx, &node_1_key)),
-			node_id_2: NodeId::from_pubkey(&PublicKey::from_secret_key(&secp_ctx, &node_2_key)),
-			bitcoin_key_1: NodeId::from_pubkey(&PublicKey::from_secret_key(&secp_ctx, &node_1_secret)),
-			bitcoin_key_2: NodeId::from_pubkey(&PublicKey::from_secret_key(&secp_ctx, &node_2_secret)),
+			node_id_1: NodeId::from_pubkey(&PublicKey::from_secret_key(&node_1_key)),
+			node_id_2: NodeId::from_pubkey(&PublicKey::from_secret_key(&node_2_key)),
+			bitcoin_key_1: NodeId::from_pubkey(&PublicKey::from_secret_key(node_1_secret)),
+			bitcoin_key_2: NodeId::from_pubkey(&PublicKey::from_secret_key(node_2_secret)),
 			excess_data: Vec::new(),
 		};
-		let msghash = hash_to_message!(&Sha256dHash::hash(&unsigned_announcement.encode()[..])[..]);
+		let msghash = hash_to_message!(Sha256dHash::hash(&unsigned_announcement.encode()[..]).as_byte_array());
 		let signed_announcement = ChannelAnnouncement {
-			node_signature_1: secp_ctx.sign_ecdsa(&msghash, &node_1_key),
-			node_signature_2: secp_ctx.sign_ecdsa(&msghash, &node_2_key),
-			bitcoin_signature_1: secp_ctx.sign_ecdsa(&msghash, &node_1_secret),
-			bitcoin_signature_2: secp_ctx.sign_ecdsa(&msghash, &node_2_secret),
+			node_signature_1: secp_ctx.sign_ecdsa(msghash, &node_1_key),
+			node_signature_2: secp_ctx.sign_ecdsa(msghash, &node_2_key),
+			bitcoin_signature_1: secp_ctx.sign_ecdsa(msghash, &node_1_secret),
+			bitcoin_signature_2: secp_ctx.sign_ecdsa(msghash, &node_2_secret),
 			contents: unsigned_announcement,
 		};
 		let chain_source: Option<&crate::util::test_utils::TestChainSource> = None;
@@ -2719,7 +2719,7 @@ mod tests {
 		network_graph: &mut NetworkGraph<&TestLogger>, short_channel_id: u64, node_key: SecretKey,
 		channel_flags: u8, htlc_maximum_msat: u64, timestamp: u32,
 	) {
-		let genesis_hash = ChainHash::using_genesis_block(Network::Testnet);
+		let genesis_hash = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let secp_ctx = Secp256k1::new();
 		let unsigned_update = UnsignedChannelUpdate {
 			chain_hash: genesis_hash,
@@ -2734,9 +2734,9 @@ mod tests {
 			fee_proportional_millionths: 0,
 			excess_data: Vec::new(),
 		};
-		let msghash = hash_to_message!(&Sha256dHash::hash(&unsigned_update.encode()[..])[..]);
+		let msghash = hash_to_message!(Sha256dHash::hash(&unsigned_update.encode()[..]).as_byte_array());
 		let signed_update = ChannelUpdate {
-			signature: secp_ctx.sign_ecdsa(&msghash, &node_key),
+			signature: secp_ctx.sign_ecdsa(msghash, &node_key),
 			contents: unsigned_update,
 		};
 		network_graph.update_channel(&signed_update).unwrap();
@@ -3193,19 +3193,19 @@ mod tests {
 		// we do not score such channels.
 		let secp_ctx = Secp256k1::new();
 		let logger = TestLogger::new();
-		let mut network_graph = NetworkGraph::new(Network::Testnet, &logger);
-		let secret_a = SecretKey::from_slice(&[42; 32]).unwrap();
-		let secret_b = SecretKey::from_slice(&[43; 32]).unwrap();
-		let secret_c = SecretKey::from_slice(&[44; 32]).unwrap();
-		let secret_d = SecretKey::from_slice(&[45; 32]).unwrap();
+		let mut network_graph = NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger);
+		let secret_a = crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+		let secret_b = crate::prelude::secret_key_from_slice(&[43; 32]).unwrap();
+		let secret_c = crate::prelude::secret_key_from_slice(&[44; 32]).unwrap();
+		let secret_d = crate::prelude::secret_key_from_slice(&[45; 32]).unwrap();
 		add_channel(&mut network_graph, 42, secret_a, secret_b);
 		// Don't add the channel from B -> C.
 		add_channel(&mut network_graph, 44, secret_c, secret_d);
 
-		let pub_a = PublicKey::from_secret_key(&secp_ctx, &secret_a);
-		let pub_b = PublicKey::from_secret_key(&secp_ctx, &secret_b);
-		let pub_c = PublicKey::from_secret_key(&secp_ctx, &secret_c);
-		let pub_d = PublicKey::from_secret_key(&secp_ctx, &secret_d);
+		let pub_a = PublicKey::from_secret_key(&secret_a);
+		let pub_b = PublicKey::from_secret_key(&secret_b);
+		let pub_c = PublicKey::from_secret_key(&secret_c);
+		let pub_d = PublicKey::from_secret_key(&secret_d);
 
 		let path = vec![
 			path_hop(pub_b, 42, 1),

@@ -760,7 +760,7 @@ mod tests {
 	use crate::types::features::{ChannelFeatures, NodeFeatures};
 	use crate::types::payment::{PaymentHash, PaymentPreimage, PaymentSecret};
 	use crate::util::test_utils;
-	use bitcoin::hashes::sha256::Hash as Sha256;
+	use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
 	use bitcoin::hashes::Hash;
 	use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 
@@ -774,9 +774,9 @@ mod tests {
 		// provided for us as an intermediate node."
 		let secp_ctx = Secp256k1::new();
 		let bob = crate::sign::KeysManager::new(&[2; 32], 42, 42, true);
-		let bob_pk = PublicKey::from_secret_key(&secp_ctx, &bob.get_node_secret_key());
+		let bob_pk = PublicKey::from_secret_key(&bob.get_node_secret_key());
 		let charlie = crate::sign::KeysManager::new(&[3; 32], 42, 42, true);
-		let charlie_pk = PublicKey::from_secret_key(&secp_ctx, &charlie.get_node_secret_key());
+		let charlie_pk = PublicKey::from_secret_key(&charlie.get_node_secret_key());
 
 		let (
 			session_priv, _total_amt_msat, cur_height, mut recipient_onion, keysend_preimage, payment_hash,
@@ -804,9 +804,9 @@ mod tests {
 		let secp_ctx = Secp256k1::new();
 
 		let bob = crate::sign::KeysManager::new(&[2; 32], 42, 42, true);
-		let bob_pk = PublicKey::from_secret_key(&secp_ctx, &bob.get_node_secret_key());
+		let bob_pk = PublicKey::from_secret_key(&bob.get_node_secret_key());
 		let charlie = crate::sign::KeysManager::new(&[3; 32], 42, 42, true);
-		let charlie_pk = PublicKey::from_secret_key(&secp_ctx, &charlie.get_node_secret_key());
+		let charlie_pk = PublicKey::from_secret_key(&charlie.get_node_secret_key());
 
 		let (session_priv, total_amt_msat, cur_height, recipient_onion, preimage, payment_hash,
 			prng_seed, hops, recipient_amount, pay_secret) = payment_onion_args(bob_pk, charlie_pk);
@@ -875,7 +875,7 @@ mod tests {
 		Vec<RouteHop>, u64, PaymentSecret,
 	) {
 		let session_priv_bytes = [42; 32];
-		let session_priv = SecretKey::from_slice(&session_priv_bytes).unwrap();
+		let session_priv = crate::prelude::secret_key_from_slice(&session_priv_bytes).unwrap();
 		let total_amt_msat = 1000;
 		let cur_height = 1000;
 		let pay_secret = PaymentSecret([99; 32]);

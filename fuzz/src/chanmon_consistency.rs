@@ -951,7 +951,7 @@ pub fn do_test<Out: Output + MaybeSend + MaybeSync>(data: &[u8], out: Out) {
 				},
 			}
 			let network = Network::Bitcoin;
-			let best_block_timestamp = genesis_block(network).header.time;
+			let best_block_timestamp = genesis_block(network).header().time.to_u32();
 			let params = ChainParameters { network, best_block: BestBlock::from_network(network) };
 			(
 				ChannelManager::new(
@@ -1195,11 +1195,11 @@ pub fn do_test<Out: Output + MaybeSend + MaybeSync>(data: &[u8], out: Out) {
 				} = events.pop().unwrap()
 				{
 					let tx = Transaction {
-						version: Version($chan_id),
+						version: Version::maybe_non_standard($chan_id),
 						lock_time: LockTime::ZERO,
 						input: Vec::new(),
 						output: vec![TxOut {
-							value: Amount::from_sat(channel_value_satoshis),
+							amount: Amount::from_sat(channel_value_satoshis),
 							script_pubkey: output_script,
 						}],
 					};
@@ -1310,7 +1310,7 @@ pub fn do_test<Out: Output + MaybeSend + MaybeSync>(data: &[u8], out: Out) {
 		output: wallets
 			.iter()
 			.map(|w| TxOut {
-				value: Amount::from_sat(100_000),
+				amount: Amount::from_sat(100_000),
 				script_pubkey: w.get_change_script().unwrap(),
 			})
 			.collect(),
@@ -1345,7 +1345,7 @@ pub fn do_test<Out: Output + MaybeSend + MaybeSync>(data: &[u8], out: Out) {
 	// Use version numbers 1-6 to avoid txid collisions under fuzz hashing.
 	// Fuzz mode uses XOR-based hashing (all bytes XOR to one byte), and
 	// versions 0-5 cause collisions between A-B and B-C channel pairs
-	// (e.g., A-B with Version(1) collides with B-C with Version(3)).
+	// (e.g., A-B with Version::maybe_non_standard(1) collides with B-C with Version::maybe_non_standard(3)).
 	// A-B: channel 2 A and B have 0-reserve (trusted open + trusted accept),
 	//       channel 3 A has 0-reserve (trusted accept)
 	make_channel!(nodes[0], nodes[1], monitor_a, monitor_b, keys_manager_b, 1, false, false);
@@ -1521,7 +1521,7 @@ pub fn do_test<Out: Output + MaybeSend + MaybeSync>(data: &[u8], out: Out) {
 		splice_channel(node, counterparty_node_id, channel_id, &move |funding_template| {
 			let feerate = funding_template.min_rbf_feerate().unwrap_or(funding_feerate_sat_per_kw);
 			let outputs = vec![TxOut {
-				value: Amount::from_sat(MAX_STD_OUTPUT_DUST_LIMIT_SATOSHIS),
+				amount: Amount::from_sat(MAX_STD_OUTPUT_DUST_LIMIT_SATOSHIS),
 				script_pubkey: wallet.get_change_script().unwrap(),
 			}];
 			funding_template.splice_out_sync(

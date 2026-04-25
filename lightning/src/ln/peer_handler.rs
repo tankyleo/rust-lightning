@@ -70,8 +70,7 @@ use {
 	crate::sync::Arc,
 };
 
-use bitcoin::hashes::sha256::Hash as Sha256;
-use bitcoin::hashes::sha256::HashEngine as Sha256Engine;
+use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
 use bitcoin::hashes::{Hash, HashEngine};
 
 /// A handler provided to [`PeerManager`] for reading and handling custom messages.
@@ -1375,7 +1374,7 @@ impl<
 		let mut ephemeral_hash = self.ephemeral_key_midstate.clone();
 		let counter = self.peer_counter.next();
 		ephemeral_hash.input(&counter.to_le_bytes());
-		SecretKey::from_slice(&Sha256::from_engine(ephemeral_hash).to_byte_array())
+		SecretKey::from_byte_array(Sha256::from_engine(ephemeral_hash).to_byte_array())
 			.expect("You broke SHA-256!")
 	}
 
@@ -3869,7 +3868,7 @@ mod tests {
 	fn create_peermgr_cfgs(peer_count: usize) -> Vec<PeerManagerCfg> {
 		let mut cfgs = Vec::new();
 		for i in 0..peer_count {
-			let node_secret = SecretKey::from_slice(&[42 + i as u8; 32]).unwrap();
+			let node_secret = crate::prelude::secret_key_from_slice(&[42 + i as u8; 32]).unwrap();
 			let features = {
 				let mut feature_bits = vec![0u8; 33];
 				feature_bits[32] = 0b00000001;
@@ -3877,7 +3876,7 @@ mod tests {
 			};
 			cfgs.push(PeerManagerCfg {
 				chan_handler: test_utils::TestChannelMessageHandler::new(
-					ChainHash::using_genesis_block(Network::Testnet),
+					ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 				),
 				logger: test_utils::TestLogger::with_id(i.to_string()),
 				routing_handler: test_utils::TestRoutingMessageHandler::new(),
@@ -3893,7 +3892,7 @@ mod tests {
 	fn create_feature_incompatible_peermgr_cfgs(peer_count: usize) -> Vec<PeerManagerCfg> {
 		let mut cfgs = Vec::new();
 		for i in 0..peer_count {
-			let node_secret = SecretKey::from_slice(&[42 + i as u8; 32]).unwrap();
+			let node_secret = crate::prelude::secret_key_from_slice(&[42 + i as u8; 32]).unwrap();
 			let features = {
 				let mut feature_bits = vec![0u8; 33 + i + 1];
 				feature_bits[33 + i] = 0b00000001;
@@ -3901,7 +3900,7 @@ mod tests {
 			};
 			cfgs.push(PeerManagerCfg {
 				chan_handler: test_utils::TestChannelMessageHandler::new(
-					ChainHash::using_genesis_block(Network::Testnet),
+					ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 				),
 				logger: test_utils::TestLogger::new(),
 				routing_handler: test_utils::TestRoutingMessageHandler::new(),
@@ -3917,7 +3916,7 @@ mod tests {
 	fn create_chain_incompatible_peermgr_cfgs(peer_count: usize) -> Vec<PeerManagerCfg> {
 		let mut cfgs = Vec::new();
 		for i in 0..peer_count {
-			let node_secret = SecretKey::from_slice(&[42 + i as u8; 32]).unwrap();
+			let node_secret = crate::prelude::secret_key_from_slice(&[42 + i as u8; 32]).unwrap();
 			let features = InitFeatures::from_le_bytes(vec![0u8; 33]);
 			let network = ChainHash::from(&[i as u8; 32]);
 			cfgs.push(PeerManagerCfg {
@@ -4086,7 +4085,7 @@ mod tests {
 								node_id: node_id_1,
 								msg: msgs::Shutdown {
 									channel_id: ChannelId::new_zero(),
-									scriptpubkey: bitcoin::ScriptBuf::new(),
+									scriptpubkey: bitcoin::script::ScriptPubKeyBuf::new(),
 								},
 							};
 							cfgs[0].chan_handler.pending_events.lock().unwrap().push(msg_event_1);
@@ -4097,7 +4096,7 @@ mod tests {
 								node_id: node_id_0,
 								msg: msgs::Shutdown {
 									channel_id: ChannelId::new_zero(),
-									scriptpubkey: bitcoin::ScriptBuf::new(),
+									scriptpubkey: bitcoin::script::ScriptPubKeyBuf::new(),
 								},
 							};
 							cfgs[1].chan_handler.pending_events.lock().unwrap().push(msg_event_0);
@@ -4216,10 +4215,10 @@ mod tests {
 		// push a message from one peer to another.
 		let cfgs = create_peermgr_cfgs(2);
 		let a_chan_handler = test_utils::TestChannelMessageHandler::new(
-			ChainHash::using_genesis_block(Network::Testnet),
+			ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		);
 		let b_chan_handler = test_utils::TestChannelMessageHandler::new(
-			ChainHash::using_genesis_block(Network::Testnet),
+			ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		);
 		let mut peers = create_network(2, &cfgs);
 		let (fd_a, mut fd_b) = establish_connection(&peers[0], &peers[1]);
@@ -4232,7 +4231,7 @@ mod tests {
 
 		let msg = msgs::Shutdown {
 			channel_id: ChannelId::from_bytes([42; 32]),
-			scriptpubkey: bitcoin::ScriptBuf::new(),
+			scriptpubkey: bitcoin::script::ScriptPubKeyBuf::new(),
 		};
 		a_chan_handler
 			.pending_events
@@ -4265,7 +4264,7 @@ mod tests {
 		peers[0].new_inbound_connection(fd_dup.clone(), Some(addr_dup.clone())).unwrap();
 
 		let mut dup_encryptor =
-			PeerChannelEncryptor::new_outbound(id_a, SecretKey::from_slice(&[42; 32]).unwrap());
+			PeerChannelEncryptor::new_outbound(id_a, crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let initial_data = dup_encryptor.get_act_one(&peers[1].secp_ctx);
 		peers[0].read_event(&mut fd_dup, &initial_data).unwrap();
 		peers[0].process_events();
@@ -4564,9 +4563,9 @@ mod tests {
 		// message.
 		let logger = test_utils::TestLogger::new();
 		let node_signer_a =
-			test_utils::TestNodeSigner::new(SecretKey::from_slice(&[42; 32]).unwrap());
+			test_utils::TestNodeSigner::new(crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let node_signer_b =
-			test_utils::TestNodeSigner::new(SecretKey::from_slice(&[43; 32]).unwrap());
+			test_utils::TestNodeSigner::new(crate::prelude::secret_key_from_slice(&[43; 32]).unwrap());
 		let message_handler_a = MessageHandler {
 			chan_handler: ErroringMessageHandler::new(),
 			route_handler: IgnoringMessageHandler {},
@@ -4726,7 +4725,7 @@ mod tests {
 		drain_queues!();
 
 		let secp_ctx = Secp256k1::new();
-		let key = SecretKey::from_slice(&[1; 32]).unwrap();
+		let key = crate::prelude::secret_key_from_slice(&[1; 32]).unwrap();
 		let msg = channel_announcement(&key, &key, ChannelFeatures::empty(), 42, &secp_ctx);
 		// The message bufer size is the message length plus two 16-byte MACs plus a 2-byte length
 		// and 2-byte type.

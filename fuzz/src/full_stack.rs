@@ -28,7 +28,7 @@ use bitcoin::hash_types::{BlockHash, Txid};
 use bitcoin::hashes::sha256::Hash as Sha256;
 use bitcoin::hashes::sha256d::Hash as Sha256dHash;
 use bitcoin::hashes::Hash as _;
-use bitcoin::hex::FromHex;
+use hex_conservative::FromHex;
 use bitcoin::WPubkeyHash;
 
 use lightning::blinded_path::message::{BlindedMessagePath, MessageContext, MessageForwardNode};
@@ -605,7 +605,7 @@ pub fn do_test(mut data: &[u8], logger: &Arc<dyn Logger + MaybeSend + MaybeSync>
 	));
 
 	let network = Network::Bitcoin;
-	let best_block_timestamp = genesis_block(network).header.time;
+	let best_block_timestamp = genesis_block(network).header().time.to_u32();
 	let params = ChainParameters { network, best_block: BestBlock::from_network(network) };
 	let channelmanager = Arc::new(ChannelManager::new(
 		fee_est.clone(),
@@ -669,7 +669,7 @@ pub fn do_test(mut data: &[u8], logger: &Arc<dyn Logger + MaybeSend + MaybeSync>
 		lock_time: LockTime::ZERO,
 		input: vec![TxIn { ..Default::default() }],
 		output: vec![TxOut {
-			value: Amount::from_sat(1_000_000),
+			amount: Amount::from_sat(1_000_000),
 			script_pubkey: wallet.get_change_script().unwrap(),
 		}],
 	};
@@ -850,7 +850,7 @@ pub fn do_test(mut data: &[u8], logger: &Arc<dyn Logger + MaybeSend + MaybeSync>
 			},
 			10 => {
 				let mut tx = Transaction {
-					version: Version(0),
+					version: Version::maybe_non_standard(0),
 					lock_time: LockTime::ZERO,
 					input: Vec::new(),
 					output: Vec::new(),
@@ -858,7 +858,7 @@ pub fn do_test(mut data: &[u8], logger: &Arc<dyn Logger + MaybeSend + MaybeSync>
 				let mut channels = Vec::new();
 				for funding_generation in pending_funding_generation.drain(..) {
 					let txout = TxOut {
-						value: Amount::from_sat(funding_generation.2),
+						amount: Amount::from_sat(funding_generation.2),
 						script_pubkey: funding_generation.3,
 					};
 					if !tx.output.contains(&txout) {
@@ -877,13 +877,13 @@ pub fn do_test(mut data: &[u8], logger: &Arc<dyn Logger + MaybeSend + MaybeSync>
 						let outpoint = OutPoint { txid: funding_txid, index: 0 };
 						for chan in channelmanager.list_channels() {
 							if chan.channel_id == ChannelId::v1_from_funding_outpoint(outpoint) {
-								tx.version = Version(tx.version.0 + 1);
+								tx.version = Version::maybe_non_standard(tx.version.0 + 1);
 								continue 'search_loop;
 							}
 						}
 						break;
 					}
-					tx.version = Version(tx.version.0 + 1);
+					tx.version = Version::maybe_non_standard(tx.version.0 + 1);
 				}
 				if tx.version.0 <= 0xff && !channels.is_empty() {
 					let chans = channels.iter().map(|(a, b)| (a, b)).collect::<Vec<_>>();
@@ -1080,7 +1080,7 @@ pub fn do_test(mut data: &[u8], logger: &Arc<dyn Logger + MaybeSend + MaybeSync>
 						.min_rbf_feerate()
 						.unwrap_or(FeeRate::from_sat_per_kwu(253));
 					let outputs = vec![TxOut {
-						value: Amount::from_sat(splice_out_sats),
+						amount: Amount::from_sat(splice_out_sats),
 						script_pubkey: wallet.get_change_script().unwrap(),
 					}];
 					let wallet_sync = WalletSync::new(&wallet, Arc::clone(&logger));

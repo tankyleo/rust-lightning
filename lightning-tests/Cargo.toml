@@ -19,7 +19,7 @@ lightning_0_2 = { package = "lightning", version = "0.2.0", features = ["_test_u
 lightning_0_1 = { package = "lightning", version = "0.1.7", features = ["_test_utils"] }
 lightning_0_0_125 = { package = "lightning", version = "0.0.125", features = ["_test_utils"] }
 
-bitcoin = { version = "0.32.2", default-features = false }
+bitcoin = { version = "0.33.0-beta", default-features = false }
 
 [dev-dependencies]
 

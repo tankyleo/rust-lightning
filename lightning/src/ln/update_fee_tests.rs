@@ -446,10 +446,10 @@ pub fn do_test_update_fee_that_funder_cannot_afford(channel_type_features: Chann
 		let commitment_tx = get_local_commitment_txn!(nodes[1], channel_id)[0].clone();
 
 		// We made sure neither party's funds are below the dust limit and there are no HTLCs here
-		assert_eq!(commitment_tx.output.len(), outputs_num_no_htlcs);
+		assert_eq!(commitment_tx.outputs.len(), outputs_num_no_htlcs);
 		let total_fee: u64 = commit_tx_fee_msat(feerate, 0, &channel_type_features) / 1000;
 		let mut actual_fee =
-			commitment_tx.output.iter().fold(0, |acc, output| acc + output.value.to_sat());
+			commitment_tx.outputs.iter().fold(0, |acc, output| acc + output.amount.to_sat());
 		actual_fee = channel_value - actual_fee;
 		assert_eq!(total_fee, actual_fee);
 	}
@@ -1171,7 +1171,7 @@ pub fn do_cannot_afford_on_holding_cell_release(
 				let commitment_tx = get_local_commitment_txn!(nodes[0], channel_id)[0].clone();
 
 				let mut actual_fee =
-					commitment_tx.output.iter().fold(0, |acc, output| acc + output.value.to_sat());
+					commitment_tx.outputs.iter().fold(0, |acc, output| acc + output.amount.to_sat());
 				actual_fee = channel_value_sat - actual_fee;
 				assert_eq!(expected_tx_fee_sat, actual_fee);
 			}
@@ -1181,7 +1181,7 @@ pub fn do_cannot_afford_on_holding_cell_release(
 				let commitment_tx = get_local_commitment_txn!(nodes[1], channel_id)[0].clone();
 
 				let mut actual_fee =
-					commitment_tx.output.iter().fold(0, |acc, output| acc + output.value.to_sat());
+					commitment_tx.outputs.iter().fold(0, |acc, output| acc + output.amount.to_sat());
 				actual_fee = channel_value_sat - actual_fee;
 				assert_eq!(expected_tx_fee_sat, actual_fee);
 			}
@@ -1282,16 +1282,16 @@ pub fn do_can_afford_given_trimmed_htlcs(inequality_regions: core::cmp::Ordering
 		let commitment_tx = get_local_commitment_txn!(nodes[0], chan_id)[0].clone();
 
 		let mut actual_fee = commitment_tx
-			.output
+			.outputs
 			.iter()
-			.map(|output| output.value.to_sat())
+			.map(|output| output.amount.to_sat())
 			.reduce(|acc, value| acc + value)
 			.unwrap();
 		actual_fee = channel_value_sat - actual_fee;
 		assert_eq!(expected_tx_fee_sat, actual_fee);
 
 		// The HTLC is non-dust...
-		assert_eq!(commitment_tx.output.len(), 3);
+		assert_eq!(commitment_tx.outputs.len(), 3);
 	}
 
 	{
@@ -1335,16 +1335,16 @@ pub fn do_can_afford_given_trimmed_htlcs(inequality_regions: core::cmp::Ordering
 				let commitment_tx = get_local_commitment_txn!(nodes[0], channel_id)[0].clone();
 
 				let mut actual_fee = commitment_tx
-					.output
+					.outputs
 					.iter()
-					.map(|output| output.value.to_sat())
+					.map(|output| output.amount.to_sat())
 					.reduce(|acc, value| acc + value)
 					.unwrap();
 				actual_fee = channel_value_sat - actual_fee;
 				assert_eq!(expected_tx_fee_sat, actual_fee);
 
 				// The HTLC is now trimmed!
-				assert_eq!(commitment_tx.output.len(), 2);
+				assert_eq!(commitment_tx.outputs.len(), 2);
 			}
 
 			// Confirm the feerate on node 1's commitment transaction
@@ -1356,16 +1356,16 @@ pub fn do_can_afford_given_trimmed_htlcs(inequality_regions: core::cmp::Ordering
 				let commitment_tx = get_local_commitment_txn!(nodes[1], channel_id)[0].clone();
 
 				let mut actual_fee = commitment_tx
-					.output
+					.outputs
 					.iter()
-					.map(|output| output.value.to_sat())
+					.map(|output| output.amount.to_sat())
 					.reduce(|acc, value| acc + value)
 					.unwrap();
 				actual_fee = channel_value_sat - actual_fee;
 				assert_eq!(expected_tx_fee_sat, actual_fee);
 
 				// The HTLC is now trimmed!
-				assert_eq!(commitment_tx.output.len(), 2);
+				assert_eq!(commitment_tx.outputs.len(), 2);
 			}
 		} else {
 			panic!();

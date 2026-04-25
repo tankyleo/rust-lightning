@@ -8,9 +8,9 @@
 // licenses.
 
 use bitcoin::amount::Amount;
-use bitcoin::consensus::encode::VarInt;
+use bitcoin::consensus::encode::varint_size;
 use bitcoin::consensus::Encodable;
-use bitcoin::script::ScriptBuf;
+use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
 use bitcoin::transaction::{Transaction, TxOut};
 
 #[allow(unused_imports)]
@@ -21,7 +21,7 @@ use core::cmp::Ordering;
 
 pub fn sort_outputs<T, C: Fn(&T, &T) -> Ordering>(outputs: &mut Vec<(TxOut, T)>, tie_breaker: C) {
 	outputs.sort_unstable_by(|a, b| {
-		a.0.value.cmp(&b.0.value).then_with(|| {
+		a.0.amount.cmp(&b.0.amount).then_with(|| {
 			a.0.script_pubkey[..].cmp(&b.0.script_pubkey[..]).then_with(|| tie_breaker(&a.1, &b.1))
 		})
 	});
@@ -43,30 +43,31 @@ pub(crate) fn maybe_add_change_output(
 	const WITNESS_FLAG_BYTES: u64 = 2;
 
 	let mut output_value = Amount::ZERO;
-	for output in tx.output.iter() {
-		output_value += output.value;
+	for output in tx.outputs.iter() {
+		output_value = (output_value + output.amount).expect("transaction output total must fit in Amount");
 		if output_value >= input_value {
 			return Err(());
 		}
 	}
 
 	let dust_value = change_destination_script.minimal_non_dust();
-	let mut change_output = TxOut { script_pubkey: change_destination_script, value: Amount::ZERO };
+	let mut change_output = TxOut { script_pubkey: change_destination_script, amount: Amount::ZERO };
 	let change_len = change_output.consensus_encode(&mut sink()).unwrap();
 	let starting_weight = tx.weight().to_wu() + WITNESS_FLAG_BYTES + witness_max_weight as u64;
 	let starting_fees = (starting_weight as i64) * feerate_sat_per_1000_weight as i64 / 1000;
 	let mut weight_with_change: i64 = starting_weight as i64 + change_len as i64 * 4;
 	// Include any extra bytes required to push an extra output.
-	let num_outputs = tx.output.len() as u64;
-	weight_with_change += (VarInt(num_outputs + 1).size() - VarInt(num_outputs).size()) as i64 * 4;
+	let num_outputs = tx.outputs.len() as u64;
+	weight_with_change += (varint_size(num_outputs + 1) - varint_size(num_outputs)) as i64 * 4;
 	// When calculating weight, add two for the flag bytes
 	let fees_with_change = weight_with_change * feerate_sat_per_1000_weight as i64 / 1000;
-	let change_value: i64 = (input_value - output_value).to_sat() as i64 - fees_with_change;
+	let excess_value = (input_value - output_value).expect("input value exceeds output value");
+	let change_value: i64 = excess_value.to_sat() as i64 - fees_with_change;
 	if change_value >= dust_value.to_sat() as i64 {
-		change_output.value = Amount::from_sat(change_value as u64);
-		tx.output.push(change_output);
+		change_output.amount = Amount::from_sat(change_value as u64).expect("change value must fit in Amount");
+		tx.outputs.push(change_output);
 		Ok(weight_with_change as u64)
-	} else if (input_value - output_value).to_sat() as i64 - starting_fees < 0 {
+	} else if excess_value.to_sat() as i64 - starting_fees < 0 {
 		Err(())
 	} else {
 		Ok(starting_weight)
@@ -80,25 +81,26 @@ mod tests {
 	use bitcoin::amount::Amount;
 	use bitcoin::hash_types::Txid;
 	use bitcoin::hashes::Hash;
-	use bitcoin::hex::FromHex;
+	use hex_conservative::FromHex;
 	use bitcoin::locktime::absolute::LockTime;
 	use bitcoin::script::Builder;
 	use bitcoin::transaction::{OutPoint, TxIn, Version};
-	use bitcoin::{PubkeyHash, Sequence, Witness};
+	use bitcoin::key::PubkeyHash;
+	use bitcoin::{Sequence, Witness};
 
 	use alloc::vec;
 
 	#[test]
 	fn sort_output_by_value() {
 		let txout1 = TxOut {
-			value: Amount::from_sat(100),
-			script_pubkey: Builder::new().push_int(0).into_script(),
+			amount: Amount::from_sat(100).expect("amount must fit"),
+			script_pubkey: Builder::new().push_int(0).unwrap().into_script(),
 		};
 		let txout1_ = txout1.clone();
 
 		let txout2 = TxOut {
-			value: Amount::from_sat(99),
-			script_pubkey: Builder::new().push_int(0).into_script(),
+			amount: Amount::from_sat(99).expect("amount must fit"),
+			script_pubkey: Builder::new().push_int(0).unwrap().into_script(),
 		};
 		let txout2_ = txout2.clone();
 
@@ -113,14 +115,14 @@ mod tests {
 	#[test]
 	fn sort_output_by_script_pubkey() {
 		let txout1 = TxOut {
-			value: Amount::from_sat(100),
-			script_pubkey: Builder::new().push_int(3).into_script(),
+			amount: Amount::from_sat(100).expect("amount must fit"),
+			script_pubkey: Builder::new().push_int(3).unwrap().into_script(),
 		};
 		let txout1_ = txout1.clone();
 
 		let txout2 = TxOut {
-			value: Amount::from_sat(100),
-			script_pubkey: Builder::new().push_int(1).push_int(2).into_script(),
+			amount: Amount::from_sat(100).expect("amount must fit"),
+			script_pubkey: Builder::new().push_int(1).unwrap().push_int(2).unwrap().into_script(),
 		};
 		let txout2_ = txout2.clone();
 
@@ -135,14 +137,14 @@ mod tests {
 	#[test]
 	fn sort_output_by_bip_test() {
 		let txout1 = TxOut {
-			value: Amount::from_sat(100000000),
+			amount: Amount::from_sat(100000000).expect("amount must fit"),
 			script_pubkey: script_from_hex("41046a0765b5865641ce08dd39690aade26dfbf5511430ca428a3089261361cef170e3929a68aee3d8d4848b0c5111b0a37b82b86ad559fd2a745b44d8e8d9dfdc0cac")
 		};
 		let txout1_ = txout1.clone();
 
 		// doesn't deserialize cleanly:
 		let txout2 = TxOut {
-			value: Amount::from_sat(2400000000),
+			amount: Amount::from_sat(2400000000).expect("amount must fit"),
 			script_pubkey: script_from_hex("41044a656f065871a353f216ca26cef8dde2f03e8c16202d2e8ad769f02032cb86a5eb5e56842e92e19141d60a01928f8dd2c875a390f67c1f6c94cfc617c0ea45afac")
 		};
 		let txout2_ = txout2.clone();
@@ -158,8 +160,8 @@ mod tests {
 	#[test]
 	fn sort_output_tie_breaker_test() {
 		let txout1 = TxOut {
-			value: Amount::from_sat(100),
-			script_pubkey: Builder::new().push_int(1).push_int(2).into_script(),
+			amount: Amount::from_sat(100).expect("amount must fit"),
+			script_pubkey: Builder::new().push_int(1).unwrap().push_int(2).unwrap().into_script(),
 		};
 		let txout1_ = txout1.clone();
 
@@ -184,7 +186,7 @@ mod tests {
 					let expected_raw: Vec<(u64, &str)> = $value;
 					let expected: Vec<(TxOut, &str)> = expected_raw.iter()
 						.map(|txout_raw| TxOut {
-							value: Amount::from_sat(txout_raw.0),
+							amount: Amount::from_sat(txout_raw.0).expect("amount must fit"),
 							script_pubkey: script_from_hex(txout_raw.1)
 						}).map(|txout| (txout, "ignore"))
 					.collect();
@@ -219,13 +221,13 @@ mod tests {
 		// If we have a bogus input amount or outputs valued more than inputs, we should fail
 		let version = Version::TWO;
 		let lock_time = LockTime::ZERO;
-		let tx_out = TxOut { script_pubkey: ScriptBuf::new(), value: Amount::from_sat(1000) };
-		let mut tx = Transaction { version, lock_time, input: Vec::new(), output: vec![tx_out] };
-		let amount = Amount::from_sat(21_000_000_0000_0001);
+		let tx_out = TxOut { script_pubkey: ScriptBuf::new(), amount: Amount::from_sat(1000).expect("amount must fit") };
+		let mut tx = Transaction { version, lock_time, inputs: Vec::new(), outputs: vec![tx_out] };
+		let amount = Amount::from_sat(21_000_000_0000_0001).expect("amount must fit");
 		assert!(maybe_add_change_output(&mut tx, amount, 0, 253, ScriptBuf::new()).is_err());
-		let amount = Amount::from_sat(400);
+		let amount = Amount::from_sat(400).expect("amount must fit");
 		assert!(maybe_add_change_output(&mut tx, amount, 0, 253, ScriptBuf::new()).is_err());
-		let amount = Amount::from_sat(4000);
+		let amount = Amount::from_sat(4000).expect("amount must fit");
 		assert!(maybe_add_change_output(&mut tx, amount, 0, 253, ScriptBuf::new()).is_ok());
 	}
 
@@ -236,46 +238,46 @@ mod tests {
 		let lock_time = LockTime::ZERO;
 		let input = Vec::new();
 		let output = Vec::new();
-		let mut tx = Transaction { version, lock_time, input, output };
+		let mut tx = Transaction { version, lock_time, inputs: input, outputs: output };
 		let orig_wtxid = tx.compute_wtxid();
-		let output_spk = ScriptBuf::new_p2pkh(&PubkeyHash::hash(&[0; 0]));
+		let output_spk = ScriptBuf::new_p2pkh(PubkeyHash::from_byte_array([0; 20]));
 		assert_eq!(output_spk.minimal_non_dust().to_sat(), 546);
 		// base size = version size + varint[input count] + input size + varint[output count] + output size + lock time size
 		// total size = version size + marker + flag + varint[input count] + input size + varint[output count] + output size + lock time size
 		// weight = 3 * base size + total size = 3 * (4 + 1 + 0 + 1 + 0 + 4) + (4 + 1 + 1 + 1 + 0 + 1 + 0 + 4) = 3 * 10 + 12 = 42
 		assert_eq!(tx.weight().to_wu(), 42);
 		// 10 sats isn't enough to pay fee on a dummy transaction...
-		let amount = Amount::from_sat(10);
+		let amount = Amount::from_sat(10).expect("amount must fit");
 		assert!(maybe_add_change_output(&mut tx, amount, 0, 250, output_spk.clone()).is_err());
 		// Failure doesn't change the transaction
 		assert_eq!(tx.compute_wtxid(), orig_wtxid);
 		// but 11 (= ceil(42 * 250 / 1000)) is, just not enough to add a change output...
-		let amount = Amount::from_sat(11);
+		let amount = Amount::from_sat(11).expect("amount must fit");
 		assert!(maybe_add_change_output(&mut tx, amount, 0, 250, output_spk.clone()).is_ok());
-		assert_eq!(tx.output.len(), 0);
+		assert_eq!(tx.outputs.len(), 0);
 		// If we don't add an output, we don't change the transaction
 		assert_eq!(tx.compute_wtxid(), orig_wtxid);
-		let amount = Amount::from_sat(549);
+		let amount = Amount::from_sat(549).expect("amount must fit");
 		assert!(maybe_add_change_output(&mut tx, amount, 0, 250, output_spk.clone()).is_ok());
-		assert_eq!(tx.output.len(), 0);
+		assert_eq!(tx.outputs.len(), 0);
 		// If we don't add an output, we don't change the transaction
 		assert_eq!(tx.compute_wtxid(), orig_wtxid);
 		// 590 is also not enough
-		let amount = Amount::from_sat(590);
+		let amount = Amount::from_sat(590).expect("amount must fit");
 		assert!(maybe_add_change_output(&mut tx, amount, 0, 250, output_spk.clone()).is_ok());
-		assert_eq!(tx.output.len(), 0);
+		assert_eq!(tx.outputs.len(), 0);
 		// If we don't add an output, we don't change the transaction
 		assert_eq!(tx.compute_wtxid(), orig_wtxid);
 		// at 591 we can afford the change output at the dust limit (546)
-		let amount = Amount::from_sat(591);
+		let amount = Amount::from_sat(591).expect("amount must fit");
 		assert!(maybe_add_change_output(&mut tx, amount, 0, 250, output_spk.clone()).is_ok());
-		assert_eq!(tx.output.len(), 1);
-		assert_eq!(tx.output[0].value.to_sat(), 546);
-		assert_eq!(tx.output[0].script_pubkey, output_spk);
+		assert_eq!(tx.outputs.len(), 1);
+		assert_eq!(tx.outputs[0].amount.to_sat(), 546);
+		assert_eq!(tx.outputs[0].script_pubkey, output_spk);
 		// New weight is exactly the fee we wanted.
 		assert_eq!(tx.weight().to_wu() / 4, 590 - 546);
 
-		tx.output.pop();
+		tx.outputs.pop();
 		// The only change is the addition of one output.
 		assert_eq!(tx.compute_wtxid(), orig_wtxid);
 	}
@@ -283,48 +285,48 @@ mod tests {
 	#[test]
 	fn test_tx_extra_outputs() {
 		// Check that we correctly handle existing outputs
-		let script_pubkey = Builder::new().push_int(1).into_script();
-		let tx_out = TxOut { script_pubkey, value: Amount::from_sat(1000) };
-		let previous_output = OutPoint::new(Txid::all_zeros(), 0);
-		let script_sig = ScriptBuf::new();
+		let script_pubkey = Builder::new().push_int(1).unwrap().into_script();
+		let tx_out = TxOut { script_pubkey, amount: Amount::from_sat(1000).expect("amount must fit") };
+		let previous_output = OutPoint::new(Txid::from_byte_array([0; 32]), 0);
+		let script_sig = bitcoin::ScriptSigBuf::new();
 		let witness = Witness::new();
 		let sequence = Sequence::ZERO;
 		let tx_in = TxIn { previous_output, script_sig, witness, sequence };
 		let version = Version::TWO;
 		let lock_time = LockTime::ZERO;
-		let mut tx = Transaction { version, lock_time, input: vec![tx_in], output: vec![tx_out] };
+		let mut tx = Transaction { version, lock_time, inputs: vec![tx_in], outputs: vec![tx_out] };
 		let orig_wtxid = tx.compute_wtxid();
 		let orig_weight = tx.weight().to_wu();
 		assert_eq!(orig_weight / 4, 61);
 
-		assert_eq!(Builder::new().push_int(2).into_script().minimal_non_dust().to_sat(), 474);
+		assert_eq!(Builder::new().push_int(2).unwrap().into_script().minimal_non_dust().to_sat(), 474);
 
-		let script = Builder::new().push_int(2).into_script();
+		let script = Builder::new().push_int(2).unwrap().into_script();
 
 		// Input value of the output value + fee - 1 should fail:
-		let amount = Amount::from_sat(1000 + 61 + 100 - 1);
+		let amount = Amount::from_sat(1000 + 61 + 100 - 1).expect("amount must fit");
 		assert!(maybe_add_change_output(&mut tx, amount, 400, 250, script.clone()).is_err());
 		// Failure doesn't change the transaction
 		assert_eq!(tx.compute_wtxid(), orig_wtxid);
 		// but one more input sat should succeed, without changing the transaction
-		let amount = Amount::from_sat(1000 + 61 + 100);
+		let amount = Amount::from_sat(1000 + 61 + 100).expect("amount must fit");
 		assert!(maybe_add_change_output(&mut tx, amount, 400, 250, script.clone()).is_ok());
 		// If we don't add an output, we don't change the transaction
 		assert_eq!(tx.compute_wtxid(), orig_wtxid);
 		// In order to get a change output, we need to add 474 plus the output's weight / 4 (10)...
-		let amount = Amount::from_sat(1000 + 61 + 100 + 474 + 9);
+		let amount = Amount::from_sat(1000 + 61 + 100 + 474 + 9).expect("amount must fit");
 		assert!(maybe_add_change_output(&mut tx, amount, 400, 250, script.clone()).is_ok());
 		// If we don't add an output, we don't change the transaction
 		assert_eq!(tx.compute_wtxid(), orig_wtxid);
 
-		let amount = Amount::from_sat(1000 + 61 + 100 + 474 + 10);
+		let amount = Amount::from_sat(1000 + 61 + 100 + 474 + 10).expect("amount must fit");
 		assert!(maybe_add_change_output(&mut tx, amount, 400, 250, script).is_ok());
-		assert_eq!(tx.output.len(), 2);
-		assert_eq!(tx.output[1].value.to_sat(), 474);
-		assert_eq!(tx.output[1].script_pubkey, Builder::new().push_int(2).into_script());
+		assert_eq!(tx.outputs.len(), 2);
+		assert_eq!(tx.outputs[1].amount.to_sat(), 474);
+		assert_eq!(tx.outputs[1].script_pubkey, Builder::new().push_int(2).unwrap().into_script());
 		// Weight difference matches what we had to add above
 		assert_eq!(tx.weight().to_wu() - orig_weight, 40);
-		tx.output.pop();
+		tx.outputs.pop();
 		// The only change is the addition of one output.
 		assert_eq!(tx.compute_wtxid(), orig_wtxid);
 	}

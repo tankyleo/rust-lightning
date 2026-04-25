@@ -123,12 +123,12 @@ fn test_zero_conf_channel_type_support() {
 	let feeest = LowerBoundedFeeEstimator::new(&test_est);
 	let secp_ctx = Secp256k1::new();
 	let seed = [42; 32];
-	let network = Network::Testnet;
+	let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 	let keys_provider = TestKeysInterface::new(&seed, network);
 	let logger = TestLogger::new();
 
 	let node_b_node_id =
-		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+		PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 	let config = UserConfig::default();
 	let mut node_a_chan = OutboundV1Channel::<&TestKeysInterface>::new(
 		&feeest,
@@ -155,7 +155,7 @@ fn test_zero_conf_channel_type_support() {
 		node_a_chan.get_open_channel(ChainHash::using_genesis_block(network), &&logger).unwrap();
 	open_channel_msg.common_fields.channel_type = Some(channel_type_features);
 	let node_b_node_id =
-		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[7; 32]).unwrap());
+		PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[7; 32]).unwrap());
 	let res = InboundV1Channel::<&TestKeysInterface>::new(
 		&feeest,
 		&&keys_provider,
@@ -219,14 +219,14 @@ fn do_test_supports_channel_type(config: UserConfig, expected_channel_type: Chan
 	let secp_ctx = Secp256k1::new();
 	let test_est = TestFeeEstimator::new(15000);
 	let fee_estimator = LowerBoundedFeeEstimator::new(&test_est);
-	let network = Network::Testnet;
+	let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 	let keys_provider = TestKeysInterface::new(&[42; 32], network);
 	let logger = TestLogger::new();
 
 	let node_id_a =
-		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[1; 32]).unwrap());
+		PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[1; 32]).unwrap());
 	let node_id_b =
-		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[2; 32]).unwrap());
+		PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[2; 32]).unwrap());
 
 	let mut non_anchors_config = UserConfig::default();
 	non_anchors_config.channel_handshake_config.negotiate_anchors_zero_fee_htlc_tx = false;
@@ -308,14 +308,14 @@ fn test_rejects_if_channel_type_not_set() {
 	let secp_ctx = Secp256k1::new();
 	let test_est = TestFeeEstimator::new(15000);
 	let fee_estimator = LowerBoundedFeeEstimator::new(&test_est);
-	let network = Network::Testnet;
+	let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 	let keys_provider = TestKeysInterface::new(&[42; 32], network);
 	let logger = TestLogger::new();
 
 	let node_id_a =
-		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[1; 32]).unwrap());
+		PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[1; 32]).unwrap());
 	let node_id_b =
-		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[2; 32]).unwrap());
+		PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[2; 32]).unwrap());
 
 	let config = UserConfig::default();
 
@@ -395,14 +395,14 @@ fn test_rejects_if_channel_type_differ() {
 	let secp_ctx = Secp256k1::new();
 	let test_est = TestFeeEstimator::new(15000);
 	let fee_estimator = LowerBoundedFeeEstimator::new(&test_est);
-	let network = Network::Testnet;
+	let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 	let keys_provider = TestKeysInterface::new(&[42; 32], network);
 	let logger = TestLogger::new();
 
 	let node_id_a =
-		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[1; 32]).unwrap());
+		PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[1; 32]).unwrap());
 	let node_id_b =
-		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[2; 32]).unwrap());
+		PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[2; 32]).unwrap());
 
 	let config = UserConfig::default();
 
@@ -465,14 +465,14 @@ fn test_rejects_simple_anchors_channel_type() {
 	let secp_ctx = Secp256k1::new();
 	let test_est = TestFeeEstimator::new(15000);
 	let fee_estimator = LowerBoundedFeeEstimator::new(&test_est);
-	let network = Network::Testnet;
+	let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 	let keys_provider = TestKeysInterface::new(&[42; 32], network);
 	let logger = TestLogger::new();
 
 	let node_id_a =
-		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[1; 32]).unwrap());
+		PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[1; 32]).unwrap());
 	let node_id_b =
-		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[2; 32]).unwrap());
+		PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[2; 32]).unwrap());
 
 	let config = UserConfig::default();
 

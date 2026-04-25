@@ -26,7 +26,7 @@
 
 use bitcoin::constants::ChainHash;
 use bitcoin::hash_types::Txid;
-use bitcoin::script::ScriptBuf;
+use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
 use bitcoin::secp256k1::ecdsa::Signature;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::{secp256k1, Transaction, Witness};
@@ -4575,13 +4575,14 @@ mod tests {
 	use crate::types::payment::{PaymentHash, PaymentPreimage, PaymentSecret};
 	use crate::util::ser::{BigSize, Hostname, LengthReadable, Readable, ReadableArgs, Writeable};
 	use crate::util::test_utils::{self, pubkey};
-	use bitcoin::hex::DisplayHex;
-	use bitcoin::{Amount, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
+	use hex_conservative::DisplayHex;
+	use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
+	use bitcoin::{Amount, Sequence, Transaction, TxIn, TxOut, Witness};
 
 	use bitcoin::address::Address;
 	use bitcoin::constants::ChainHash;
 	use bitcoin::hash_types::Txid;
-	use bitcoin::hex::FromHex;
+	use hex_conservative::FromHex;
 	use bitcoin::locktime::absolute::LockTime;
 	use bitcoin::network::Network;
 	use bitcoin::opcodes;
@@ -4608,8 +4609,7 @@ mod tests {
 		let public_key = {
 			let secp_ctx = Secp256k1::new();
 			PublicKey::from_secret_key(
-				&secp_ctx,
-				&SecretKey::from_slice(
+				&crate::prelude::secret_key_from_slice(
 					&<Vec<u8>>::from_hex(
 						"0101010101010101010101010101010101010101010101010101010101010101",
 					)
@@ -4654,8 +4654,7 @@ mod tests {
 		let public_key = {
 			let secp_ctx = Secp256k1::new();
 			PublicKey::from_secret_key(
-				&secp_ctx,
-				&SecretKey::from_slice(
+				&crate::prelude::secret_key_from_slice(
 					&<Vec<u8>>::from_hex(
 						"0101010101010101010101010101010101010101010101010101010101010101",
 					)
@@ -4675,13 +4674,10 @@ mod tests {
 			your_last_per_commitment_secret: [9; 32],
 			my_current_per_commitment_point: public_key,
 			next_funding: Some(msgs::NextFunding {
-				txid: Txid::from_raw_hash(
-					bitcoin::hashes::Hash::from_slice(&[
+				txid: Txid::from_slice(&[
 						48, 167, 250, 69, 152, 48, 103, 172, 164, 99, 59, 19, 23, 11, 92, 84, 15,
 						80, 4, 12, 98, 82, 75, 31, 201, 11, 91, 23, 98, 23, 53, 124,
-					])
-					.unwrap(),
-				),
+					]).unwrap(),
 				retransmit_flags: 1,
 			}),
 			my_current_funding_locked: None,
@@ -4713,8 +4709,7 @@ mod tests {
 		let public_key = {
 			let secp_ctx = Secp256k1::new();
 			PublicKey::from_secret_key(
-				&secp_ctx,
-				&SecretKey::from_slice(
+				&crate::prelude::secret_key_from_slice(
 					&<Vec<u8>>::from_hex(
 						"0101010101010101010101010101010101010101010101010101010101010101",
 					)
@@ -4735,13 +4730,10 @@ mod tests {
 			my_current_per_commitment_point: public_key,
 			next_funding: None,
 			my_current_funding_locked: Some(msgs::FundingLocked {
-				txid: Txid::from_raw_hash(
-					bitcoin::hashes::Hash::from_slice(&[
+				txid: Txid::from_slice(&[
 						21, 167, 250, 69, 152, 48, 103, 172, 164, 99, 59, 19, 23, 11, 92, 84, 15,
 						80, 4, 12, 98, 82, 75, 31, 201, 11, 91, 23, 98, 23, 53, 124,
-					])
-					.unwrap(),
-				),
+					]).unwrap(),
 				retransmit_flags: 1,
 			}),
 		};
@@ -4769,8 +4761,8 @@ mod tests {
 
 	macro_rules! get_keys_from {
 		($slice: expr, $secp_ctx: expr) => {{
-			let privkey = SecretKey::from_slice(&<Vec<u8>>::from_hex($slice).unwrap()[..]).unwrap();
-			let pubkey = PublicKey::from_secret_key(&$secp_ctx, &privkey);
+			let privkey = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex($slice).unwrap()[..]).unwrap();
+			let pubkey = PublicKey::from_secret_key(&privkey);
 			(privkey, pubkey)
 		}};
 	}
@@ -4778,7 +4770,7 @@ mod tests {
 	macro_rules! get_sig_on {
 		($privkey: expr, $ctx: expr, $string: expr) => {{
 			let sighash = Message::from_digest_slice(&$string.into_bytes()[..]).unwrap();
-			$ctx.sign_ecdsa(&sighash, &$privkey)
+			$ctx.sign_ecdsa(sighash, &$privkey)
 		}};
 	}
 
@@ -5136,8 +5128,8 @@ mod tests {
 				shutdown_scriptpubkey: if shutdown {
 					Some(
 						Address::p2pkh(
-							&::bitcoin::PublicKey { compressed: true, inner: pubkey_1 },
-							Network::Testnet,
+							::bitcoin::PublicKey::from_secp(pubkey_1),
+							Network::Testnet(bitcoin::network::TestnetVersion::V3),
 						)
 						.script_pubkey(),
 					)
@@ -5245,8 +5237,8 @@ mod tests {
 				shutdown_scriptpubkey: if shutdown {
 					Some(
 						Address::p2pkh(
-							&::bitcoin::PublicKey { compressed: true, inner: pubkey_1 },
-							Network::Testnet,
+							::bitcoin::PublicKey::from_secp(pubkey_1),
+							Network::Testnet(bitcoin::network::TestnetVersion::V3),
 						)
 						.script_pubkey(),
 					)
@@ -5434,8 +5426,8 @@ mod tests {
 				shutdown_scriptpubkey: if shutdown {
 					Some(
 						Address::p2pkh(
-							&::bitcoin::PublicKey { compressed: true, inner: pubkey_1 },
-							Network::Testnet,
+							::bitcoin::PublicKey::from_secp(pubkey_1),
+							Network::Testnet(bitcoin::network::TestnetVersion::V3),
 						)
 						.script_pubkey(),
 					)
@@ -5514,8 +5506,8 @@ mod tests {
 				shutdown_scriptpubkey: if shutdown {
 					Some(
 						Address::p2pkh(
-							&::bitcoin::PublicKey { compressed: true, inner: pubkey_1 },
-							Network::Testnet,
+							::bitcoin::PublicKey::from_secp(pubkey_1),
+							Network::Testnet(bitcoin::network::TestnetVersion::V3),
 						)
 						.script_pubkey(),
 					)
@@ -5754,21 +5746,21 @@ mod tests {
 			prevtx: Some(Transaction {
 				version: Version::TWO,
 				lock_time: LockTime::ZERO,
-				input: vec![TxIn {
+				inputs: vec![TxIn {
 					previous_output: OutPoint { txid: Txid::from_str("305bab643ee297b8b6b76b320792c8223d55082122cb606bf89382146ced9c77").unwrap(), index: 2 }.into_bitcoin_outpoint(),
-					script_sig: ScriptBuf::new(),
+					script_sig: bitcoin::ScriptSigBuf::new(),
 					sequence: Sequence(0xfffffffd),
 					witness: Witness::from_slice(&[
 						<Vec<u8>>::from_hex("304402206af85b7dd67450ad12c979302fac49dfacbc6a8620f49c5da2b5721cf9565ca502207002b32fed9ce1bf095f57aeb10c36928ac60b12e723d97d2964a54640ceefa701").unwrap(),
 						<Vec<u8>>::from_hex("0301ab7dc16488303549bfcdd80f6ae5ee4c20bf97ab5410bbd6b1bfa85dcd6944").unwrap()]),
 				}],
-				output: vec![
+				outputs: vec![
 					TxOut {
-						value: Amount::from_sat(12704566),
+						amount: Amount::from_sat(12704566).expect("amount must fit"),
 						script_pubkey: Address::from_str("bc1qzlffunw52jav8vwdu5x3jfk6sr8u22rmq3xzw2").unwrap().assume_checked().script_pubkey(),
 					},
 					TxOut {
-						value: Amount::from_sat(245148),
+						amount: Amount::from_sat(245148).expect("amount must fit"),
 						script_pubkey: Address::from_str("bc1qxmk834g5marzm227dgqvynd23y2nvt2ztwcw2z").unwrap().assume_checked().script_pubkey(),
 					},
 				],
@@ -5995,22 +5987,22 @@ mod tests {
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
 		);
-		let script = Builder::new().push_opcode(opcodes::OP_TRUE).into_script();
+		let script = Builder::new().push_opcode(opcodes::all::OP_TRUE).into_script();
 		let shutdown = msgs::Shutdown {
 			channel_id: ChannelId::from_bytes([2; 32]),
 			scriptpubkey: if script_type == 1 {
 				Address::p2pkh(
-					&::bitcoin::PublicKey { compressed: true, inner: pubkey_1 },
-					Network::Testnet,
+					::bitcoin::PublicKey::from_secp(pubkey_1),
+					Network::Testnet(bitcoin::network::TestnetVersion::V3),
 				)
 				.script_pubkey()
 			} else if script_type == 2 {
-				Address::p2sh(&script, Network::Testnet).unwrap().script_pubkey()
+				script.to_p2sh()
 			} else if script_type == 3 {
-				Address::p2wpkh(&::bitcoin::CompressedPublicKey(pubkey_1), Network::Testnet)
+				Address::p2wpkh(::bitcoin::CompressedPublicKey::from_secp(pubkey_1), Network::Testnet(bitcoin::network::TestnetVersion::V3))
 					.script_pubkey()
 			} else {
-				Address::p2wsh(&script, Network::Testnet).script_pubkey()
+				script.to_p2wsh()
 			},
 		};
 		let encoded_value = shutdown.encode();
@@ -6371,7 +6363,7 @@ mod tests {
 			<Vec<u8>>::from_hex("1a02080badf00d010203040404ffffffff0608deadbeef1bad1dea").unwrap();
 		assert_eq!(encoded_value, target_value);
 
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet);
+		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let inbound_msg =
 			ReadableArgs::read(&mut Cursor::new(&target_value[..]), (None, &node_signer)).unwrap();
 		if let msgs::InboundOnionPayload::Forward(InboundOnionForwardPayload {
@@ -6402,7 +6394,7 @@ mod tests {
 		let target_value = <Vec<u8>>::from_hex("1002080badf00d010203040404ffffffff").unwrap();
 		assert_eq!(encoded_value, target_value);
 
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet);
+		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let inbound_msg =
 			ReadableArgs::read(&mut Cursor::new(&target_value[..]), (None, &node_signer)).unwrap();
 		if let msgs::InboundOnionPayload::Receive(InboundOnionReceivePayload {
@@ -6437,7 +6429,7 @@ mod tests {
 		let target_value = <Vec<u8>>::from_hex("3602080badf00d010203040404ffffffff082442424242424242424242424242424242424242424242424242424242424242421badca1f").unwrap();
 		assert_eq!(encoded_value, target_value);
 
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet);
+		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let inbound_msg =
 			ReadableArgs::read(&mut Cursor::new(&target_value[..]), (None, &node_signer)).unwrap();
 		if let msgs::InboundOnionPayload::Receive(InboundOnionReceivePayload {
@@ -6472,7 +6464,7 @@ mod tests {
 			cltv_expiry_height: 0xffffffff,
 		};
 		let encoded_value = msg.encode();
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet);
+		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		assert!(msgs::InboundOnionPayload::read(
 			&mut Cursor::new(&encoded_value[..]),
 			(None, &node_signer)
@@ -6508,7 +6500,7 @@ mod tests {
 		let encoded_value = msg.encode();
 		let target_value = <Vec<u8>>::from_hex("2e02080badf00d010203040404ffffffffff0000000146c6616b021234ff0000000146c6616f084242424242424242").unwrap();
 		assert_eq!(encoded_value, target_value);
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet);
+		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let inbound_msg: msgs::InboundOnionPayload =
 			ReadableArgs::read(&mut Cursor::new(&target_value[..]), (None, &node_signer)).unwrap();
 		if let msgs::InboundOnionPayload::Receive(InboundOnionReceivePayload {
@@ -6845,7 +6837,7 @@ mod tests {
 		let big_payload = encode_big_payload().unwrap();
 		let mut rd = Cursor::new(&big_payload[..]);
 
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet);
+		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		<msgs::InboundOnionPayload as ReadableArgs<(
 			Option<PublicKey>,
 			&test_utils::TestKeysInterface,

@@ -1587,7 +1587,7 @@ fn test_unknown_channel_update_with_dont_forward_logs_debug() {
 	let msg = msgs::ChannelUpdate {
 		signature: Signature::from(unsafe { FFISignature::new() }),
 		contents: msgs::UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: unknown_scid,
 			timestamp: 0,
 			message_flags: 1 | (1 << 1), // must_be_one + dont_forward

@@ -76,7 +76,7 @@ fn test_monitor_and_persister_update_fail() {
 	// bogus update. Note that if instead we updated the nodes[0]'s ChainMonitor
 	// directly, the node would fail to be `Drop`'d at the end because its
 	// ChannelManager and ChainMonitor would be out of sync.
-	let chain_source = test_utils::TestChainSource::new(Network::Testnet);
+	let chain_source = test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 	let logger = test_utils::TestLogger::with_id(format!("node {}", 0));
 	let persister = test_utils::TestPersister::new();
 	let tx_broadcaster = TestBroadcaster {
@@ -85,7 +85,10 @@ fn test_monitor_and_persister_update_fail() {
 		// Because we will connect a block at height 200 below, we need the TestBroadcaster to know
 		// that we are at height 200 so that it doesn't think we're violating the time lock
 		// requirements of transactions broadcasted at that point.
-		blocks: Arc::new(Mutex::new(vec![(genesis_block(Network::Testnet), 200); 200])),
+		blocks: Arc::new(Mutex::new(vec![({
+			let genesis = genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+			bitcoin::Block::new_unchecked(genesis.header().clone(), genesis.transactions().to_vec())
+		}, 200); 200])),
 	};
 	let chain_mon = {
 		let new_monitor = {
@@ -3945,7 +3948,7 @@ fn do_test_durable_preimages_on_closed_channel(
 	assert_eq!(bs_txn.len(), if close_chans_before_reload && !close_only_a { 2 } else { 1 });
 	let bs_preimage_tx = bs_txn
 		.iter()
-		.find(|tx| tx.input[0].previous_output.txid == as_closing_tx[0].compute_txid())
+		.find(|tx| tx.inputs[0].previous_output.txid == as_closing_tx[0].compute_txid())
 		.unwrap();
 	check_spends!(bs_preimage_tx, as_closing_tx[0]);
 
@@ -4971,7 +4974,7 @@ fn native_async_persist() {
 		Arc::clone(&tx_broadcaster),
 		Arc::clone(&fee_estimator),
 	);
-	let chain_source = test_utils::TestChainSource::new(Network::Testnet);
+	let chain_source = test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 	let async_chain_monitor = ChainMonitor::new_async_beta(
 		Some(&chain_source),
 		tx_broadcaster,
@@ -5502,9 +5505,10 @@ fn test_monitor_update_after_funding_spend() {
 	// consistent when claiming HTLCs.
 	let (block_hash, height) = nodes[1].best_block_info();
 	let block = create_dummy_block(block_hash, height + 1, vec![as_commitment_tx[0].clone()]);
-	let txdata: Vec<_> = block.txdata.iter().enumerate().collect();
-	nodes[1].chain_monitor.chain_monitor.transactions_confirmed(&block.header, &txdata, height + 1);
-	nodes[1].chain_monitor.chain_monitor.best_block_updated(&block.header, height + 1);
+	let (header, transactions) = block.as_parts();
+	let txdata: Vec<_> = transactions.iter().enumerate().collect();
+	nodes[1].chain_monitor.chain_monitor.transactions_confirmed(header, &txdata, height + 1);
+	nodes[1].chain_monitor.chain_monitor.best_block_updated(header, height + 1);
 	nodes[1].blocks.lock().unwrap().push((block, height + 1));
 
 	// Send payment 2 from A to B.

@@ -448,10 +448,10 @@ mod test {
 		// The DNSSEC validation will only work with the current time, so set the time on the
 		// resolver.
 		let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-		let block = Block {
-			header: create_dummy_header(nodes[0].best_block_hash(), now as u32),
-			txdata: Vec::new(),
-		};
+		let block = Block::new_unchecked(
+			create_dummy_header(nodes[0].best_block_hash(), now as u32),
+			Vec::new(),
+		);
 		connect_block(&nodes[0], &block);
 		connect_block(&nodes[1], &block);
 

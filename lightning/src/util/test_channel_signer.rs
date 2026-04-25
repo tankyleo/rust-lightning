@@ -397,8 +397,8 @@ impl EcdsaChannelSigner for TestChannelSigner {
 				}
 			}
 		}
-		assert_eq!(htlc_tx.input[input], htlc_descriptor.unsigned_tx_input());
-		assert_eq!(htlc_tx.output[input], htlc_descriptor.tx_output(secp_ctx));
+		assert_eq!(htlc_tx.inputs[input], htlc_descriptor.unsigned_tx_input());
+		assert_eq!(htlc_tx.outputs[input], htlc_descriptor.tx_output(secp_ctx));
 		{
 			let witness_script = htlc_descriptor.witness_script(secp_ctx);
 			let channel_parameters =
@@ -411,10 +411,11 @@ impl EcdsaChannelSigner for TestChannelSigner {
 			} else {
 				EcdsaSighashType::All
 			};
+			let witness_script = bitcoin::WitnessScriptBuf::from_bytes(witness_script.into_bytes());
 			let sighash = &sighash::SighashCache::new(&*htlc_tx)
 				.p2wsh_signature_hash(
 					input,
-					&witness_script,
+					witness_script.as_script(),
 					htlc_descriptor.htlc.to_bitcoin_amount(),
 					sighash_type,
 				)
@@ -427,7 +428,7 @@ impl EcdsaChannelSigner for TestChannelSigner {
 
 			secp_ctx
 				.verify_ecdsa(
-					&hash_to_message!(sighash.as_byte_array()),
+					hash_to_message!(sighash.as_byte_array()),
 					&htlc_descriptor.counterparty_sig,
 					&countersignatory_htlc_key.to_public_key(),
 				)
@@ -487,8 +488,8 @@ impl EcdsaChannelSigner for TestChannelSigner {
 		// As long as our minimum dust limit is enforced and is greater than our anchor output
 		// value, an anchor output can only have an index within [0, 1].
 		assert!(
-			anchor_tx.input[input].previous_output.vout == 0
-				|| anchor_tx.input[input].previous_output.vout == 1
+			anchor_tx.inputs[input].previous_output.vout == 0
+				|| anchor_tx.inputs[input].previous_output.vout == 1
 		);
 		#[cfg(any(test, feature = "_test_utils"))]
 		if !self.is_signer_available(SignerOp::SignHolderAnchorInput) {

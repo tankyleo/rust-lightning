@@ -33,16 +33,20 @@ use crate::util::wallet_utils::{
 	CoinSelection, CoinSelectionSourceSync, ConfirmedUtxo, Input, WalletSourceSync, WalletSync,
 };
 
+use crate::prelude::*;
 use crate::sync::Arc;
 
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::ecdsa::Signature;
 use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 use bitcoin::transaction::Version;
-use bitcoin::{
-	Amount, FeeRate, OutPoint as BitcoinOutPoint, Psbt, ScriptBuf, Transaction, TxOut, Txid,
-	WPubkeyHash,
-};
+use bitcoin::key::WPubkeyHash;
+use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
+use bitcoin::{Amount, FeeRate, OutPoint as BitcoinOutPoint, Psbt, Transaction, TxOut, Txid};
+
+fn amount_result(result: bitcoin::NumOpResult<Amount>) -> Amount {
+	result.expect("amount arithmetic must fit")
+}
 
 #[test]
 fn test_splicing_not_supported_api_error() {
@@ -100,10 +104,10 @@ fn test_v1_splice_in_negative_insufficient_inputs() {
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, 100_000, 0);
 
 	// Amount being added to the channel through the splice-in
-	let splice_in_value = Amount::from_sat(20_000);
+	let splice_in_value = amount_from_sat(20_000);
 
 	// Create additional inputs, but insufficient
-	let extra_splice_funding_input = splice_in_value - Amount::ONE_SAT;
+	let extra_splice_funding_input = amount_result(splice_in_value - Amount::ONE_SAT);
 
 	provide_utxo_reserves(&nodes, 1, extra_splice_funding_input);
 
@@ -134,20 +138,20 @@ impl CoinSelectionSourceSync for TightBudgetWallet {
 		_must_pay_to: &[TxOut], _target_feerate_sat_per_1000_weight: u32, _max_tx_weight: u64,
 	) -> Result<CoinSelection, ()> {
 		let prevout = TxOut {
-			value: self.utxo_value,
-			script_pubkey: ScriptBuf::new_p2wpkh(&WPubkeyHash::all_zeros()),
+			amount: self.utxo_value,
+			script_pubkey: ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array([0; 20])),
 		};
 		let prevtx = Transaction {
-			input: vec![],
-			output: vec![prevout],
+			inputs: vec![],
+			outputs: vec![prevout],
 			version: Version::TWO,
 			lock_time: bitcoin::absolute::LockTime::ZERO,
 		};
 		let utxo = ConfirmedUtxo::new_p2wpkh(prevtx, 0).unwrap();
 
 		let change_output = TxOut {
-			value: self.change_value,
-			script_pubkey: ScriptBuf::new_p2wpkh(&WPubkeyHash::all_zeros()),
+			amount: self.change_value,
+			script_pubkey: ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array([0; 20])),
 		};
 
 		Ok(CoinSelection { confirmed_utxos: vec![utxo], change_output: Some(change_output) })
@@ -180,10 +184,10 @@ fn test_validate_accounts_for_change_output_weight() {
 
 	// Input value = value_added + 1800: above 1736/1740 (fee without change), below 1984/1988
 	// (fee with change).
-	let value_added = Amount::from_sat(20_000);
+	let value_added = amount_from_sat(20_000);
 	let wallet = TightBudgetWallet {
-		utxo_value: value_added + Amount::from_sat(1800),
-		change_value: Amount::from_sat(1000),
+		utxo_value: amount_result(value_added + amount_from_sat(1800)),
+		change_value: amount_from_sat(1000),
 	};
 	let contribution =
 		funding_template.splice_in_sync(value_added, feerate, FeeRate::MAX, &wallet).unwrap();
@@ -219,7 +223,7 @@ pub fn do_initiate_splice_in<'a, 'b, 'c, 'd>(
 	value_added: Amount,
 ) -> FundingContribution {
 	let node_id_acceptor = acceptor.node.get_our_node_id();
-	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 	let funding_template = initiator.node.splice_channel(&channel_id, &node_id_acceptor).unwrap();
 	let feerate = funding_template.min_rbf_feerate().unwrap_or(floor_feerate);
 	let wallet = WalletSync::new(Arc::clone(&initiator.wallet_source), initiator.logger);
@@ -268,7 +272,7 @@ pub fn initiate_splice_out<'a, 'b, 'c, 'd>(
 	outputs: Vec<TxOut>,
 ) -> Result<FundingContribution, APIError> {
 	let node_id_acceptor = acceptor.node.get_our_node_id();
-	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 	let funding_template = initiator.node.splice_channel(&channel_id, &node_id_acceptor).unwrap();
 	let feerate = funding_template.min_rbf_feerate().unwrap_or(floor_feerate);
 	let wallet = WalletSync::new(Arc::clone(&initiator.wallet_source), initiator.logger);
@@ -300,7 +304,7 @@ pub fn do_initiate_splice_in_and_out<'a, 'b, 'c, 'd>(
 	value_added: Amount, outputs: Vec<TxOut>,
 ) -> FundingContribution {
 	let node_id_acceptor = acceptor.node.get_our_node_id();
-	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 	let funding_template = initiator.node.splice_channel(&channel_id, &node_id_acceptor).unwrap();
 	let feerate = funding_template.min_rbf_feerate().unwrap_or(floor_feerate);
 	let wallet = WalletSync::new(Arc::clone(&initiator.wallet_source), initiator.logger);
@@ -391,7 +395,7 @@ pub fn complete_interactive_funding_negotiation_for_both<'a, 'b, 'c, 'd>(
 		})
 		.map(|channel| (channel.funding_txo.unwrap(), channel.channel_value_satoshis))
 		.unwrap();
-	let new_channel_value = Amount::from_sat(
+	let new_channel_value = amount_from_sat(
 		channel_value_satoshis
 			.checked_add_signed(initiator_contribution.net_value().to_sat())
 			.unwrap()
@@ -406,7 +410,7 @@ pub fn complete_interactive_funding_negotiation_for_both<'a, 'b, 'c, 'd>(
 		.chain(core::iter::once(funding_outpoint.into_bitcoin_outpoint()))
 		.collect::<Vec<_>>();
 	expected_initiator_outputs
-		.push(TxOut { script_pubkey: new_funding_script, value: new_channel_value });
+		.push(TxOut { script_pubkey: new_funding_script, amount: new_channel_value });
 
 	let (mut expected_acceptor_inputs, mut expected_acceptor_scripts) =
 		if let Some(acceptor_contribution) = acceptor_contribution {
@@ -451,7 +455,7 @@ pub fn complete_interactive_funding_negotiation_for_both<'a, 'b, 'c, 'd>(
 					expected_initiator_outputs
 						.iter()
 						.position(|output| {
-							*output.script_pubkey == msg.script && output.value.to_sat() == msg.sats
+							*output.script_pubkey == msg.script && output.amount.to_sat() == msg.sats
 						})
 						.unwrap(),
 				);
@@ -846,7 +850,7 @@ fn do_test_splice_state_reset_on_disconnect(reload: bool) {
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, 100_000, 50_000_000);
 
 	let outputs = vec![TxOut {
-		value: Amount::from_sat(1_000),
+		amount: amount_from_sat(1_000),
 		script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 	}];
 	let funding_contribution =
@@ -1080,7 +1084,7 @@ fn test_config_reject_inbound_splices() {
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, 100_000, 50_000_000);
 
 	let outputs = vec![TxOut {
-		value: Amount::from_sat(1_000),
+		amount: amount_from_sat(1_000),
 		script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 	}];
 	let funding_contribution =
@@ -1132,9 +1136,9 @@ fn test_splice_in() {
 
 	let _ = send_payment(&nodes[0], &[&nodes[1]], 100_000);
 
-	let added_value = Amount::from_sat(initial_channel_value_sat * 2);
-	let utxo_value = added_value * 3 / 4;
-	let fees = Amount::from_sat(322);
+	let added_value = amount_from_sat(initial_channel_value_sat * 2);
+	let utxo_value = amount_result(added_value * 3 / 4);
+	let fees = amount_from_sat(322);
 
 	provide_utxo_reserves(&nodes, 2, utxo_value);
 
@@ -1142,14 +1146,14 @@ fn test_splice_in() {
 
 	let (splice_tx, new_funding_script) =
 		splice_channel(&nodes[0], &nodes[1], channel_id, funding_contribution);
-	let expected_change = utxo_value * 2 - added_value - fees;
+	let expected_change = amount_result(utxo_value * 2 - added_value - fees);
 	assert_eq!(
 		splice_tx
-			.output
+			.outputs
 			.iter()
 			.find(|txout| txout.script_pubkey != new_funding_script)
 			.unwrap()
-			.value,
+			.amount,
 		expected_change,
 	);
 
@@ -1184,11 +1188,11 @@ fn test_splice_out() {
 
 	let outputs = vec![
 		TxOut {
-			value: Amount::from_sat(initial_channel_value_sat / 4),
+			amount: amount_from_sat(initial_channel_value_sat / 4),
 			script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 		},
 		TxOut {
-			value: Amount::from_sat(initial_channel_value_sat / 4),
+			amount: amount_from_sat(initial_channel_value_sat / 4),
 			script_pubkey: nodes[1].wallet_source.get_change_script().unwrap(),
 		},
 	];
@@ -1228,13 +1232,14 @@ fn test_splice_in_and_out() {
 	// Contribute a net negative value, with fees taken from the contributed inputs and the
 	// remaining value sent to change
 	let htlc_limit_msat = nodes[0].node.list_channels()[0].next_outbound_htlc_limit_msat;
-	let added_value = Amount::from_sat(htlc_limit_msat / 1000);
-	let removed_value = added_value * 2;
-	let utxo_value = added_value * 3 / 4;
+	let added_value = amount_from_sat(htlc_limit_msat / 1000);
+	let removed_value = amount_result(added_value * 2);
+	let utxo_value = amount_result(added_value * 3 / 4);
+	let half_removed_value = amount_result(removed_value / 2);
 	let fees = if cfg!(feature = "grind_signatures") {
-		Amount::from_sat(385)
+		amount_from_sat(385)
 	} else {
-		Amount::from_sat(385)
+		amount_from_sat(385)
 	};
 
 	assert!(htlc_limit_msat > initial_channel_value_sat / 2 * 1000);
@@ -1243,11 +1248,11 @@ fn test_splice_in_and_out() {
 
 	let outputs = vec![
 		TxOut {
-			value: removed_value / 2,
+			amount: half_removed_value,
 			script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 		},
 		TxOut {
-			value: removed_value / 2,
+			amount: half_removed_value,
 			script_pubkey: nodes[1].wallet_source.get_change_script().unwrap(),
 		},
 	];
@@ -1256,15 +1261,15 @@ fn test_splice_in_and_out() {
 
 	let (splice_tx, new_funding_script) =
 		splice_channel(&nodes[0], &nodes[1], channel_id, funding_contribution);
-	let expected_change = utxo_value * 2 - added_value - fees;
+	let expected_change = amount_result(utxo_value * 2 - added_value - fees);
 	assert_eq!(
 		splice_tx
-			.output
+			.outputs
 			.iter()
-			.filter(|txout| txout.value != removed_value / 2)
+			.filter(|txout| txout.amount != half_removed_value)
 			.find(|txout| txout.script_pubkey != new_funding_script)
 			.unwrap()
-			.value,
+			.amount,
 		expected_change,
 	);
 
@@ -1283,13 +1288,14 @@ fn test_splice_in_and_out() {
 
 	// Contribute a net positive value, with fees taken from the contributed inputs and the
 	// remaining value sent to change
-	let added_value = Amount::from_sat(initial_channel_value_sat * 2);
-	let removed_value = added_value / 2;
-	let utxo_value = added_value * 3 / 4;
+	let added_value = amount_from_sat(initial_channel_value_sat * 2);
+	let removed_value = amount_result(added_value / 2);
+	let utxo_value = amount_result(added_value * 3 / 4);
+	let half_removed_value = amount_result(removed_value / 2);
 	let fees = if cfg!(feature = "grind_signatures") {
-		Amount::from_sat(385)
+		amount_from_sat(385)
 	} else {
-		Amount::from_sat(385)
+		amount_from_sat(385)
 	};
 
 	// Clear UTXOs so that the change output from the previous splice isn't considered
@@ -1299,11 +1305,11 @@ fn test_splice_in_and_out() {
 
 	let outputs = vec![
 		TxOut {
-			value: removed_value / 2,
+			amount: half_removed_value,
 			script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 		},
 		TxOut {
-			value: removed_value / 2,
+			amount: half_removed_value,
 			script_pubkey: nodes[1].wallet_source.get_change_script().unwrap(),
 		},
 	];
@@ -1312,15 +1318,15 @@ fn test_splice_in_and_out() {
 
 	let (splice_tx, new_funding_script) =
 		splice_channel(&nodes[0], &nodes[1], channel_id, funding_contribution);
-	let expected_change = utxo_value * 2 - added_value - fees;
+	let expected_change = amount_result(utxo_value * 2 - added_value - fees);
 	assert_eq!(
 		splice_tx
-			.output
+			.outputs
 			.iter()
-			.filter(|txout| txout.value != removed_value / 2)
+			.filter(|txout| txout.amount != half_removed_value)
 			.find(|txout| txout.script_pubkey != new_funding_script)
 			.unwrap()
-			.value,
+			.amount,
 		expected_change,
 	);
 
@@ -1361,10 +1367,10 @@ fn fails_initiating_concurrent_splices(reconnect: bool) {
 	provide_utxo_reserves(&nodes, 2, Amount::ONE_BTC);
 
 	let outputs = vec![TxOut {
-		value: Amount::from_sat(initial_channel_value_sat / 4),
+		amount: amount_from_sat(initial_channel_value_sat / 4),
 		script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 	}];
-	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_1_id).unwrap();
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
@@ -1456,7 +1462,7 @@ fn test_initiating_splice_holds_stfu_with_pending_splice() {
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
 	// Node 0 initiates a splice, completing the full flow.
-	let value_added = Amount::from_sat(10_000);
+	let value_added = amount_from_sat(10_000);
 	let funding_contribution_0 = initiate_splice_in(&nodes[0], &nodes[1], channel_id, value_added);
 	let (splice_tx, _) = splice_channel(&nodes[0], &nodes[1], channel_id, funding_contribution_0);
 
@@ -1470,19 +1476,19 @@ fn test_initiating_splice_holds_stfu_with_pending_splice() {
 #[test]
 fn test_splice_both_contribute_tiebreak() {
 	// Same feerate: the acceptor's change increases because is_initiator=false has lower weight.
-	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
-	do_test_splice_tiebreak(feerate, feerate, Amount::from_sat(50_000), true);
+	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
+	do_test_splice_tiebreak(feerate, feerate, amount_from_sat(50_000), true);
 }
 
 #[test]
 fn test_splice_tiebreak_higher_feerate() {
 	// Node 0 (winner) uses a higher feerate than node 1 (loser). Node 1's change output is
 	// adjusted (reduced) to accommodate the higher feerate. Negotiation succeeds.
-	let feerate = FEERATE_FLOOR_SATS_PER_KW as u64;
+	let feerate = FEERATE_FLOOR_SATS_PER_KW;
 	do_test_splice_tiebreak(
 		FeeRate::from_sat_per_kwu(feerate * 3),
 		FeeRate::from_sat_per_kwu(feerate),
-		Amount::from_sat(50_000),
+		amount_from_sat(50_000),
 		true,
 	);
 }
@@ -1491,11 +1497,11 @@ fn test_splice_tiebreak_higher_feerate() {
 fn test_splice_tiebreak_lower_feerate() {
 	// Node 0 (winner) uses a lower feerate than node 1 (loser). Since the initiator's feerate
 	// is below node 1's minimum, node 1 proceeds without contribution and retries as initiator.
-	let feerate = FEERATE_FLOOR_SATS_PER_KW as u64;
+	let feerate = FEERATE_FLOOR_SATS_PER_KW;
 	do_test_splice_tiebreak(
 		FeeRate::from_sat_per_kwu(feerate),
 		FeeRate::from_sat_per_kwu(feerate * 3),
-		Amount::from_sat(50_000),
+		amount_from_sat(50_000),
 		false,
 	);
 }
@@ -1505,11 +1511,11 @@ fn test_splice_tiebreak_feerate_too_high() {
 	// Node 0 (winner) uses a high feerate (20,000 sat/kwu). Node 1 splices in 95,000 sats from
 	// a 100,000 sat UTXO, leaving too little budget for fees. Node 1 proceeds without its
 	// contribution and retries as initiator.
-	let feerate = FEERATE_FLOOR_SATS_PER_KW as u64;
+	let feerate = FEERATE_FLOOR_SATS_PER_KW;
 	do_test_splice_tiebreak(
 		FeeRate::from_sat_per_kwu(20_000),
 		FeeRate::from_sat_per_kwu(feerate),
-		Amount::from_sat(95_000),
+		amount_from_sat(95_000),
 		false,
 	);
 }
@@ -1536,8 +1542,8 @@ fn do_test_splice_tiebreak(
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, Amount::from_sat(100_000));
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_from_sat(100_000));
 
 	// Node 0 calls splice_channel + splice_in_sync + funding_contributed.
 	let funding_template_0 = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
@@ -1626,18 +1632,18 @@ fn do_test_splice_tiebreak(
 
 		// The initiator's change output should remain unchanged (no feerate adjustment).
 		let initiator_change_in_tx = tx
-			.output
+			.outputs
 			.iter()
 			.find(|o| o.script_pubkey == node_0_change.script_pubkey)
 			.expect("Initiator's change output should be in the splice transaction");
 		assert_eq!(
-			initiator_change_in_tx.value, node_0_change.value,
+			initiator_change_in_tx.amount, node_0_change.amount,
 			"Initiator's change output should remain unchanged",
 		);
 
 		// The acceptor's change output should be adjusted based on the feerate difference.
 		let acceptor_change_in_tx = tx
-			.output
+			.outputs
 			.iter()
 			.find(|o| o.script_pubkey == node_1_change.script_pubkey)
 			.expect("Acceptor's change output should be in the splice transaction");
@@ -1645,25 +1651,25 @@ fn do_test_splice_tiebreak(
 			// Initiator's feerate <= acceptor's original: the acceptor's change increases because
 			// is_initiator=false has lower weight, and the feerate is the same or lower.
 			assert!(
-				acceptor_change_in_tx.value > node_1_change.value,
+				acceptor_change_in_tx.amount > node_1_change.amount,
 				"Acceptor's change should increase when initiator feerate ({}) <= acceptor \
 				 feerate ({}): adjusted {} vs original {}",
-				node_0_feerate.to_sat_per_kwu(),
-				node_1_feerate.to_sat_per_kwu(),
-				acceptor_change_in_tx.value,
-				node_1_change.value,
+				node_0_feerate.to_sat_per_kwu_floor(),
+				node_1_feerate.to_sat_per_kwu_floor(),
+				acceptor_change_in_tx.amount,
+				node_1_change.amount,
 			);
 		} else {
 			// Initiator's feerate > acceptor's original: the higher feerate more than compensates
 			// for the lower weight, so the acceptor's change decreases.
 			assert!(
-				acceptor_change_in_tx.value < node_1_change.value,
+				acceptor_change_in_tx.amount < node_1_change.amount,
 				"Acceptor's change should decrease when initiator feerate ({}) > acceptor \
 				 feerate ({}): adjusted {} vs original {}",
-				node_0_feerate.to_sat_per_kwu(),
-				node_1_feerate.to_sat_per_kwu(),
-				acceptor_change_in_tx.value,
-				node_1_change.value,
+				node_0_feerate.to_sat_per_kwu_floor(),
+				node_1_feerate.to_sat_per_kwu_floor(),
+				acceptor_change_in_tx.amount,
+				node_1_change.amount,
 			);
 		}
 
@@ -1766,16 +1772,16 @@ fn test_splice_tiebreak_feerate_too_high_rejected() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	provide_utxo_reserves(&nodes, 2, Amount::from_sat(100_000));
+	provide_utxo_reserves(&nodes, 2, amount_from_sat(100_000));
 
 	// Node 0 uses an extremely high feerate (100,000 sat/kwu). Node 1 uses the floor feerate
 	// with a moderate splice-in (50,000 sats from a 100,000 sat UTXO) and a low max_feerate
 	// (3,000 sat/kwu). The target (100k) far exceeds node 1's max (3k), and the fair fee at
 	// 100k exceeds node 1's budget, triggering TooHigh.
 	let high_feerate = FeeRate::from_sat_per_kwu(100_000);
-	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
-	let node_0_added_value = Amount::from_sat(50_000);
-	let node_1_added_value = Amount::from_sat(50_000);
+	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
+	let node_0_added_value = amount_from_sat(50_000);
+	let node_1_added_value = amount_from_sat(50_000);
 	let node_1_max_feerate = FeeRate::from_sat_per_kwu(3_000);
 
 	// Node 0: very high feerate, moderate splice-in.
@@ -1861,7 +1867,7 @@ fn do_test_splice_commitment_broadcast(splice_status: SpliceStatus, claim_htlcs:
 
 	let splice_in_amount = initial_channel_capacity / 2;
 	let initiator_contribution =
-		do_initiate_splice_in(&nodes[0], &nodes[1], channel_id, Amount::from_sat(splice_in_amount));
+		do_initiate_splice_in(&nodes[0], &nodes[1], channel_id, amount_from_sat(splice_in_amount));
 	let (splice_tx, _) = splice_channel(&nodes[0], &nodes[1], channel_id, initiator_contribution);
 	let (preimage2, payment_hash2, ..) = route_payment(&nodes[0], &[&nodes[1]], payment_amount);
 	let htlc_expiry = nodes[0].best_block_info().1 + TEST_FINAL_CLTV + LATENCY_GRACE_PERIOD_BLOCKS;
@@ -1945,7 +1951,7 @@ fn do_test_splice_commitment_broadcast(splice_status: SpliceStatus, claim_htlcs:
 		let mut txn = nodes[1].tx_broadcaster.txn_broadcast();
 		assert_eq!(txn.len(), 1);
 		let htlc_success_tx = txn.remove(0);
-		assert_eq!(htlc_success_tx.input.len(), 2);
+		assert_eq!(htlc_success_tx.inputs.len(), 2);
 		check_spends!(&htlc_success_tx, &commitment_tx);
 		htlc_success_tx
 	} else {
@@ -1955,7 +1961,7 @@ fn do_test_splice_commitment_broadcast(splice_status: SpliceStatus, claim_htlcs:
 		let htlc_timeout_tx = txn.remove(0);
 		// The inputs spent correspond to the fee bump input and the two HTLCs from the commitment
 		// transaction.
-		assert_eq!(htlc_timeout_tx.input.len(), 3);
+		assert_eq!(htlc_timeout_tx.inputs.len(), 3);
 		let tx_with_fee_bump_utxo =
 			if splice_status == SpliceStatus::Unconfirmed { &coinbase_tx } else { &splice_tx };
 		check_spends!(&htlc_timeout_tx, &commitment_tx, tx_with_fee_bump_utxo);
@@ -1991,7 +1997,7 @@ fn do_test_splice_commitment_broadcast(splice_status: SpliceStatus, claim_htlcs:
 		// splice as it is no longer being tracked.
 		connect_blocks(&nodes[0], BREAKDOWN_TIMEOUT as u32);
 		let (vout, txout) = splice_tx
-			.output
+			.outputs
 			.iter()
 			.enumerate()
 			.find(|(_, output)| output.script_pubkey.is_p2wsh())
@@ -2057,11 +2063,11 @@ fn do_test_splice_reestablish(reload: bool, async_monitor_update: bool) {
 	// Negotiate the splice up until the nodes exchange `tx_complete`.
 	let outputs = vec![
 		TxOut {
-			value: Amount::from_sat(initial_channel_value_sat / 4),
+			amount: amount_from_sat(initial_channel_value_sat / 4),
 			script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 		},
 		TxOut {
-			value: Amount::from_sat(initial_channel_value_sat / 4),
+			amount: amount_from_sat(initial_channel_value_sat / 4),
 			script_pubkey: nodes[1].wallet_source.get_change_script().unwrap(),
 		},
 	];
@@ -2339,7 +2345,7 @@ fn do_test_propose_splice_while_disconnected(use_0conf: bool) {
 
 	let splice_out_sat = initial_channel_value_sat / 4;
 	let node_0_outputs = vec![TxOut {
-		value: Amount::from_sat(splice_out_sat),
+		amount: amount_from_sat(splice_out_sat),
 		script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 	}];
 	let node_0_funding_contribution =
@@ -2348,7 +2354,7 @@ fn do_test_propose_splice_while_disconnected(use_0conf: bool) {
 	assert!(nodes[0].node.get_and_clear_pending_msg_events().is_empty());
 
 	let node_1_outputs = vec![TxOut {
-		value: Amount::from_sat(splice_out_sat),
+		amount: amount_from_sat(splice_out_sat),
 		script_pubkey: nodes[1].wallet_source.get_change_script().unwrap(),
 	}];
 	let node_1_funding_contribution =
@@ -2500,7 +2506,7 @@ fn disconnect_on_unexpected_interactive_tx_message() {
 
 	let splice_in_amount = initial_channel_capacity / 2;
 	let contribution =
-		initiate_splice_in(initiator, acceptor, channel_id, Amount::from_sat(splice_in_amount));
+		initiate_splice_in(initiator, acceptor, channel_id, amount_from_sat(splice_in_amount));
 
 	// Complete interactive-tx construction, but fail by having the acceptor send a duplicate
 	// tx_complete instead of commitment_signed.
@@ -2539,7 +2545,7 @@ fn fail_splice_on_interactive_tx_error() {
 	// Fail during interactive-tx construction by having the acceptor echo back tx_add_input instead
 	// of sending tx_complete. The failure occurs because the serial id will have the wrong parity.
 	let funding_contribution =
-		initiate_splice_in(initiator, acceptor, channel_id, Amount::from_sat(splice_in_amount));
+		initiate_splice_in(initiator, acceptor, channel_id, amount_from_sat(splice_in_amount));
 	let _ = complete_splice_handshake(initiator, acceptor);
 
 	// Queue an outgoing HTLC to the holding cell. It should be freed once we exit quiescence.
@@ -2607,7 +2613,7 @@ fn fail_splice_on_tx_abort() {
 	// Fail during interactive-tx construction by having the acceptor send tx_abort instead of
 	// tx_complete.
 	let funding_contribution =
-		initiate_splice_in(initiator, acceptor, channel_id, Amount::from_sat(splice_in_amount));
+		initiate_splice_in(initiator, acceptor, channel_id, amount_from_sat(splice_in_amount));
 	let _ = complete_splice_handshake(initiator, acceptor);
 
 	// Queue an outgoing HTLC to the holding cell. It should be freed once we exit quiescence.
@@ -2666,7 +2672,7 @@ fn fail_splice_on_tx_complete_error() {
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, 100_000, 50_000_000);
 
 	let outputs = vec![TxOut {
-		value: Amount::from_sat(1_000),
+		amount: amount_from_sat(1_000),
 		script_pubkey: acceptor.wallet_source.get_change_script().unwrap(),
 	}];
 	let funding_contribution =
@@ -2752,7 +2758,7 @@ fn free_holding_cell_on_tx_signatures_quiescence_exit() {
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, 100_000, 0);
 
 	let outputs = vec![TxOut {
-		value: Amount::from_sat(1_000),
+		amount: amount_from_sat(1_000),
 		script_pubkey: initiator.wallet_source.get_change_script().unwrap(),
 	}];
 	let contribution = initiate_splice_out(initiator, acceptor, channel_id, outputs).unwrap();
@@ -2845,7 +2851,7 @@ fn fail_splice_on_channel_close() {
 	let splice_in_amount = initial_channel_capacity / 2;
 
 	// Close the channel before completion of interactive-tx construction.
-	let _ = initiate_splice_in(initiator, acceptor, channel_id, Amount::from_sat(splice_in_amount));
+	let _ = initiate_splice_in(initiator, acceptor, channel_id, amount_from_sat(splice_in_amount));
 	let _ = complete_splice_handshake(initiator, acceptor);
 	let _tx_add_input =
 		get_event_msg!(initiator, MessageSendEvent::SendTxAddInput, node_id_acceptor);
@@ -2892,7 +2898,7 @@ fn fail_quiescent_action_on_channel_close() {
 	provide_utxo_reserves(&nodes, 1, Amount::ONE_BTC);
 
 	// Close the channel before completion of STFU handshake.
-	let _ = initiate_splice_in(initiator, acceptor, channel_id, Amount::from_sat(splice_in_amount));
+	let _ = initiate_splice_in(initiator, acceptor, channel_id, amount_from_sat(splice_in_amount));
 
 	let _stfu_init = get_event_msg!(initiator, MessageSendEvent::SendStfu, node_id_acceptor);
 
@@ -2946,7 +2952,7 @@ fn do_abandon_splice_quiescent_action_on_shutdown(local_shutdown: bool, pending_
 			&nodes[0],
 			&nodes[1],
 			channel_id,
-			Amount::from_sat(initial_channel_capacity / 2),
+			amount_from_sat(initial_channel_capacity / 2),
 		);
 		let (_splice_tx, _new_funding_script) =
 			splice_channel(&nodes[0], &nodes[1], channel_id, funding_contribution);
@@ -2981,7 +2987,7 @@ fn do_abandon_splice_quiescent_action_on_shutdown(local_shutdown: bool, pending_
 		if pending_splice { initial_channel_capacity / 4 } else { initial_channel_capacity / 2 };
 	let splice_out_output = if pending_splice {
 		let script_pubkey = nodes[1].wallet_source.get_change_script().unwrap();
-		Some(TxOut { value: Amount::from_sat(1_000), script_pubkey })
+		Some(TxOut { amount: amount_from_sat(1_000), script_pubkey })
 	} else {
 		None
 	};
@@ -2990,11 +2996,11 @@ fn do_abandon_splice_quiescent_action_on_shutdown(local_shutdown: bool, pending_
 			&nodes[0],
 			&nodes[1],
 			channel_id,
-			Amount::from_sat(splice_in_amount),
+			amount_from_sat(splice_in_amount),
 			vec![output.clone()],
 		)
 	} else {
-		initiate_splice_in(&nodes[0], &nodes[1], channel_id, Amount::from_sat(splice_in_amount))
+		initiate_splice_in(&nodes[0], &nodes[1], channel_id, amount_from_sat(splice_in_amount))
 	};
 	assert!(nodes[0].node.get_and_clear_pending_msg_events().is_empty());
 
@@ -3093,7 +3099,7 @@ fn do_test_splice_with_inflight_htlc_forward_and_resolution(expire_scid_pre_forw
 	// Splice both channels, lock them, and connect enough blocks to trigger the legacy SCID pruning
 	// logic while the HTLC is still pending.
 	let outputs_0_1 = vec![TxOut {
-		value: Amount::from_sat(1_000),
+		amount: amount_from_sat(1_000),
 		script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 	}];
 	let contribution =
@@ -3104,7 +3110,7 @@ fn do_test_splice_with_inflight_htlc_forward_and_resolution(expire_scid_pre_forw
 	}
 
 	let outputs_1_2 = vec![TxOut {
-		value: Amount::from_sat(1_000),
+		amount: amount_from_sat(1_000),
 		script_pubkey: nodes[1].wallet_source.get_change_script().unwrap(),
 	}];
 	let contribution =
@@ -3213,7 +3219,7 @@ fn test_splice_buffer_commitment_signed_until_funding_tx_signed() {
 	// Negotiate a splice-out where only the initiator (node 0) has a contribution.
 	// This means node 1 will send their commitment_signed immediately after tx_complete.
 	let outputs = vec![TxOut {
-		value: Amount::from_sat(1_000),
+		amount: amount_from_sat(1_000),
 		script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 	}];
 	let initiator_contribution =
@@ -3335,7 +3341,7 @@ fn test_splice_buffer_invalid_commitment_signed_closes_channel() {
 	// Negotiate a splice-out where only the initiator (node 0) has a contribution.
 	// This means node 1 will send their commitment_signed immediately after tx_complete.
 	let outputs = vec![TxOut {
-		value: Amount::from_sat(1_000),
+		amount: amount_from_sat(1_000),
 		script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 	}];
 	let initiator_contribution =
@@ -3451,7 +3457,7 @@ fn do_splice_waits_for_initial_commitment_monitor_update_before_releasing_tx_sig
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, 100_000, 0);
 
 	let outputs = vec![TxOut {
-		value: Amount::from_sat(1_000),
+		amount: amount_from_sat(1_000),
 		script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 	}];
 	let initiator_contribution =
@@ -3573,7 +3579,7 @@ fn test_splice_balance_falls_below_reserve() {
 	// Splice-in 200k sat. The new channel value becomes 300k sat, raising the reserve to 3000
 	// sat. Node 1's remaining 2000 sat is now below the new reserve.
 	let initiator_contribution =
-		initiate_splice_in(&nodes[0], &nodes[1], channel_id, Amount::from_sat(200_000));
+		initiate_splice_in(&nodes[0], &nodes[1], channel_id, amount_from_sat(200_000));
 	let (splice_tx, _) = splice_channel(&nodes[0], &nodes[1], channel_id, initiator_contribution);
 
 	// Confirm and lock the splice.
@@ -3603,10 +3609,10 @@ fn test_funding_contributed_counterparty_not_found() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, 100_000, 50_000_000);
 
-	let splice_in_amount = Amount::from_sat(20_000);
-	provide_utxo_reserves(&nodes, 1, splice_in_amount * 2);
+	let splice_in_amount = amount_from_sat(20_000);
+	provide_utxo_reserves(&nodes, 1, amount_result(splice_in_amount * 2));
 
-	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
 	let funding_contribution =
@@ -3614,7 +3620,7 @@ fn test_funding_contributed_counterparty_not_found() {
 
 	// Use a fake/unknown public key as counterparty
 	let fake_node_id =
-		PublicKey::from_secret_key(&Secp256k1::new(), &SecretKey::from_slice(&[42; 32]).unwrap());
+		PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 
 	assert_eq!(
 		nodes[0].node.funding_contributed(
@@ -3643,10 +3649,10 @@ fn test_funding_contributed_channel_not_found() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, 100_000, 50_000_000);
 
-	let splice_in_amount = Amount::from_sat(20_000);
-	provide_utxo_reserves(&nodes, 1, splice_in_amount * 2);
+	let splice_in_amount = amount_from_sat(20_000);
+	provide_utxo_reserves(&nodes, 1, amount_result(splice_in_amount * 2));
 
-	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
 	let funding_contribution =
@@ -3683,15 +3689,15 @@ fn test_funding_contributed_splice_already_pending() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, 100_000, 0);
 
-	let splice_in_amount = Amount::from_sat(20_000);
-	provide_utxo_reserves(&nodes, 2, splice_in_amount * 2);
+	let splice_in_amount = amount_from_sat(20_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(splice_in_amount * 2));
 
 	// Use splice_in_and_out with an output so we can test output filtering
 	let first_splice_out = TxOut {
-		value: Amount::from_sat(5_000),
-		script_pubkey: ScriptBuf::new_p2wpkh(&WPubkeyHash::from_raw_hash(Hash::all_zeros())),
+		amount: amount_from_sat(5_000),
+		script_pubkey: ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array([0; 20])),
 	};
-	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
 	let first_contribution = funding_template
@@ -3707,8 +3713,8 @@ fn test_funding_contributed_splice_already_pending() {
 	// Initiate a second splice with a DIFFERENT output to test that different outputs
 	// are included in DiscardFunding (not filtered out)
 	let second_splice_out = TxOut {
-		value: Amount::from_sat(6_000), // Different amount
-		script_pubkey: ScriptBuf::new_p2wpkh(&WPubkeyHash::from_raw_hash(Hash::all_zeros())),
+		amount: amount_from_sat(6_000), // Different amount
+		script_pubkey: ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array([0; 20])),
 	};
 
 	// Clear UTXOs and add a LARGER one for the second contribution to ensure
@@ -3718,7 +3724,7 @@ fn test_funding_contributed_splice_already_pending() {
 	// reclaim the change script pubkey? But that means for other cases we'd need to track which
 	// output is for change later in the pipeline.
 	nodes[0].wallet_source.clear_utxos();
-	provide_utxo_reserves(&nodes, 1, splice_in_amount * 3);
+	provide_utxo_reserves(&nodes, 1, amount_result(splice_in_amount * 3));
 
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
@@ -3791,10 +3797,10 @@ fn test_funding_contributed_duplicate_contribution_no_event() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, 100_000, 0);
 
-	let splice_in_amount = Amount::from_sat(20_000);
-	provide_utxo_reserves(&nodes, 1, splice_in_amount * 2);
+	let splice_in_amount = amount_from_sat(20_000);
+	provide_utxo_reserves(&nodes, 1, amount_result(splice_in_amount * 2));
 
-	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
 	let contribution =
@@ -3849,11 +3855,11 @@ fn do_test_funding_contributed_active_funding_negotiation(state: u8) {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, 100_000, 0);
 
-	let splice_in_amount = Amount::from_sat(20_000);
-	provide_utxo_reserves(&nodes, 2, splice_in_amount * 2);
+	let splice_in_amount = amount_from_sat(20_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(splice_in_amount * 2));
 
 	// Build first contribution
-	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
 	let first_contribution =
@@ -3861,7 +3867,7 @@ fn do_test_funding_contributed_active_funding_negotiation(state: u8) {
 
 	// Build second contribution with different UTXOs so inputs/outputs don't overlap
 	nodes[0].wallet_source.clear_utxos();
-	provide_utxo_reserves(&nodes, 1, splice_in_amount * 3);
+	provide_utxo_reserves(&nodes, 1, amount_result(splice_in_amount * 3));
 
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
@@ -3980,10 +3986,10 @@ fn test_funding_contributed_channel_shutdown() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, 100_000, 0);
 
-	let splice_in_amount = Amount::from_sat(20_000);
-	provide_utxo_reserves(&nodes, 1, splice_in_amount * 2);
+	let splice_in_amount = amount_from_sat(20_000);
+	provide_utxo_reserves(&nodes, 1, amount_result(splice_in_amount * 2));
 
-	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
 	let funding_contribution =
@@ -4034,10 +4040,10 @@ fn test_funding_contributed_unfunded_channel() {
 	// Drain the FundingGenerationReady event for the unfunded channel
 	let _ = get_event!(nodes[0], Event::FundingGenerationReady);
 
-	let splice_in_amount = Amount::from_sat(20_000);
-	provide_utxo_reserves(&nodes, 1, splice_in_amount * 2);
+	let splice_in_amount = amount_from_sat(20_000);
+	provide_utxo_reserves(&nodes, 1, amount_result(splice_in_amount * 2));
 
-	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 	let funding_template = nodes[0].node.splice_channel(&funded_channel_id, &node_id_1).unwrap();
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
 	let funding_contribution =
@@ -4090,8 +4096,8 @@ fn do_test_splice_pending_htlcs(config: UserConfig) {
 	// The channel fundee requests unaffordable splice-outs in the first section, while the channel funder does so
 	// in the second section.
 	let anchors_features = ChannelTypeFeatures::anchors_zero_htlc_fee_and_dependencies();
-	let initial_channel_value = Amount::from_sat(100_000);
-	let push_amount = Amount::from_sat(10_000);
+	let initial_channel_value = amount_from_sat(100_000);
+	let push_amount = amount_from_sat(10_000);
 
 	let chanmon_cfgs = create_chanmon_cfgs(2);
 	let node_cfgs = create_node_cfgs(2, &chanmon_cfgs);
@@ -4142,24 +4148,28 @@ fn do_test_splice_pending_htlcs(config: UserConfig) {
 		// 1) Check that splicing out an additional satoshi fails validation on the sender's side.
 
 		let script_pubkey = initiator.wallet_source.get_change_script().unwrap();
-		let outputs = vec![TxOut { value: splice_out + Amount::ONE_SAT, script_pubkey }];
+		let outputs =
+			vec![TxOut { amount: amount_result(splice_out + Amount::ONE_SAT), script_pubkey }];
 		let error = initiate_splice_out(initiator, acceptor, channel_id, outputs).unwrap_err();
 		let cannot_accept_contribution =
 			format!("Channel {} cannot accept funding contribution", channel_id);
 		assert_eq!(error, APIError::APIMisuseError { err: cannot_accept_contribution });
 		let cannot_be_funded = format!(
 			"Channel {} cannot be funded: Channel {} cannot be spliced out; our post-splice channel balance {} is smaller than their selected v2 reserve {}",
-			channel_id, channel_id, post_splice_reserve - Amount::ONE_SAT, post_splice_reserve
+			channel_id,
+			channel_id,
+			amount_result(post_splice_reserve - Amount::ONE_SAT),
+			post_splice_reserve
 		);
 		initiator.logger.assert_log("lightning::ln::channel", cannot_be_funded, 1);
 
 		// 2) Check that splicing out with the additional satoshi removed passes validation on the sender's side.
 
 		let script_pubkey = initiator.wallet_source.get_change_script().unwrap();
-		let outputs = vec![TxOut { value: splice_out, script_pubkey }];
+		let outputs = vec![TxOut { amount: splice_out, script_pubkey }];
 		let contribution =
 			initiate_splice_out(initiator, acceptor, channel_id, outputs.clone()).unwrap();
-		assert_eq!(contribution.net_value(), -splice_out_incl_fees.to_signed().unwrap());
+		assert_eq!(contribution.net_value(), -splice_out_incl_fees.to_signed());
 
 		let stfu_init = get_event_msg!(initiator, MessageSendEvent::SendStfu, node_id_acceptor);
 		acceptor.node.handle_stfu(node_id_initiator, &stfu_init);
@@ -4178,7 +4188,7 @@ fn do_test_splice_pending_htlcs(config: UserConfig) {
 		assert_eq!(msg.channel_id, channel_id);
 		let cannot_be_spliced_out = format!(
 			"Channel {} cannot be spliced out; their post-splice channel balance {} is smaller than our selected v2 reserve {}",
-			channel_id, post_splice_reserve - Amount::ONE_SAT, post_splice_reserve
+			channel_id, amount_result(post_splice_reserve - Amount::ONE_SAT), post_splice_reserve
 		);
 		assert_eq!(msg.data, cannot_be_spliced_out);
 
@@ -4194,7 +4204,7 @@ fn do_test_splice_pending_htlcs(config: UserConfig) {
 		// validation on the receiver's side.
 
 		let contribution = initiate_splice_out(initiator, acceptor, channel_id, outputs).unwrap();
-		assert_eq!(contribution.net_value(), -splice_out_incl_fees.to_signed().unwrap());
+		assert_eq!(contribution.net_value(), -splice_out_incl_fees.to_signed());
 
 		contribution
 	};
@@ -4203,14 +4213,15 @@ fn do_test_splice_pending_htlcs(config: UserConfig) {
 		// 0) Set the channel up such that if node 1 splices out an additional satoshi over the `splice_out`
 		// value, it overdraws its reserve.
 
-		let debit_htlcs = Amount::from_sat(2_000 * 3);
-		let balance = push_amount - debit_htlcs;
-		let estimated_fees = Amount::from_sat(183);
-		let splice_out = Amount::from_sat(1000);
-		let splice_out_incl_fees = splice_out + estimated_fees;
-		let post_splice_reserve = (initial_channel_value - splice_out_incl_fees) / 100;
-		let pre_splice_balance = post_splice_reserve + splice_out_incl_fees;
-		let amount_msat = (balance - pre_splice_balance).to_sat() * 1000;
+		let debit_htlcs = amount_from_sat(2_000 * 3);
+		let balance = amount_result(push_amount - debit_htlcs);
+		let estimated_fees = amount_from_sat(183);
+		let splice_out = amount_from_sat(1000);
+		let splice_out_incl_fees = amount_result(splice_out + estimated_fees);
+		let post_splice_reserve =
+			amount_result((initial_channel_value - splice_out_incl_fees) / 100);
+		let pre_splice_balance = amount_result(post_splice_reserve + splice_out_incl_fees);
+		let amount_msat = amount_result(balance - pre_splice_balance).to_sat() * 1000;
 		let (preimage_1_to_0_d, ..) = route_payment(&nodes[1], &[&nodes[0]], amount_msat);
 
 		let contribution =
@@ -4240,23 +4251,26 @@ fn do_test_splice_pending_htlcs(config: UserConfig) {
 		// 0) Set the channel up such that if node 0 splices out an additional satoshi over the `splice_out`
 		// value, it overdraws its reserve.
 
-		let debit_htlcs = Amount::from_sat(40_000 * 2);
+		let debit_htlcs = amount_from_sat(40_000 * 2);
 		let debit_anchors =
-			if channel_type == anchors_features { Amount::from_sat(330 * 2) } else { Amount::ZERO };
-		let balance = initial_channel_value - push_amount - debit_htlcs - debit_anchors;
-		let estimated_fees = Amount::from_sat(183);
-		let splice_out = Amount::from_sat(1000);
-		let splice_out_incl_fees = splice_out + estimated_fees;
-		let post_splice_reserve = (initial_channel_value - splice_out_incl_fees) / 100;
+			if channel_type == anchors_features { amount_from_sat(330 * 2) } else { Amount::ZERO };
+		let balance =
+			amount_result(initial_channel_value - push_amount - debit_htlcs - debit_anchors);
+		let estimated_fees = amount_from_sat(183);
+		let splice_out = amount_from_sat(1000);
+		let splice_out_incl_fees = amount_result(splice_out + estimated_fees);
+		let post_splice_reserve =
+			amount_result((initial_channel_value - splice_out_incl_fees) / 100);
 		// The 6 HTLCs we sent previously, the HTLC we send just below, and the fee spike buffer HTLC.
 		let htlc_count = 6 + 1 + 1;
-		let commit_tx_fee = Amount::from_sat(chan_utils::commit_tx_fee_sat(
+		let commit_tx_fee = amount_from_sat(chan_utils::commit_tx_fee_sat(
 			spiked_feerate,
 			htlc_count,
 			&channel_type,
 		));
-		let pre_splice_balance = post_splice_reserve + commit_tx_fee + splice_out_incl_fees;
-		let amount_msat = (balance - pre_splice_balance).to_sat() * 1000;
+		let pre_splice_balance =
+			amount_result(post_splice_reserve + commit_tx_fee + splice_out_incl_fees);
+		let amount_msat = amount_result(balance - pre_splice_balance).to_sat() * 1000;
 		let (preimage_0_to_1_d, ..) = route_payment(&nodes[0], &[&nodes[1]], amount_msat);
 
 		// Now actually follow through on the splice.
@@ -4348,8 +4362,8 @@ fn test_splice_acceptor_disconnect_emits_events() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 1, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 1, amount_result(added_value * 2));
 
 	// Both nodes initiate splice-in (tiebreak: node 0 wins).
 	let node_0_funding_contribution =
@@ -4421,8 +4435,8 @@ fn test_splice_rbf_acceptor_basic() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Step 1: Complete a splice-in from node 0.
 	let funding_contribution = do_initiate_splice_in(&nodes[0], &nodes[1], channel_id, added_value);
@@ -4431,11 +4445,11 @@ fn test_splice_rbf_acceptor_basic() {
 		splice_channel(&nodes[0], &nodes[1], channel_id, funding_contribution);
 
 	// Step 2: Provide more UTXO reserves for the RBF attempt.
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Step 3: Use splice_channel API to initiate the RBF.
 	// Original feerate was FEERATE_FLOOR_SATS_PER_KW (253). 253 + 25 = 278.
-	let rbf_feerate_sat_per_kwu = FEERATE_FLOOR_SATS_PER_KW as u64 + 25;
+	let rbf_feerate_sat_per_kwu = FEERATE_FLOOR_SATS_PER_KW + 25;
 	let rbf_feerate = FeeRate::from_sat_per_kwu(rbf_feerate_sat_per_kwu);
 	let funding_contribution =
 		do_initiate_rbf_splice_in(&nodes[0], &nodes[1], channel_id, added_value, rbf_feerate);
@@ -4485,8 +4499,8 @@ fn test_splice_rbf_at_high_feerate() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Step 1: Complete a splice-in at floor feerate.
 	let funding_contribution = do_initiate_splice_in(&nodes[0], &nodes[1], channel_id, added_value);
@@ -4494,7 +4508,7 @@ fn test_splice_rbf_at_high_feerate() {
 		splice_channel(&nodes[0], &nodes[1], channel_id, funding_contribution);
 
 	// Step 2: RBF to a high feerate (1000 sat/kwu, well above the 600 crossover point).
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 	let high_feerate = FeeRate::from_sat_per_kwu(1000);
 	let contribution =
 		do_initiate_rbf_splice_in(&nodes[0], &nodes[1], channel_id, added_value, high_feerate);
@@ -4512,7 +4526,7 @@ fn test_splice_rbf_at_high_feerate() {
 	expect_splice_pending_event(&nodes[1], &node_id_0);
 
 	// Step 3: RBF again using the template's min_rbf_feerate. The counterparty must accept it.
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 	let rbf_feerate = {
 		let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 		funding_template.min_rbf_feerate().unwrap()
@@ -4549,8 +4563,8 @@ fn test_splice_rbf_insufficient_feerate() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Complete a splice-in.
 	let funding_contribution = do_initiate_splice_in(&nodes[0], &nodes[1], channel_id, added_value);
@@ -4559,12 +4573,12 @@ fn test_splice_rbf_insufficient_feerate() {
 
 	// Initiator-side: splice_in_sync rejects an insufficient feerate.
 	// Original feerate was 253. Using exactly 253 should fail since 253 * 24 < 253 * 25.
-	let same_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let same_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 
 	// Verify that the template exposes the RBF floor.
 	let min_rbf_feerate = funding_template.min_rbf_feerate().unwrap();
-	let expected_floor = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64 + 25);
+	let expected_floor = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW + 25);
 	assert_eq!(min_rbf_feerate, expected_floor);
 
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
@@ -4598,7 +4612,7 @@ fn test_splice_rbf_insufficient_feerate() {
 	// After tx_abort the channel remains quiescent, so no need to re-enter quiescence.
 	nodes[0].node.handle_tx_abort(node_id_1, &tx_abort);
 
-	let rbf_feerate_25_24 = ((FEERATE_FLOOR_SATS_PER_KW as u64) * 25).div_ceil(24) as u32;
+	let rbf_feerate_25_24 = ((FEERATE_FLOOR_SATS_PER_KW) * 25).div_ceil(24) as u32;
 	let tx_init_rbf = msgs::TxInitRbf {
 		channel_id,
 		locktime: 0,
@@ -4669,8 +4683,8 @@ fn test_splice_rbf_active_negotiation() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Initiate a splice but only complete the handshake (STFU + splice_init/ack),
 	// leaving interactive TX construction in progress.
@@ -4711,8 +4725,8 @@ fn test_splice_rbf_after_splice_locked() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Complete a splice-in from node 0.
 	let funding_contribution = do_initiate_splice_in(&nodes[0], &nodes[1], channel_id, added_value);
@@ -4789,8 +4803,8 @@ fn test_splice_zeroconf_no_rbf_feerate() {
 	mine_transaction(&nodes[0], &funding_tx);
 	mine_transaction(&nodes[1], &funding_tx);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 1, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 1, amount_result(added_value * 2));
 
 	// Initiate a splice (node 0) and complete the handshake so a funding negotiation is in
 	// progress.
@@ -4874,8 +4888,8 @@ fn test_splice_rbf_not_quiescence_initiator() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Complete a splice-in from node 0.
 	let funding_contribution = do_initiate_splice_in(&nodes[0], &nodes[1], channel_id, added_value);
@@ -4883,10 +4897,10 @@ fn test_splice_rbf_not_quiescence_initiator() {
 		splice_channel(&nodes[0], &nodes[1], channel_id, funding_contribution);
 
 	// Provide more UTXO reserves for the RBF attempt.
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Initiate RBF from node 0 (quiescence initiator).
-	let rbf_feerate_sat_per_kwu = FEERATE_FLOOR_SATS_PER_KW as u64 + 25;
+	let rbf_feerate_sat_per_kwu = FEERATE_FLOOR_SATS_PER_KW + 25;
 	let rbf_feerate = FeeRate::from_sat_per_kwu(rbf_feerate_sat_per_kwu);
 	let _funding_contribution =
 		do_initiate_rbf_splice_in(&nodes[0], &nodes[1], channel_id, added_value, rbf_feerate);
@@ -4916,9 +4930,9 @@ fn test_splice_rbf_not_quiescence_initiator() {
 
 #[test]
 fn test_splice_rbf_both_contribute_tiebreak() {
-	let min_rbf_feerate = FEERATE_FLOOR_SATS_PER_KW as u64 + 25;
+	let min_rbf_feerate = FEERATE_FLOOR_SATS_PER_KW + 25;
 	let feerate = FeeRate::from_sat_per_kwu(min_rbf_feerate);
-	let added_value = Amount::from_sat(50_000);
+	let added_value = amount_from_sat(50_000);
 	do_test_splice_rbf_tiebreak(feerate, feerate, added_value, true);
 }
 
@@ -4926,11 +4940,11 @@ fn test_splice_rbf_both_contribute_tiebreak() {
 fn test_splice_rbf_tiebreak_higher_feerate() {
 	// Node 0 (winner) uses a higher feerate than node 1 (loser). Node 1's change output is
 	// adjusted (reduced) to accommodate the higher feerate. Negotiation succeeds.
-	let min_rbf_feerate = FEERATE_FLOOR_SATS_PER_KW as u64 + 25;
+	let min_rbf_feerate = FEERATE_FLOOR_SATS_PER_KW + 25;
 	do_test_splice_rbf_tiebreak(
 		FeeRate::from_sat_per_kwu(min_rbf_feerate * 3),
 		FeeRate::from_sat_per_kwu(min_rbf_feerate),
-		Amount::from_sat(50_000),
+		amount_from_sat(50_000),
 		true,
 	);
 }
@@ -4940,11 +4954,11 @@ fn test_splice_rbf_tiebreak_lower_feerate() {
 	// Node 0 (winner) uses a lower feerate than node 1 (loser). Since the initiator's feerate
 	// is below node 1's minimum, node 1 proceeds without contribution and will retry via a new
 	// splice at its preferred feerate after the RBF locks.
-	let min_rbf_feerate = FEERATE_FLOOR_SATS_PER_KW as u64 + 25;
+	let min_rbf_feerate = FEERATE_FLOOR_SATS_PER_KW + 25;
 	do_test_splice_rbf_tiebreak(
 		FeeRate::from_sat_per_kwu(min_rbf_feerate),
 		FeeRate::from_sat_per_kwu(min_rbf_feerate * 3),
-		Amount::from_sat(50_000),
+		amount_from_sat(50_000),
 		false,
 	);
 }
@@ -4954,11 +4968,11 @@ fn test_splice_rbf_tiebreak_feerate_too_high() {
 	// Node 0 (winner) uses a feerate high enough that node 1's (loser) contribution cannot
 	// cover the fees. Node 1 proceeds without its contribution (QuiescentAction is preserved
 	// for a future splice). The RBF completes with only node 0's inputs/outputs.
-	let min_rbf_feerate = FEERATE_FLOOR_SATS_PER_KW as u64 + 25;
+	let min_rbf_feerate = FEERATE_FLOOR_SATS_PER_KW + 25;
 	do_test_splice_rbf_tiebreak(
 		FeeRate::from_sat_per_kwu(20_000),
 		FeeRate::from_sat_per_kwu(min_rbf_feerate),
-		Amount::from_sat(95_000),
+		amount_from_sat(95_000),
 		false,
 	);
 }
@@ -4987,15 +5001,15 @@ pub fn do_test_splice_rbf_tiebreak(
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 	// Complete an initial splice-in from node 0.
 	let funding_contribution = do_initiate_splice_in(&nodes[0], &nodes[1], channel_id, added_value);
 	let (first_splice_tx, new_funding_script) =
 		splice_channel(&nodes[0], &nodes[1], channel_id, funding_contribution);
 
 	// Provide more UTXOs for both nodes' RBF attempts.
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Node 0 calls splice_channel + funding_contributed.
 	let node_0_funding_contribution =
@@ -5030,7 +5044,7 @@ pub fn do_test_splice_rbf_tiebreak(
 	// Node 0 sends tx_init_rbf.
 	let tx_init_rbf = get_event_msg!(nodes[0], MessageSendEvent::SendTxInitRbf, node_id_1);
 	assert_eq!(tx_init_rbf.channel_id, channel_id);
-	assert_eq!(tx_init_rbf.feerate_sat_per_1000_weight, rbf_feerate_0.to_sat_per_kwu() as u32);
+	assert_eq!(tx_init_rbf.feerate_sat_per_1000_weight, rbf_feerate_0.to_sat_per_kwu_floor() as u32);
 
 	// Node 1 handles tx_init_rbf — its quiescent_action is consumed, adjusting its contribution
 	// for node 0's feerate. Whether it contributes depends on the feerate and budget constraints.
@@ -5077,18 +5091,18 @@ pub fn do_test_splice_rbf_tiebreak(
 
 		// The initiator's change output should remain unchanged (no feerate adjustment).
 		let initiator_change_in_tx = rbf_tx
-			.output
+			.outputs
 			.iter()
 			.find(|o| o.script_pubkey == node_0_change.script_pubkey)
 			.expect("Initiator's change output should be in the RBF transaction");
 		assert_eq!(
-			initiator_change_in_tx.value, node_0_change.value,
+			initiator_change_in_tx.amount, node_0_change.amount,
 			"Initiator's change output should remain unchanged",
 		);
 
 		// The acceptor's change output should be adjusted based on the feerate difference.
 		let acceptor_change_in_tx = rbf_tx
-			.output
+			.outputs
 			.iter()
 			.find(|o| o.script_pubkey == node_1_change.script_pubkey)
 			.expect("Acceptor's change output should be in the RBF transaction");
@@ -5096,25 +5110,25 @@ pub fn do_test_splice_rbf_tiebreak(
 			// Initiator's feerate <= acceptor's original: the acceptor's change increases because
 			// is_initiator=false has lower weight, and the feerate is the same or lower.
 			assert!(
-				acceptor_change_in_tx.value > node_1_change.value,
+				acceptor_change_in_tx.amount > node_1_change.amount,
 				"Acceptor's change should increase when initiator feerate ({}) <= acceptor \
 				 feerate ({}): adjusted {} vs original {}",
-				rbf_feerate_0.to_sat_per_kwu(),
-				rbf_feerate_1.to_sat_per_kwu(),
-				acceptor_change_in_tx.value,
-				node_1_change.value,
+				rbf_feerate_0.to_sat_per_kwu_floor(),
+				rbf_feerate_1.to_sat_per_kwu_floor(),
+				acceptor_change_in_tx.amount,
+				node_1_change.amount,
 			);
 		} else {
 			// Initiator's feerate > acceptor's original: the higher feerate more than compensates
 			// for the lower weight, so the acceptor's change decreases.
 			assert!(
-				acceptor_change_in_tx.value < node_1_change.value,
+				acceptor_change_in_tx.amount < node_1_change.amount,
 				"Acceptor's change should decrease when initiator feerate ({}) > acceptor \
 				 feerate ({}): adjusted {} vs original {}",
-				rbf_feerate_0.to_sat_per_kwu(),
-				rbf_feerate_1.to_sat_per_kwu(),
-				acceptor_change_in_tx.value,
-				node_1_change.value,
+				rbf_feerate_0.to_sat_per_kwu_floor(),
+				rbf_feerate_1.to_sat_per_kwu_floor(),
+				acceptor_change_in_tx.amount,
+				node_1_change.amount,
 			);
 		}
 
@@ -5239,8 +5253,8 @@ fn test_splice_rbf_tiebreak_feerate_too_high_rejected() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Complete an initial splice-in from node 0.
 	let funding_contribution = do_initiate_splice_in(&nodes[0], &nodes[1], channel_id, added_value);
@@ -5248,14 +5262,14 @@ fn test_splice_rbf_tiebreak_feerate_too_high_rejected() {
 		splice_channel(&nodes[0], &nodes[1], channel_id, funding_contribution);
 
 	// Provide more UTXOs for both nodes' RBF attempts.
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Node 0 uses an extremely high feerate (100,000 sat/kwu). Node 1 uses the minimum RBF
 	// feerate with a moderate splice-in (50,000 sats) and a low max_feerate (3,000 sat/kwu).
 	// The target (100k) far exceeds node 1's max (3k), and the fair fee at 100k exceeds
 	// node 1's budget, triggering TooHigh.
 	let high_feerate = FeeRate::from_sat_per_kwu(100_000);
-	let min_rbf_feerate_sat_per_kwu = FEERATE_FLOOR_SATS_PER_KW as u64 + 25;
+	let min_rbf_feerate_sat_per_kwu = FEERATE_FLOOR_SATS_PER_KW + 25;
 	let min_rbf_feerate = FeeRate::from_sat_per_kwu(min_rbf_feerate_sat_per_kwu);
 	let node_1_max_feerate = FeeRate::from_sat_per_kwu(3_000);
 
@@ -5290,7 +5304,7 @@ fn test_splice_rbf_tiebreak_feerate_too_high_rejected() {
 
 	// Node 0 sends tx_init_rbf at 100,000 sat/kwu.
 	let tx_init_rbf = get_event_msg!(nodes[0], MessageSendEvent::SendTxInitRbf, node_id_1);
-	assert_eq!(tx_init_rbf.feerate_sat_per_1000_weight, high_feerate.to_sat_per_kwu() as u32);
+	assert_eq!(tx_init_rbf.feerate_sat_per_1000_weight, high_feerate.to_sat_per_kwu_floor() as u32);
 
 	// Node 1 handles tx_init_rbf — TooHigh: target (100k) >> max (3k) and fair fee > budget.
 	nodes[1].node.handle_tx_init_rbf(node_id_0, &tx_init_rbf);
@@ -5318,11 +5332,11 @@ fn test_splice_rbf_acceptor_recontributes() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, Amount::from_sat(100_000));
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_from_sat(100_000));
 
 	// Step 1: Both nodes initiate a splice at floor feerate.
-	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 
 	let funding_template_0 = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	let wallet_0 = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
@@ -5382,10 +5396,10 @@ fn test_splice_rbf_acceptor_recontributes() {
 	expect_splice_pending_event(&nodes[1], &node_id_0);
 
 	// Step 4: Provide new UTXOs for node 0's RBF (node 1 does NOT initiate RBF).
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Step 5: Only node 0 calls splice_channel + funding_contributed.
-	let rbf_feerate_sat_per_kwu = FEERATE_FLOOR_SATS_PER_KW as u64 + 25;
+	let rbf_feerate_sat_per_kwu = FEERATE_FLOOR_SATS_PER_KW + 25;
 	let rbf_feerate = FeeRate::from_sat_per_kwu(rbf_feerate_sat_per_kwu);
 	let rbf_funding_contribution =
 		do_initiate_rbf_splice_in(&nodes[0], &nodes[1], channel_id, added_value, rbf_feerate);
@@ -5445,11 +5459,11 @@ fn test_splice_rbf_after_counterparty_rbf_aborted() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, Amount::from_sat(100_000));
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_from_sat(100_000));
 
 	// Step 1: Both nodes initiate a splice at floor feerate.
-	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 
 	let funding_template_0 = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	let wallet_0 = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
@@ -5507,9 +5521,9 @@ fn test_splice_rbf_after_counterparty_rbf_aborted() {
 
 	// Step 3: Node 0 initiates RBF. Node 1 has no QuiescentAction, so its prior contribution
 	// is adjusted to the RBF feerate via for_acceptor_at_feerate.
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
-	let rbf_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64 + 25);
+	let rbf_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW + 25);
 	let _rbf_funding_contribution =
 		do_initiate_rbf_splice_in(&nodes[0], &nodes[1], channel_id, added_value, rbf_feerate);
 
@@ -5539,7 +5553,7 @@ fn test_splice_rbf_after_counterparty_rbf_aborted() {
 	// Step 5: Node 1 initiates its own RBF via splice_channel → rbf_sync.
 	// The prior contribution's feerate is restored to the original floor feerate, not the
 	// RBF-adjusted feerate.
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	let funding_template = nodes[1].node.splice_channel(&channel_id, &node_id_0).unwrap();
 	assert!(funding_template.min_rbf_feerate().is_some());
@@ -5570,23 +5584,23 @@ fn test_splice_rbf_recontributes_feerate_too_high() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	provide_utxo_reserves(&nodes, 2, Amount::from_sat(100_000));
+	provide_utxo_reserves(&nodes, 2, amount_from_sat(100_000));
 
 	// Step 1: Both nodes initiate a splice. Node 0 at floor feerate, node 1 splices in 95k
 	// from a 100k UTXO (tight budget: ~5k for change/fees).
-	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 
 	let funding_template_0 = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	let wallet_0 = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
 	let node_0_funding_contribution = funding_template_0
-		.splice_in_sync(Amount::from_sat(50_000), floor_feerate, FeeRate::MAX, &wallet_0)
+		.splice_in_sync(amount_from_sat(50_000), floor_feerate, FeeRate::MAX, &wallet_0)
 		.unwrap();
 	nodes[0]
 		.node
 		.funding_contributed(&channel_id, &node_id_1, node_0_funding_contribution.clone(), None)
 		.unwrap();
 
-	let node_1_added_value = Amount::from_sat(95_000);
+	let node_1_added_value = amount_from_sat(95_000);
 	let funding_template_1 = nodes[1].node.splice_channel(&channel_id, &node_id_0).unwrap();
 	let wallet_1 = WalletSync::new(Arc::clone(&nodes[1].wallet_source), nodes[1].logger);
 	let node_1_funding_contribution = funding_template_1
@@ -5636,13 +5650,13 @@ fn test_splice_rbf_recontributes_feerate_too_high() {
 	expect_splice_pending_event(&nodes[1], &node_id_0);
 
 	// Step 4: Provide new UTXOs. Node 0 initiates RBF at 20,000 sat/kwu.
-	provide_utxo_reserves(&nodes, 2, Amount::from_sat(100_000));
+	provide_utxo_reserves(&nodes, 2, amount_from_sat(100_000));
 
 	let high_feerate = FeeRate::from_sat_per_kwu(20_000);
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
 	let rbf_funding_contribution = funding_template
-		.splice_in_sync(Amount::from_sat(50_000), high_feerate, FeeRate::MAX, &wallet)
+		.splice_in_sync(amount_from_sat(50_000), high_feerate, FeeRate::MAX, &wallet)
 		.unwrap();
 	nodes[0]
 		.node
@@ -5657,7 +5671,7 @@ fn test_splice_rbf_recontributes_feerate_too_high() {
 
 	// Step 6: Node 0 sends tx_init_rbf at 20,000 sat/kwu.
 	let tx_init_rbf = get_event_msg!(nodes[0], MessageSendEvent::SendTxInitRbf, node_id_1);
-	assert_eq!(tx_init_rbf.feerate_sat_per_1000_weight, high_feerate.to_sat_per_kwu() as u32);
+	assert_eq!(tx_init_rbf.feerate_sat_per_1000_weight, high_feerate.to_sat_per_kwu_floor() as u32);
 
 	// Step 7: Node 1's prior contribution (95k from 100k UTXO) can't cover fees at 20k sat/kwu.
 	// Should reject with tx_abort rather than proceeding without contribution.
@@ -5687,8 +5701,8 @@ fn test_splice_rbf_sequential() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// --- Round 0: Initial splice-in from node 0 at floor feerate (253). ---
 	let funding_contribution = do_initiate_splice_in(&nodes[0], &nodes[1], channel_id, added_value);
@@ -5696,11 +5710,11 @@ fn test_splice_rbf_sequential() {
 		splice_channel(&nodes[0], &nodes[1], channel_id, funding_contribution);
 
 	// Feerate progression: 253 → 253+25 = 278 → 278+25 = 303
-	let feerate_1_sat_per_kwu = FEERATE_FLOOR_SATS_PER_KW as u64 + 25; // 278
+	let feerate_1_sat_per_kwu = FEERATE_FLOOR_SATS_PER_KW + 25; // 278
 	let feerate_2_sat_per_kwu = feerate_1_sat_per_kwu + 25;
 
 	// --- Round 1: RBF #1 at feerate 278. ---
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	let rbf_feerate_1 = FeeRate::from_sat_per_kwu(feerate_1_sat_per_kwu);
 	let funding_contribution_1 =
@@ -5720,7 +5734,7 @@ fn test_splice_rbf_sequential() {
 	expect_splice_pending_event(&nodes[1], &node_id_0);
 
 	// --- Round 2: RBF #2 at feerate 303. ---
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	let rbf_feerate_2 = FeeRate::from_sat_per_kwu(feerate_2_sat_per_kwu);
 	let funding_contribution_2 =
@@ -5768,8 +5782,8 @@ fn test_splice_rbf_acceptor_contributes_then_disconnects() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, Amount::from_sat(100_000));
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_from_sat(100_000));
 
 	// --- Round 0: Both nodes initiate splice-in (tiebreak: node 0 wins). ---
 	let node_0_funding_contribution =
@@ -5813,9 +5827,9 @@ fn test_splice_rbf_acceptor_contributes_then_disconnects() {
 	expect_splice_pending_event(&nodes[1], &node_id_0);
 
 	// --- Round 1: Node 0 initiates RBF; node 1 re-contributes via prior. ---
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
-	let rbf_feerate_sat_per_kwu = FEERATE_FLOOR_SATS_PER_KW as u64 + 25;
+	let rbf_feerate_sat_per_kwu = FEERATE_FLOOR_SATS_PER_KW + 25;
 	let rbf_feerate = FeeRate::from_sat_per_kwu(rbf_feerate_sat_per_kwu);
 	let _rbf_funding_contribution =
 		do_initiate_rbf_splice_in(&nodes[0], &nodes[1], channel_id, added_value, rbf_feerate);
@@ -5873,9 +5887,9 @@ fn test_splice_rbf_disconnect_filters_prior_contributions() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
+	let added_value = amount_from_sat(50_000);
 	// Provide exactly 1 UTXO per node so coin selection is deterministic.
-	provide_utxo_reserves(&nodes, 1, added_value * 2);
+	provide_utxo_reserves(&nodes, 1, amount_result(added_value * 2));
 
 	// --- Round 0: Initial splice-in at floor feerate (253). ---
 	let funding_contribution = do_initiate_splice_in(&nodes[0], &nodes[1], channel_id, added_value);
@@ -5887,10 +5901,10 @@ fn test_splice_rbf_disconnect_filters_prior_contributions() {
 	// Include a splice-out output with a different script_pubkey so the test can verify
 	// selective filtering: the change output (same script_pubkey as round 0) is filtered,
 	// while the splice-out output (different script_pubkey) survives.
-	let feerate_1_sat_per_kwu = FEERATE_FLOOR_SATS_PER_KW as u64 + 25;
+	let feerate_1_sat_per_kwu = FEERATE_FLOOR_SATS_PER_KW + 25;
 	let rbf_feerate = FeeRate::from_sat_per_kwu(feerate_1_sat_per_kwu);
 	let splice_out_output = TxOut {
-		value: Amount::from_sat(1_000),
+		amount: amount_from_sat(1_000),
 		script_pubkey: nodes[1].wallet_source.get_change_script().unwrap(),
 	};
 	let _funding_contribution_1 = do_initiate_rbf_splice_in_and_out(
@@ -5940,7 +5954,7 @@ fn test_splice_rbf_disconnect_filters_prior_contributions() {
 	// --- Round 2: RBF at the same feerate as the failed round 1 (278). ---
 	// This should succeed because the failed round never updated the feerate floor, which
 	// remains at round 0's rate (253), and 278 >= 253 + 25.
-	provide_utxo_reserves(&nodes, 1, added_value * 2);
+	provide_utxo_reserves(&nodes, 1, amount_result(added_value * 2));
 
 	let rbf_feerate_2 = FeeRate::from_sat_per_kwu(feerate_1_sat_per_kwu);
 	let _funding_contribution_2 =
@@ -5982,8 +5996,8 @@ fn test_splice_channel_with_pending_splice_includes_rbf_floor() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Fresh splice — no pending splice, so no prior contribution or minimum RBF feerate.
 	{
@@ -5999,7 +6013,7 @@ fn test_splice_channel_with_pending_splice_includes_rbf_floor() {
 	// Call splice_channel again — the pending splice should cause min_rbf_feerate to be set
 	// and the prior contribution to be available.
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
-	let expected_floor = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64 + 25);
+	let expected_floor = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW + 25);
 	assert_eq!(funding_template.min_rbf_feerate(), Some(expected_floor));
 	assert!(funding_template.prior_contribution().is_some());
 
@@ -6029,11 +6043,11 @@ fn test_funding_contributed_adjusts_feerate_for_rbf() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 4, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 4, amount_result(added_value * 2));
 
 	// Node 0 calls splice_channel before any pending splice exists.
-	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	assert!(funding_template.min_rbf_feerate().is_none());
 
@@ -6059,8 +6073,8 @@ fn test_funding_contributed_adjusts_feerate_for_rbf() {
 
 	// Verify the RBF handshake proceeds.
 	let tx_init_rbf = get_event_msg!(nodes[0], MessageSendEvent::SendTxInitRbf, node_id_1);
-	let rbf_feerate = FeeRate::from_sat_per_kwu(tx_init_rbf.feerate_sat_per_1000_weight as u64);
-	let expected_floor = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64 + 25);
+	let rbf_feerate = FeeRate::from_sat_per_kwu(tx_init_rbf.feerate_sat_per_1000_weight);
+	let expected_floor = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW + 25);
 	assert!(rbf_feerate >= expected_floor);
 }
 
@@ -6081,12 +6095,12 @@ fn test_funding_contributed_rbf_adjustment_exceeds_max_feerate() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 4, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 4, amount_result(added_value * 2));
 
 	// Node 0 calls splice_channel and builds contribution with max_feerate = floor_feerate.
 	// This means the minimum RBF feerate (floor + 25 sat/kwu) will exceed max_feerate, preventing adjustment.
-	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
 	let contribution = funding_template
@@ -6144,17 +6158,17 @@ fn test_funding_contributed_rbf_adjustment_insufficient_budget() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 4, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 4, amount_result(added_value * 2));
 
 	// Node 0 calls splice_channel before any pending splice exists.
-	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 
 	// Build node 0's contribution at floor feerate with a tight budget.
 	let wallet = TightBudgetWallet {
-		utxo_value: added_value + Amount::from_sat(3000),
-		change_value: Amount::from_sat(300),
+		utxo_value: amount_result(added_value + amount_from_sat(3000)),
+		change_value: amount_from_sat(300),
 	};
 	let contribution =
 		funding_template.splice_in_sync(added_value, floor_feerate, FeeRate::MAX, &wallet).unwrap();
@@ -6219,12 +6233,12 @@ fn test_prior_contribution_unadjusted_when_max_feerate_too_low() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Complete a splice with max_feerate = floor_feerate. This means the prior contribution
 	// stored in pending_splice.contributions will have a tight max_feerate.
-	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let floor_feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
 	let funding_contribution = funding_template
@@ -6262,8 +6276,8 @@ fn test_splice_channel_during_negotiation_includes_rbf_feerate() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Node 1 initiates a splice. Perform stfu exchange and splice_init handling, which creates
 	// a pending_splice with funding_negotiation on node 0 (the acceptor).
@@ -6281,7 +6295,7 @@ fn test_splice_channel_during_negotiation_includes_rbf_feerate() {
 	// Node 0 (acceptor) calls splice_channel while the negotiation is in progress.
 	// min_rbf_feerate should be derived from the in-progress negotiation's feerate.
 	let template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
-	let expected_floor = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64 + 25);
+	let expected_floor = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW + 25);
 	assert_eq!(template.min_rbf_feerate(), Some(expected_floor));
 
 	// No prior contribution since there are no negotiated candidates yet. rbf_sync runs
@@ -6306,8 +6320,8 @@ fn test_rbf_sync_returns_err_when_no_min_rbf_feerate() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Fresh splice — no pending splice, so min_rbf_feerate is None.
 	let template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
@@ -6336,8 +6350,8 @@ fn test_rbf_sync_returns_err_when_max_feerate_below_min_rbf() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Complete a splice to create a pending splice.
 	let funding_contribution = do_initiate_splice_in(&nodes[0], &nodes[1], channel_id, added_value);
@@ -6349,7 +6363,7 @@ fn test_rbf_sync_returns_err_when_max_feerate_below_min_rbf() {
 
 	// Use a max_feerate that is 1 sat/kwu below the minimum RBF feerate.
 	let too_low_feerate =
-		FeeRate::from_sat_per_kwu(min_rbf_feerate.to_sat_per_kwu().saturating_sub(1));
+		FeeRate::from_sat_per_kwu(min_rbf_feerate.to_sat_per_kwu_floor().saturating_sub(1) as u32);
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
 	assert!(matches!(
 		funding_template.rbf_sync(too_low_feerate, &wallet),
@@ -6406,11 +6420,11 @@ fn test_splice_revalidation_at_quiescence() {
 	// Step 2: funding_contributed with splice-out. Passes because the balance floor only
 	// includes payment #1. stfu is delayed — awaiting RAA.
 	let outputs = vec![TxOut {
-		value: Amount::from_sat(70_000),
+		amount: amount_from_sat(70_000),
 		script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 	}];
 
-	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW as u64);
+	let feerate = FeeRate::from_sat_per_kwu(FEERATE_FLOOR_SATS_PER_KW);
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);
 	let contribution =
@@ -6511,8 +6525,8 @@ fn test_splice_rbf_rejects_low_feerate_after_several_attempts() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Round 0: Initial splice-in at floor feerate (253).
 	let funding_contribution = do_initiate_splice_in(&nodes[0], &nodes[1], channel_id, added_value);
@@ -6525,10 +6539,10 @@ fn test_splice_rbf_rejects_low_feerate_after_several_attempts() {
 	*chanmon_cfgs[1].fee_estimator.sat_per_kw.lock().unwrap() = high_feerate;
 
 	// Rounds 1-10: RBF at minimum bump. Accepted (at or below threshold).
-	let mut prev_feerate = FEERATE_FLOOR_SATS_PER_KW as u64;
+	let mut prev_feerate = FEERATE_FLOOR_SATS_PER_KW;
 	for _ in 0..10 {
 		let feerate = prev_feerate + 25;
-		provide_utxo_reserves(&nodes, 2, added_value * 2);
+		provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 		let rbf_feerate = FeeRate::from_sat_per_kwu(feerate);
 		let contribution =
 			do_initiate_rbf_splice_in(&nodes[0], &nodes[1], channel_id, added_value, rbf_feerate);
@@ -6549,7 +6563,7 @@ fn test_splice_rbf_rejects_low_feerate_after_several_attempts() {
 
 	// Round 11: RBF at minimum bump. Should be rejected because feerate < fee estimator.
 	let next_feerate = prev_feerate + 25;
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 	let rbf_feerate = FeeRate::from_sat_per_kwu(next_feerate);
 	let _contribution =
 		do_initiate_rbf_splice_in(&nodes[0], &nodes[1], channel_id, added_value, rbf_feerate);
@@ -6582,8 +6596,8 @@ fn test_splice_rbf_rejects_own_low_feerate_after_several_attempts() {
 	let (_, _, channel_id, _) =
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
-	let added_value = Amount::from_sat(50_000);
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	let added_value = amount_from_sat(50_000);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 
 	// Round 0: Initial splice-in at floor feerate (253).
 	let funding_contribution = do_initiate_splice_in(&nodes[0], &nodes[1], channel_id, added_value);
@@ -6596,10 +6610,10 @@ fn test_splice_rbf_rejects_own_low_feerate_after_several_attempts() {
 	*chanmon_cfgs[0].fee_estimator.sat_per_kw.lock().unwrap() = high_feerate;
 
 	// Rounds 1-10: RBF at minimum bump. Accepted (at or below threshold).
-	let mut prev_feerate = FEERATE_FLOOR_SATS_PER_KW as u64;
+	let mut prev_feerate = FEERATE_FLOOR_SATS_PER_KW;
 	for _ in 0..10 {
 		let feerate = prev_feerate + 25;
-		provide_utxo_reserves(&nodes, 2, added_value * 2);
+		provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 		let rbf_feerate = FeeRate::from_sat_per_kwu(feerate);
 		let contribution =
 			do_initiate_rbf_splice_in(&nodes[0], &nodes[1], channel_id, added_value, rbf_feerate);
@@ -6620,7 +6634,7 @@ fn test_splice_rbf_rejects_own_low_feerate_after_several_attempts() {
 
 	// Round 11: Our own RBF at minimum bump. funding_contributed should reject it.
 	let next_feerate = prev_feerate + 25;
-	provide_utxo_reserves(&nodes, 2, added_value * 2);
+	provide_utxo_reserves(&nodes, 2, amount_result(added_value * 2));
 	let rbf_feerate = FeeRate::from_sat_per_kwu(next_feerate);
 	let funding_template = nodes[0].node.splice_channel(&channel_id, &node_id_1).unwrap();
 	let wallet = WalletSync::new(Arc::clone(&nodes[0].wallet_source), nodes[0].logger);

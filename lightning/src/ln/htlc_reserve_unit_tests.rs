@@ -1,6 +1,7 @@
 //! Various unit tests covering HTLC handling as well as tests covering channel reserve tracking.
 
 use crate::events::{ClosureReason, Event, HTLCHandlingFailureType, PaymentPurpose};
+use crate::prelude::*;
 use crate::ln::chan_utils::{
 	self, commit_tx_fee_sat, commitment_tx_base_weight, second_stage_tx_fees_sat,
 	shared_anchor_script_pubkey, CommitmentTransaction, COMMITMENT_TX_WEIGHT_PER_HTLC,
@@ -820,7 +821,7 @@ pub fn do_test_fee_spike_buffer(cfg: Option<UserConfig>, htlc_fails: bool) {
 	route.paths[0].hops[0].fee_msat += 1;
 	// Need to manually create the update_add_htlc message to go around the channel reserve check in send_htlc()
 	let secp_ctx = Secp256k1::new();
-	let session_priv = SecretKey::from_slice(&[42; 32]).expect("RNG is bad!");
+	let session_priv = crate::prelude::secret_key_from_slice(&[42; 32]).expect("RNG is bad!");
 
 	let cur_height = nodes[1].node.best_block.read().unwrap().height + 1;
 
@@ -1168,7 +1169,7 @@ pub fn test_chan_reserve_violation_inbound_htlc_inbound_chan() {
 
 	// Need to manually create the update_add_htlc message to go around the channel reserve check in send_htlc()
 	let secp_ctx = Secp256k1::new();
-	let session_priv = SecretKey::from_slice(&[42; 32]).unwrap();
+	let session_priv = crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
 	let cur_height = nodes[0].node.best_block.read().unwrap().height + 1;
 	let onion_keys = onion_utils::construct_onion_keys(&secp_ctx, &route_2.paths[0], &session_priv);
 	let recipient_onion_fields = RecipientOnionFields::spontaneous_empty(recv_value_2);
@@ -1554,7 +1555,7 @@ pub fn test_update_add_htlc_bolt2_receiver_check_max_htlc_limit() {
 	let (mut route, our_payment_hash, _, our_payment_secret) =
 		get_route_and_payment_hash!(nodes[0], nodes[1], 1000);
 	route.paths[0].hops[0].fee_msat = send_amt;
-	let session_priv = SecretKey::from_slice(&[42; 32]).unwrap();
+	let session_priv = crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
 	let cur_height = nodes[0].node.best_block.read().unwrap().height + 1;
 	let onion_keys = onion_utils::construct_onion_keys(
 		&Secp256k1::signing_only(),
@@ -2155,7 +2156,7 @@ pub fn do_test_dust_limit_fee_accounting(can_afford: bool) {
 
 	// Need to manually create the update_add_htlc message to go around the channel reserve check in send_htlc()
 	let secp_ctx = Secp256k1::new();
-	let session_priv = SecretKey::from_slice(&[42; 32]).expect("RNG is bad!");
+	let session_priv = crate::prelude::secret_key_from_slice(&[42; 32]).expect("RNG is bad!");
 
 	let cur_height = nodes[1].node.best_block.read().unwrap().height + 1;
 
@@ -2782,7 +2783,7 @@ fn do_test_0reserve_no_outputs_legacy(no_outputs_case: LegacyChannelsNoOutputs) 
 		let (route, payment_hash, _, payment_secret) =
 			get_route_and_payment_hash!(nodes[0], nodes[1], sender_amount_msat);
 		let secp_ctx = Secp256k1::new();
-		let session_priv = SecretKey::from_slice(&[42; 32]).unwrap();
+		let session_priv = crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
 		let cur_height = nodes[0].node.best_block.read().unwrap().height + 1;
 		let onion_keys =
 			onion_utils::construct_onion_keys(&secp_ctx, &route.paths[0], &session_priv);
@@ -3055,7 +3056,7 @@ fn do_test_0reserve_no_outputs_keyed_anchors(payment_success: bool) {
 		let (route, payment_hash, _, payment_secret) =
 			get_route_and_payment_hash!(nodes[0], nodes[1], sender_amount_msat);
 		let secp_ctx = Secp256k1::new();
-		let session_priv = SecretKey::from_slice(&[42; 32]).unwrap();
+		let session_priv = crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
 		let cur_height = nodes[0].node.best_block.read().unwrap().height + 1;
 		let onion_keys =
 			onion_utils::construct_onion_keys(&secp_ctx, &route.paths[0], &session_priv);
@@ -3226,14 +3227,14 @@ fn do_test_0reserve_force_close_with_single_p2a_output(high_feerate: bool) {
 		assert_eq!(txns.len(), 2);
 		check_spends!(txns[1], txns[0], coinbase_tx);
 		assert!(txns[1].weight().to_wu() < TRUC_CHILD_MAX_WEIGHT);
-		assert_eq!(txns[1].input.len(), 2);
-		assert_eq!(txns[1].output.len(), 1);
+		assert_eq!(txns[1].inputs.len(), 2);
+		assert_eq!(txns[1].outputs.len(), 1);
 
 		assert_eq!(txns[0].compute_txid(), commitment_txid);
-		assert_eq!(txns[0].input.len(), 1);
-		assert_eq!(txns[0].output.len(), 1);
-		assert_eq!(txns[0].output[0].value, Amount::from_sat(240));
-		assert_eq!(txns[0].output[0].script_pubkey, shared_anchor_script_pubkey());
+		assert_eq!(txns[0].inputs.len(), 1);
+		assert_eq!(txns[0].outputs.len(), 1);
+		assert_eq!(txns[0].outputs[0].amount, amount_from_sat(240));
+		assert_eq!(txns[0].outputs[0].script_pubkey, shared_anchor_script_pubkey());
 		check_spends!(txns[0], funding_tx);
 
 		nodes[0].logger.assert_log(
@@ -3248,10 +3249,10 @@ fn do_test_0reserve_force_close_with_single_p2a_output(high_feerate: bool) {
 	} else {
 		assert_eq!(txns.len(), 1);
 		assert_eq!(txns[0].compute_txid(), commitment_txid);
-		assert_eq!(txns[0].input.len(), 1);
-		assert_eq!(txns[0].output.len(), 1);
-		assert_eq!(txns[0].output[0].value, Amount::from_sat(240));
-		assert_eq!(txns[0].output[0].script_pubkey, shared_anchor_script_pubkey());
+		assert_eq!(txns[0].inputs.len(), 1);
+		assert_eq!(txns[0].outputs.len(), 1);
+		assert_eq!(txns[0].outputs[0].amount, amount_from_sat(240));
+		assert_eq!(txns[0].outputs[0].script_pubkey, shared_anchor_script_pubkey());
 		check_spends!(txns[0], funding_tx);
 
 		let weight = txns[0].weight();

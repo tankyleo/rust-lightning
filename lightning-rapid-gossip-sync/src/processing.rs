@@ -1066,7 +1066,7 @@ mod tests {
 	fn fails_early_on_chain_hash_mismatch() {
 		let logger = TestLogger::new();
 		// Set to testnet so that the VALID_RGS_BINARY chain hash of mainnet does not match.
-		let network_graph = NetworkGraph::new(Network::Testnet, &logger);
+		let network_graph = NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger);
 
 		assert_eq!(network_graph.read_only().channels().len(), 0);
 

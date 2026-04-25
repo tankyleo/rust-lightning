@@ -175,10 +175,10 @@ impl TryFrom<NodeId> for PublicKey {
 }
 
 impl FromStr for NodeId {
-	type Err = bitcoin::hex::parse::HexToArrayError;
+	type Err = hex_conservative::HexToArrayError;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let data: [u8; PUBLIC_KEY_SIZE] = bitcoin::hex::FromHex::from_hex(s)?;
+		let data: [u8; PUBLIC_KEY_SIZE] = hex_conservative::FromHex::from_hex(s)?;
 		Ok(NodeId(data))
 	}
 }
@@ -452,7 +452,7 @@ impl<L: Logger> NetworkGraph<L> {
 
 macro_rules! secp_verify_sig {
 	( $secp_ctx: expr, $msg: expr, $sig: expr, $pubkey: expr, $msg_type: expr ) => {
-		match $secp_ctx.verify_ecdsa($msg, $sig, $pubkey) {
+		match $secp_ctx.verify_ecdsa(*$msg, $sig, $pubkey) {
 			Ok(_) => {},
 			Err(_) => {
 				return Err(LightningError {
@@ -497,7 +497,7 @@ fn message_sha256d_hash<M: Writeable>(msg: &M) -> Sha256dHash {
 pub fn verify_node_announcement<C: Verification>(
 	msg: &NodeAnnouncement, secp_ctx: &Secp256k1<C>,
 ) -> Result<(), LightningError> {
-	let msg_hash = hash_to_message!(&message_sha256d_hash(&msg.contents)[..]);
+	let msg_hash = hash_to_message!(message_sha256d_hash(&msg.contents).as_byte_array());
 	secp_verify_sig!(
 		secp_ctx,
 		&msg_hash,
@@ -515,7 +515,7 @@ pub fn verify_node_announcement<C: Verification>(
 pub fn verify_channel_announcement<C: Verification>(
 	msg: &ChannelAnnouncement, secp_ctx: &Secp256k1<C>,
 ) -> Result<(), LightningError> {
-	let msg_hash = hash_to_message!(&message_sha256d_hash(&msg.contents)[..]);
+	let msg_hash = hash_to_message!(message_sha256d_hash(&msg.contents).as_byte_array());
 	let node_a = get_pubkey_from_node_id!(msg.contents.node_id_1, "channel_announcement");
 	secp_verify_sig!(secp_ctx, &msg_hash, &msg.node_signature_1, &node_a, "channel_announcement");
 	let node_b = get_pubkey_from_node_id!(msg.contents.node_id_2, "channel_announcement");
@@ -2593,7 +2593,7 @@ impl<L: Logger> NetworkGraph<L> {
 		}
 
 		if let Some(sig) = sig {
-			let msg_hash = hash_to_message!(&message_sha256d_hash(&msg)[..]);
+			let msg_hash = hash_to_message!(message_sha256d_hash(&msg).as_byte_array());
 			let node_pubkey = if let Some(pubkey) = node_pubkey {
 				pubkey
 			} else {
@@ -2760,9 +2760,9 @@ pub(crate) mod tests {
 	use bitcoin::constants::ChainHash;
 	use bitcoin::hashes::sha256d::Hash as Sha256dHash;
 	use bitcoin::hashes::Hash;
-	use bitcoin::hex::FromHex;
+	use hex_conservative::FromHex;
 	use bitcoin::network::Network;
-	use bitcoin::script::ScriptBuf;
+	use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
 	use bitcoin::secp256k1::{All, Secp256k1};
 	use bitcoin::secp256k1::{PublicKey, SecretKey};
 	use bitcoin::transaction::TxOut;
@@ -2774,7 +2774,7 @@ pub(crate) mod tests {
 
 	fn create_network_graph() -> NetworkGraph<Arc<test_utils::TestLogger>> {
 		let logger = Arc::new(test_utils::TestLogger::new());
-		NetworkGraph::new(Network::Testnet, logger)
+		NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), logger)
 	}
 
 	fn create_gossip_sync(
@@ -2809,7 +2809,7 @@ pub(crate) mod tests {
 	pub(crate) fn get_signed_node_announcement<F: Fn(&mut UnsignedNodeAnnouncement)>(
 		f: F, node_key: &SecretKey, secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> NodeAnnouncement {
-		let node_id = NodeId::from_pubkey(&PublicKey::from_secret_key(&secp_ctx, node_key));
+		let node_id = NodeId::from_pubkey(&PublicKey::from_secret_key(node_key));
 		let mut unsigned_announcement = UnsignedNodeAnnouncement {
 			features: channelmanager::provided_node_features(&UserConfig::default()),
 			timestamp: 100,
@@ -2821,9 +2821,9 @@ pub(crate) mod tests {
 			excess_data: Vec::new(),
 		};
 		f(&mut unsigned_announcement);
-		let msghash = hash_to_message!(&Sha256dHash::hash(&unsigned_announcement.encode()[..])[..]);
+		let msghash = hash_to_message!(Sha256dHash::hash(&unsigned_announcement.encode()[..]).as_byte_array());
 		NodeAnnouncement {
-			signature: secp_ctx.sign_ecdsa(&msghash, node_key),
+			signature: secp_ctx.sign_ecdsa(msghash, node_key),
 			contents: unsigned_announcement,
 		}
 	}
@@ -2831,44 +2831,38 @@ pub(crate) mod tests {
 	pub(crate) fn get_signed_channel_announcement<F: Fn(&mut UnsignedChannelAnnouncement)>(
 		f: F, node_1_key: &SecretKey, node_2_key: &SecretKey, secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> ChannelAnnouncement {
-		let node_id_1 = PublicKey::from_secret_key(&secp_ctx, node_1_key);
-		let node_id_2 = PublicKey::from_secret_key(&secp_ctx, node_2_key);
-		let node_1_btckey = &SecretKey::from_slice(&[40; 32]).unwrap();
-		let node_2_btckey = &SecretKey::from_slice(&[39; 32]).unwrap();
+		let node_id_1 = PublicKey::from_secret_key(node_1_key);
+		let node_id_2 = PublicKey::from_secret_key(node_2_key);
+		let node_1_btckey = &crate::prelude::secret_key_from_slice(&[40; 32]).unwrap();
+		let node_2_btckey = &crate::prelude::secret_key_from_slice(&[39; 32]).unwrap();
 
 		let mut unsigned_announcement = UnsignedChannelAnnouncement {
 			features: channelmanager::provided_channel_features(&UserConfig::default()),
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 0,
 			node_id_1: NodeId::from_pubkey(&node_id_1),
 			node_id_2: NodeId::from_pubkey(&node_id_2),
-			bitcoin_key_1: NodeId::from_pubkey(&PublicKey::from_secret_key(
-				&secp_ctx,
-				node_1_btckey,
-			)),
-			bitcoin_key_2: NodeId::from_pubkey(&PublicKey::from_secret_key(
-				&secp_ctx,
-				node_2_btckey,
-			)),
+			bitcoin_key_1: NodeId::from_pubkey(&PublicKey::from_secret_key(node_1_btckey)),
+			bitcoin_key_2: NodeId::from_pubkey(&PublicKey::from_secret_key(node_2_btckey)),
 			excess_data: Vec::new(),
 		};
 		f(&mut unsigned_announcement);
-		let msghash = hash_to_message!(&Sha256dHash::hash(&unsigned_announcement.encode()[..])[..]);
+		let msghash = hash_to_message!(Sha256dHash::hash(&unsigned_announcement.encode()[..]).as_byte_array());
 		ChannelAnnouncement {
-			node_signature_1: secp_ctx.sign_ecdsa(&msghash, node_1_key),
-			node_signature_2: secp_ctx.sign_ecdsa(&msghash, node_2_key),
-			bitcoin_signature_1: secp_ctx.sign_ecdsa(&msghash, node_1_btckey),
-			bitcoin_signature_2: secp_ctx.sign_ecdsa(&msghash, node_2_btckey),
+			node_signature_1: secp_ctx.sign_ecdsa(msghash, node_1_key),
+			node_signature_2: secp_ctx.sign_ecdsa(msghash, node_2_key),
+			bitcoin_signature_1: secp_ctx.sign_ecdsa(msghash, node_1_btckey),
+			bitcoin_signature_2: secp_ctx.sign_ecdsa(msghash, node_2_btckey),
 			contents: unsigned_announcement,
 		}
 	}
 
 	pub(crate) fn get_channel_script(secp_ctx: &Secp256k1<secp256k1::All>) -> ScriptBuf {
-		let node_1_btckey = SecretKey::from_slice(&[40; 32]).unwrap();
-		let node_2_btckey = SecretKey::from_slice(&[39; 32]).unwrap();
+		let node_1_btckey = crate::prelude::secret_key_from_slice(&[40; 32]).unwrap();
+		let node_2_btckey = crate::prelude::secret_key_from_slice(&[39; 32]).unwrap();
 		make_funding_redeemscript(
-			&PublicKey::from_secret_key(secp_ctx, &node_1_btckey),
-			&PublicKey::from_secret_key(secp_ctx, &node_2_btckey),
+			&PublicKey::from_secret_key(&node_1_btckey),
+			&PublicKey::from_secret_key(&node_2_btckey),
 		)
 		.to_p2wsh()
 	}
@@ -2877,7 +2871,7 @@ pub(crate) mod tests {
 		f: F, node_key: &SecretKey, secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> ChannelUpdate {
 		let mut unsigned_channel_update = UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 0,
 			timestamp: 100,
 			message_flags: 1, // Only must_be_one
@@ -2891,9 +2885,9 @@ pub(crate) mod tests {
 		};
 		f(&mut unsigned_channel_update);
 		let msghash =
-			hash_to_message!(&Sha256dHash::hash(&unsigned_channel_update.encode()[..])[..]);
+			hash_to_message!(Sha256dHash::hash(&unsigned_channel_update.encode()[..]).as_byte_array());
 		ChannelUpdate {
-			signature: secp_ctx.sign_ecdsa(&msghash, node_key),
+			signature: secp_ctx.sign_ecdsa(msghash, node_key),
 			contents: unsigned_channel_update,
 		}
 	}
@@ -2903,9 +2897,9 @@ pub(crate) mod tests {
 		let network_graph = create_network_graph();
 		let (secp_ctx, gossip_sync) = create_gossip_sync(&network_graph);
 
-		let node_1_privkey = &SecretKey::from_slice(&[42; 32]).unwrap();
-		let node_1_pubkey = PublicKey::from_secret_key(&secp_ctx, node_1_privkey);
-		let node_2_privkey = &SecretKey::from_slice(&[41; 32]).unwrap();
+		let node_1_privkey = &crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+		let node_1_pubkey = PublicKey::from_secret_key(node_1_privkey);
+		let node_2_privkey = &crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
 		let zero_hash = Sha256dHash::hash(&[0; 32]);
 
 		let valid_announcement = get_signed_node_announcement(|_| {}, node_1_privkey, &secp_ctx);
@@ -2929,7 +2923,7 @@ pub(crate) mod tests {
 		match gossip_sync.handle_node_announcement(
 			Some(node_1_pubkey),
 			&NodeAnnouncement {
-				signature: secp_ctx.sign_ecdsa(&fake_msghash, node_1_privkey),
+				signature: secp_ctx.sign_ecdsa(fake_msghash, node_1_privkey),
 				contents: valid_announcement.contents.clone(),
 			},
 		) {
@@ -2976,16 +2970,16 @@ pub(crate) mod tests {
 		let secp_ctx = Secp256k1::new();
 		let logger = test_utils::TestLogger::new();
 
-		let node_1_privkey = &SecretKey::from_slice(&[42; 32]).unwrap();
-		let node_1_pubkey = PublicKey::from_secret_key(&secp_ctx, node_1_privkey);
-		let node_2_privkey = &SecretKey::from_slice(&[41; 32]).unwrap();
+		let node_1_privkey = &crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+		let node_1_pubkey = PublicKey::from_secret_key(node_1_privkey);
+		let node_2_privkey = &crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
 
 		let good_script = get_channel_script(&secp_ctx);
 		let valid_announcement =
 			get_signed_channel_announcement(|_| {}, node_1_privkey, node_2_privkey, &secp_ctx);
 
 		// Test if the UTXO lookups were not supported
-		let network_graph = NetworkGraph::new(Network::Testnet, &logger);
+		let network_graph = NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger);
 		let mut gossip_sync = P2PGossipSync::new(&network_graph, None, &logger);
 		match gossip_sync.handle_channel_announcement(Some(node_1_pubkey), &valid_announcement) {
 			Ok(res) => assert!(res),
@@ -3006,9 +3000,9 @@ pub(crate) mod tests {
 		};
 
 		// Test if an associated transaction were not on-chain (or not confirmed).
-		let chain_source = test_utils::TestChainSource::new(Network::Testnet);
+		let chain_source = test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		*chain_source.utxo_ret.lock().unwrap() = UtxoResult::Sync(Err(UtxoLookupError::UnknownTx));
-		let network_graph = NetworkGraph::new(Network::Testnet, &logger);
+		let network_graph = NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger);
 		gossip_sync = P2PGossipSync::new(&network_graph, Some(&chain_source), &logger);
 
 		let valid_announcement = get_signed_channel_announcement(
@@ -3026,7 +3020,7 @@ pub(crate) mod tests {
 
 		// Now test if the transaction is found in the UTXO set and the script is correct.
 		*chain_source.utxo_ret.lock().unwrap() =
-			UtxoResult::Sync(Ok(TxOut { value: Amount::ZERO, script_pubkey: good_script.clone() }));
+			UtxoResult::Sync(Ok(TxOut { amount: Amount::ZERO, script_pubkey: good_script.clone() }));
 		let valid_announcement = get_signed_channel_announcement(
 			|unsigned_announcement| {
 				unsigned_announcement.short_channel_id += 2;
@@ -3049,7 +3043,7 @@ pub(crate) mod tests {
 		// If we receive announcement for the same channel, once we've validated it against the
 		// chain, we simply ignore all new (duplicate) announcements.
 		*chain_source.utxo_ret.lock().unwrap() =
-			UtxoResult::Sync(Ok(TxOut { value: Amount::ZERO, script_pubkey: good_script }));
+			UtxoResult::Sync(Ok(TxOut { amount: Amount::ZERO, script_pubkey: good_script }));
 		match gossip_sync.handle_channel_announcement(Some(node_1_pubkey), &valid_announcement) {
 			Ok(_) => panic!(),
 			Err(e) => assert_eq!(e.err, "Already have chain-validated channel"),
@@ -3064,7 +3058,7 @@ pub(crate) mod tests {
 				.expect("Time must be > 1970")
 				.as_secs();
 			// Mark a node as permanently failed so it's tracked as removed.
-			let node_1_pubkey = PublicKey::from_secret_key(&secp_ctx, node_1_privkey);
+			let node_1_pubkey = PublicKey::from_secret_key(node_1_privkey);
 			gossip_sync.network_graph().node_failed_permanent(&node_1_pubkey);
 
 			// Return error and ignore valid channel announcement if one of the nodes has been tracked as removed.
@@ -3153,22 +3147,22 @@ pub(crate) mod tests {
 	fn handling_channel_update() {
 		let secp_ctx = Secp256k1::new();
 		let logger = test_utils::TestLogger::new();
-		let chain_source = test_utils::TestChainSource::new(Network::Testnet);
-		let network_graph = NetworkGraph::new(Network::Testnet, &logger);
+		let chain_source = test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let network_graph = NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger);
 		let gossip_sync = P2PGossipSync::new(&network_graph, Some(&chain_source), &logger);
 
-		let node_1_privkey = &SecretKey::from_slice(&[42; 32]).unwrap();
-		let node_1_pubkey = PublicKey::from_secret_key(&secp_ctx, node_1_privkey);
-		let node_2_privkey = &SecretKey::from_slice(&[41; 32]).unwrap();
+		let node_1_privkey = &crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+		let node_1_pubkey = PublicKey::from_secret_key(node_1_privkey);
+		let node_2_privkey = &crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
 
-		let amount_sats = Amount::from_sat(1000_000);
+		let amount_sats = Amount::from_sat(1000_000).expect("amount must fit");
 		let short_channel_id;
 
 		{
 			// Announce a channel we will update
 			let good_script = get_channel_script(&secp_ctx);
 			*chain_source.utxo_ret.lock().unwrap() = UtxoResult::Sync(Ok(TxOut {
-				value: amount_sats,
+				amount: amount_sats,
 				script_pubkey: good_script.clone(),
 			}));
 
@@ -3279,7 +3273,7 @@ pub(crate) mod tests {
 		);
 		let zero_hash = Sha256dHash::hash(&[0; 32]);
 		let fake_msghash = hash_to_message!(zero_hash.as_byte_array());
-		invalid_sig_channel_update.signature = secp_ctx.sign_ecdsa(&fake_msghash, node_1_privkey);
+		invalid_sig_channel_update.signature = secp_ctx.sign_ecdsa(fake_msghash, node_1_privkey);
 		match gossip_sync.handle_channel_update(Some(node_1_pubkey), &invalid_sig_channel_update) {
 			Ok(_) => panic!(),
 			Err(e) => assert_eq!(e.err, "Invalid signature on channel_update message"),
@@ -3307,18 +3301,18 @@ pub(crate) mod tests {
 		// Test that channel updates with the dont_forward bit set are rejected
 		let secp_ctx = Secp256k1::new();
 		let logger = test_utils::TestLogger::new();
-		let chain_source = test_utils::TestChainSource::new(Network::Testnet);
-		let network_graph = NetworkGraph::new(Network::Testnet, &logger);
+		let chain_source = test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let network_graph = NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger);
 		let gossip_sync = P2PGossipSync::new(&network_graph, Some(&chain_source), &logger);
 
-		let node_1_privkey = &SecretKey::from_slice(&[42; 32]).unwrap();
-		let node_1_pubkey = PublicKey::from_secret_key(&secp_ctx, node_1_privkey);
-		let node_2_privkey = &SecretKey::from_slice(&[41; 32]).unwrap();
+		let node_1_privkey = &crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+		let node_1_pubkey = PublicKey::from_secret_key(node_1_privkey);
+		let node_2_privkey = &crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
 
 		// First announce a channel so we have something to update
 		let good_script = get_channel_script(&secp_ctx);
 		*chain_source.utxo_ret.lock().unwrap() = UtxoResult::Sync(Ok(TxOut {
-			value: Amount::from_sat(1000_000),
+			amount: Amount::from_sat(1000_000).expect("amount must fit"),
 			script_pubkey: good_script.clone(),
 		}));
 
@@ -3364,12 +3358,12 @@ pub(crate) mod tests {
 	#[test]
 	fn handling_network_update() {
 		let logger = test_utils::TestLogger::new();
-		let network_graph = NetworkGraph::new(Network::Testnet, &logger);
+		let network_graph = NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger);
 		let secp_ctx = Secp256k1::new();
 
-		let node_1_privkey = &SecretKey::from_slice(&[42; 32]).unwrap();
-		let node_2_privkey = &SecretKey::from_slice(&[41; 32]).unwrap();
-		let node_2_pk = PublicKey::from_secret_key(&secp_ctx, node_2_privkey);
+		let node_1_privkey = &crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+		let node_2_privkey = &crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
+		let node_2_pk = PublicKey::from_secret_key(node_2_privkey);
 		let node_2_id = NodeId::from_pubkey(&node_2_pk);
 
 		{
@@ -3430,7 +3424,7 @@ pub(crate) mod tests {
 
 		{
 			// Get a new network graph since we don't want to track removed nodes in this test with "std"
-			let network_graph = NetworkGraph::new(Network::Testnet, &logger);
+			let network_graph = NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger);
 
 			// Announce a channel to test permanent node failure
 			let valid_channel_announcement =
@@ -3467,14 +3461,14 @@ pub(crate) mod tests {
 	fn test_channel_timeouts() {
 		// Test the removal of channels with `remove_stale_channels_and_tracking`.
 		let logger = test_utils::TestLogger::new();
-		let chain_source = test_utils::TestChainSource::new(Network::Testnet);
-		let network_graph = NetworkGraph::new(Network::Testnet, &logger);
+		let chain_source = test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let network_graph = NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger);
 		let gossip_sync = P2PGossipSync::new(&network_graph, Some(&chain_source), &logger);
 		let secp_ctx = Secp256k1::new();
 
-		let node_1_privkey = &SecretKey::from_slice(&[42; 32]).unwrap();
-		let node_1_pubkey = PublicKey::from_secret_key(&secp_ctx, node_1_privkey);
-		let node_2_privkey = &SecretKey::from_slice(&[41; 32]).unwrap();
+		let node_1_privkey = &crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+		let node_1_pubkey = PublicKey::from_secret_key(node_1_privkey);
+		let node_2_privkey = &crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
 
 		let valid_channel_announcement =
 			get_signed_channel_announcement(|_| {}, node_1_privkey, node_2_privkey, &secp_ctx);
@@ -3655,9 +3649,9 @@ pub(crate) mod tests {
 	fn getting_next_channel_announcements() {
 		let network_graph = create_network_graph();
 		let (secp_ctx, gossip_sync) = create_gossip_sync(&network_graph);
-		let node_1_privkey = &SecretKey::from_slice(&[42; 32]).unwrap();
-		let node_1_pubkey = PublicKey::from_secret_key(&secp_ctx, node_1_privkey);
-		let node_2_privkey = &SecretKey::from_slice(&[41; 32]).unwrap();
+		let node_1_privkey = &crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+		let node_1_pubkey = PublicKey::from_secret_key(node_1_privkey);
+		let node_2_privkey = &crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
 
 		// Channels were not announced yet.
 		let channels_with_announcements = gossip_sync.get_next_channel_announcement(0);
@@ -3752,10 +3746,10 @@ pub(crate) mod tests {
 	fn getting_next_node_announcements() {
 		let network_graph = create_network_graph();
 		let (secp_ctx, gossip_sync) = create_gossip_sync(&network_graph);
-		let node_1_privkey = &SecretKey::from_slice(&[42; 32]).unwrap();
-		let node_1_pubkey = PublicKey::from_secret_key(&secp_ctx, node_1_privkey);
-		let node_2_privkey = &SecretKey::from_slice(&[41; 32]).unwrap();
-		let node_id_1 = NodeId::from_pubkey(&PublicKey::from_secret_key(&secp_ctx, node_1_privkey));
+		let node_1_privkey = &crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+		let node_1_pubkey = PublicKey::from_secret_key(node_1_privkey);
+		let node_2_privkey = &crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
+		let node_id_1 = NodeId::from_pubkey(&PublicKey::from_secret_key(node_1_privkey));
 
 		// No nodes yet.
 		let next_announcements = gossip_sync.get_next_node_announcement(None);
@@ -3826,9 +3820,9 @@ pub(crate) mod tests {
 		let network_graph = create_network_graph();
 		let (secp_ctx, gossip_sync) = create_gossip_sync(&network_graph);
 
-		let node_1_privkey = &SecretKey::from_slice(&[42; 32]).unwrap();
-		let node_1_pubkey = PublicKey::from_secret_key(&secp_ctx, node_1_privkey);
-		let node_2_privkey = &SecretKey::from_slice(&[41; 32]).unwrap();
+		let node_1_privkey = &crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+		let node_1_pubkey = PublicKey::from_secret_key(node_1_privkey);
+		let node_2_privkey = &crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
 
 		// Announce a channel to add a corresponding node.
 		let valid_announcement =
@@ -3878,10 +3872,10 @@ pub(crate) mod tests {
 
 		let network_graph = create_network_graph();
 		let (secp_ctx, gossip_sync) = create_gossip_sync(&network_graph);
-		let node_privkey_1 = &SecretKey::from_slice(&[42; 32]).unwrap();
-		let node_id_1 = PublicKey::from_secret_key(&secp_ctx, node_privkey_1);
+		let node_privkey_1 = &crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+		let node_id_1 = PublicKey::from_secret_key(node_privkey_1);
 
-		let chain_hash = ChainHash::using_genesis_block(Network::Testnet);
+		let chain_hash = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 
 		// It should ignore if gossip_queries feature is not enabled
 		{
@@ -3930,11 +3924,11 @@ pub(crate) mod tests {
 		let network_graph = create_network_graph();
 		let (secp_ctx, gossip_sync) = create_gossip_sync(&network_graph);
 
-		let chain_hash = ChainHash::using_genesis_block(Network::Testnet);
-		let node_1_privkey = &SecretKey::from_slice(&[42; 32]).unwrap();
-		let node_1_pubkey = PublicKey::from_secret_key(&secp_ctx, node_1_privkey);
-		let node_2_privkey = &SecretKey::from_slice(&[41; 32]).unwrap();
-		let node_id_2 = PublicKey::from_secret_key(&secp_ctx, node_2_privkey);
+		let chain_hash = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let node_1_privkey = &crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+		let node_1_pubkey = PublicKey::from_secret_key(node_1_privkey);
+		let node_2_privkey = &crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
+		let node_id_2 = PublicKey::from_secret_key(node_2_privkey);
 
 		let mut scids: Vec<u64> = vec![
 			scid_from_parts(0xfffffe, 0xffffff, 0xffff).unwrap(), // max
@@ -4225,10 +4219,10 @@ pub(crate) mod tests {
 	fn handling_query_short_channel_ids() {
 		let network_graph = create_network_graph();
 		let (secp_ctx, gossip_sync) = create_gossip_sync(&network_graph);
-		let node_privkey = &SecretKey::from_slice(&[41; 32]).unwrap();
-		let node_id = PublicKey::from_secret_key(&secp_ctx, node_privkey);
+		let node_privkey = &crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
+		let node_id = PublicKey::from_secret_key(node_privkey);
 
-		let chain_hash = ChainHash::using_genesis_block(Network::Testnet);
+		let chain_hash = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 
 		let result = gossip_sync.handle_query_short_channel_ids(
 			node_id,
@@ -4438,10 +4432,10 @@ pub(crate) mod tests {
 		let network_graph = create_network_graph();
 		let (secp_ctx, gossip_sync) = create_gossip_sync(&network_graph);
 
-		let node_1_privkey = &SecretKey::from_slice(&[42; 32]).unwrap();
-		let node_1_pubkey = PublicKey::from_secret_key(&secp_ctx, node_1_privkey);
-		let node_2_privkey = &SecretKey::from_slice(&[41; 32]).unwrap();
-		let node_1_id = NodeId::from_pubkey(&PublicKey::from_secret_key(&secp_ctx, node_1_privkey));
+		let node_1_privkey = &crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+		let node_1_pubkey = PublicKey::from_secret_key(node_1_privkey);
+		let node_2_privkey = &crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
+		let node_1_id = NodeId::from_pubkey(&PublicKey::from_secret_key(node_1_privkey));
 
 		let announcement =
 			get_signed_channel_announcement(|_| {}, node_1_privkey, node_2_privkey, &secp_ctx);

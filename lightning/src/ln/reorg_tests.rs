@@ -75,7 +75,7 @@ fn do_test_onchain_htlc_reorg(local_commitment: bool, claim: bool) {
 		// Broadcast node 1 commitment txn to broadcast the HTLC-Timeout
 		let node_1_commitment_txn = get_local_commitment_txn!(nodes[1], chan_2.2);
 		assert_eq!(node_1_commitment_txn.len(), 2); // 1 local commitment tx, 1 Outbound HTLC-Timeout
-		assert_eq!(node_1_commitment_txn[0].output.len(), 2); // to-self and Offered HTLC (to-remote/to-node-3 is dust)
+		assert_eq!(node_1_commitment_txn[0].outputs.len(), 2); // to-self and Offered HTLC (to-remote/to-node-3 is dust)
 		check_spends!(node_1_commitment_txn[0], chan_2.3);
 		check_spends!(node_1_commitment_txn[1], node_1_commitment_txn[0]);
 
@@ -104,7 +104,7 @@ fn do_test_onchain_htlc_reorg(local_commitment: bool, claim: bool) {
 		// Broadcast node 2 commitment txn
 		let mut node_2_commitment_txn = get_local_commitment_txn!(nodes[2], chan_2.2);
 		assert_eq!(node_2_commitment_txn.len(), 2); // 1 local commitment tx, 1 Received HTLC-Claim
-		assert_eq!(node_2_commitment_txn[0].output.len(), 2); // to-remote and Received HTLC (to-self is dust)
+		assert_eq!(node_2_commitment_txn[0].outputs.len(), 2); // to-remote and Received HTLC (to-self is dust)
 		check_spends!(node_2_commitment_txn[0], chan_2.3);
 		check_spends!(node_2_commitment_txn[1], node_2_commitment_txn[0]);
 
@@ -221,7 +221,7 @@ fn test_counterparty_revoked_reorg() {
 	assert_eq!(unrevoked_local_txn.len(), 3);
 	// Sort the unrevoked transactions in reverse order, ie commitment tx, then HTLC 1 then HTLC 3
 	unrevoked_local_txn.sort_unstable_by_key(|tx| {
-		1_000_000 - tx.output.iter().map(|outp| outp.value.to_sat()).sum::<u64>()
+		1_000_000 - tx.outputs.iter().map(|outp| outp.amount.to_sat()).sum::<u64>()
 	});
 
 	// Now mine A's old commitment transaction, which should close the channel, but take no action
@@ -528,9 +528,9 @@ fn test_set_outpoints_partial_claiming() {
 	// Remote commitment txn with 4 outputs: to_local, to_remote, 2 outgoing HTLC
 	let remote_txn = get_local_commitment_txn!(nodes[1], chan.2);
 	assert_eq!(remote_txn.len(), 3);
-	assert_eq!(remote_txn[0].output.len(), 4);
-	assert_eq!(remote_txn[0].input.len(), 1);
-	assert_eq!(remote_txn[0].input[0].previous_output.txid, chan.3.compute_txid());
+	assert_eq!(remote_txn[0].outputs.len(), 4);
+	assert_eq!(remote_txn[0].inputs.len(), 1);
+	assert_eq!(remote_txn[0].inputs[0].previous_output.txid, chan.3.compute_txid());
 	check_spends!(remote_txn[1], remote_txn[0]);
 	check_spends!(remote_txn[2], remote_txn[0]);
 
@@ -554,7 +554,7 @@ fn test_set_outpoints_partial_claiming() {
 		// ChannelMonitor: claim tx
 		assert_eq!(node_txn.len(), 1);
 		check_spends!(node_txn[0], remote_txn[0]);
-		assert_eq!(node_txn[0].input.len(), 2);
+		assert_eq!(node_txn[0].inputs.len(), 2);
 		node_txn.clear();
 	}
 
@@ -580,9 +580,9 @@ fn test_set_outpoints_partial_claiming() {
 		check_spends!(node_txn[0], chan.3);
 		check_spends!(node_txn[1], node_txn[0]);
 		check_spends!(node_txn[2], node_txn[0]);
-		assert_eq!(node_txn[1].input.len(), 1);
-		assert_eq!(node_txn[2].input.len(), 1);
-		assert_ne!(node_txn[1].input[0].previous_output, node_txn[2].input[0].previous_output);
+		assert_eq!(node_txn[1].inputs.len(), 1);
+		assert_eq!(node_txn[2].inputs.len(), 1);
+		assert_ne!(node_txn[1].inputs[0].previous_output, node_txn[2].inputs[0].previous_output);
 		node_txn.remove(1)
 	};
 
@@ -592,7 +592,7 @@ fn test_set_outpoints_partial_claiming() {
 		let mut node_txn = nodes[0].tx_broadcaster.txn_broadcasted.lock().unwrap();
 		assert_eq!(node_txn.len(), 1);
 		check_spends!(node_txn[0], remote_txn[0]);
-		assert_eq!(node_txn[0].input.len(), 1); //dropped HTLC
+		assert_eq!(node_txn[0].inputs.len(), 1); //dropped HTLC
 		node_txn.clear();
 	}
 	nodes[0].node.get_and_clear_pending_msg_events();
@@ -603,7 +603,7 @@ fn test_set_outpoints_partial_claiming() {
 		let mut node_txn = nodes[0].tx_broadcaster.txn_broadcasted.lock().unwrap();
 		assert_eq!(node_txn.len(), 1);
 		check_spends!(node_txn[0], remote_txn[0]);
-		assert_eq!(node_txn[0].input.len(), 2); //resurrected HTLC
+		assert_eq!(node_txn[0].inputs.len(), 2); //resurrected HTLC
 		node_txn.clear();
 	}
 
@@ -928,7 +928,7 @@ fn test_htlc_preimage_claim_prev_counterparty_commitment_after_current_counterpa
 	// Make sure it was indeed a preimage claim and not a revocation claim since the previous
 	// commitment (still unrevoked) is the currently confirmed closing transaction.
 	assert_eq!(
-		htlc_preimage_tx.input[0].witness.second_to_last().unwrap(),
+		htlc_preimage_tx.inputs[0].witness.get_back(1).unwrap(),
 		&payment_preimage.0[..]
 	);
 }
@@ -1259,9 +1259,9 @@ fn do_test_split_htlc_expiry_tracking(use_third_htlc: bool, reorg_out: bool, p2a
 		// Previously, node A would generate a bogus claim here, trying to claim both HTLCs B and C in
 		// one transaction, so we check that the single input being spent was not already spent in node
 		// B's HTLC claim transaction.
-		assert_eq!(as_third_htlc_spend_tx.input.len(), 1, "{as_third_htlc_spend_tx:?}");
-		for spent_input in bs_htlc_spend_tx.input.iter() {
-			let third_htlc_vout = as_third_htlc_spend_tx.input[0].previous_output.vout;
+		assert_eq!(as_third_htlc_spend_tx.inputs.len(), 1, "{as_third_htlc_spend_tx:?}");
+		for spent_input in bs_htlc_spend_tx.inputs.iter() {
+			let third_htlc_vout = as_third_htlc_spend_tx.inputs[0].previous_output.vout;
 			assert_ne!(third_htlc_vout, spent_input.previous_output.vout);
 		}
 
@@ -1303,7 +1303,7 @@ fn do_test_split_htlc_expiry_tracking(use_third_htlc: bool, reorg_out: bool, p2a
 		let txn = nodes[0].tx_broadcaster.txn_broadcast();
 		let mut claiming_outpoints = new_hash_set();
 		for tx in txn.iter() {
-			for input in tx.input.iter() {
+			for input in tx.inputs.iter() {
 				claiming_outpoints.insert(input.previous_output);
 			}
 		}

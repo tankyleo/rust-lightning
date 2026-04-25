@@ -421,8 +421,8 @@ fn lsps1_service_handler_persistence_across_restarts() {
 		let nodes_restart = create_network(2, &node_cfgs, &node_chanmgrs_restart);
 
 		// Create a new LiquidityManager with the same configuration and KV store to simulate restart
-		let service_transaction_broadcaster = Arc::new(TestBroadcaster::new(Network::Testnet));
-		let client_transaction_broadcaster = Arc::new(TestBroadcaster::new(Network::Testnet));
+		let service_transaction_broadcaster = Arc::new(TestBroadcaster::new(Network::Testnet(bitcoin::network::TestnetVersion::V3)));
+		let client_transaction_broadcaster = Arc::new(TestBroadcaster::new(Network::Testnet(bitcoin::network::TestnetVersion::V3)));
 		let client_kv_store_restart = Arc::new(TestStore::new(false));
 
 		let restarted_service_lm = LiquidityManagerSync::new_with_custom_time_provider(
@@ -1075,8 +1075,8 @@ fn lsps1_expired_orders_are_pruned_and_not_persisted() {
 		let node_chanmgrs_restart = create_node_chanmgrs(2, &node_cfgs, &[None, None]);
 		let nodes_restart = create_network(2, &node_cfgs, &node_chanmgrs_restart);
 
-		let service_transaction_broadcaster = Arc::new(TestBroadcaster::new(Network::Testnet));
-		let client_transaction_broadcaster = Arc::new(TestBroadcaster::new(Network::Testnet));
+		let service_transaction_broadcaster = Arc::new(TestBroadcaster::new(Network::Testnet(bitcoin::network::TestnetVersion::V3)));
+		let client_transaction_broadcaster = Arc::new(TestBroadcaster::new(Network::Testnet(bitcoin::network::TestnetVersion::V3)));
 
 		let restarted_service_lm = LiquidityManagerSync::new_with_custom_time_provider(
 			nodes_restart[0].keys_manager,

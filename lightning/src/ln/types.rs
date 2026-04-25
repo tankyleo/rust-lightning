@@ -21,7 +21,7 @@ use crate::util::ser::{Readable, Writeable, Writer};
 use crate::prelude::*;
 
 use bitcoin::hashes::{sha256::Hash as Sha256, Hash as _, HashEngine as _};
-use bitcoin::hex::display::impl_fmt_traits;
+use hex_conservative::impl_fmt_traits;
 
 use core::borrow::Borrow;
 
@@ -132,7 +132,7 @@ impl_fmt_traits! {
 #[cfg(test)]
 mod tests {
 	use bitcoin::hashes::{sha256::Hash as Sha256, Hash as _, HashEngine as _};
-	use bitcoin::hex::DisplayHex;
+	use hex_conservative::DisplayHex;
 	use bitcoin::secp256k1::PublicKey;
 
 	use super::ChannelId;

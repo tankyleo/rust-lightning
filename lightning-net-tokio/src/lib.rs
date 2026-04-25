@@ -910,7 +910,7 @@ mod tests {
 		}
 		fn handle_error(&self, _their_node_id: PublicKey, _msg: &ErrorMessage) {}
 		fn get_chain_hashes(&self) -> Option<Vec<ChainHash>> {
-			Some(vec![ChainHash::using_genesis_block(Network::Testnet)])
+			Some(vec![ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3))])
 		}
 		fn message_received(&self) {}
 	}
@@ -966,10 +966,10 @@ mod tests {
 
 	async fn do_basic_connection_test() {
 		let secp_ctx = Secp256k1::new();
-		let a_key = SecretKey::from_slice(&[1; 32]).unwrap();
-		let b_key = SecretKey::from_slice(&[1; 32]).unwrap();
-		let a_pub = PublicKey::from_secret_key(&secp_ctx, &a_key);
-		let b_pub = PublicKey::from_secret_key(&secp_ctx, &b_key);
+		let a_key = SecretKey::from_secret_bytes([1; 32]).unwrap();
+		let b_key = SecretKey::from_secret_bytes([1; 32]).unwrap();
+		let a_pub = PublicKey::from_secret_key(&a_key);
+		let b_pub = PublicKey::from_secret_key(&b_key);
 
 		let (a_connected_sender, mut a_connected) = mpsc::channel(1);
 		let (a_disconnected_sender, mut a_disconnected) = mpsc::channel(1);
@@ -1063,9 +1063,9 @@ mod tests {
 		// This attempts to find other similar races by opening connections and shutting them down
 		// while connecting. Sadly in testing this did *not* reproduce the previous issue.
 		let secp_ctx = Secp256k1::new();
-		let a_key = SecretKey::from_slice(&[1; 32]).unwrap();
-		let b_key = SecretKey::from_slice(&[2; 32]).unwrap();
-		let b_pub = PublicKey::from_secret_key(&secp_ctx, &b_key);
+		let a_key = SecretKey::from_secret_bytes([1; 32]).unwrap();
+		let b_key = SecretKey::from_secret_bytes([2; 32]).unwrap();
+		let b_pub = PublicKey::from_secret_key(&b_key);
 
 		let a_msg_handler = MessageHandler {
 			chan_handler: Arc::new(lightning::ln::peer_handler::ErroringMessageHandler::new()),
@@ -1180,10 +1180,10 @@ mod tests {
 
 	async fn test_remote_address_with_override(b_addr_override: Option<SocketAddress>) {
 		let secp_ctx = Secp256k1::new();
-		let a_key = SecretKey::from_slice(&[1; 32]).unwrap();
-		let b_key = SecretKey::from_slice(&[1; 32]).unwrap();
-		let a_pub = PublicKey::from_secret_key(&secp_ctx, &a_key);
-		let b_pub = PublicKey::from_secret_key(&secp_ctx, &b_key);
+		let a_key = SecretKey::from_secret_bytes([1; 32]).unwrap();
+		let b_key = SecretKey::from_secret_bytes([1; 32]).unwrap();
+		let a_pub = PublicKey::from_secret_key(&a_key);
+		let b_pub = PublicKey::from_secret_key(&b_key);
 
 		let (a_connected_sender, mut a_connected) = mpsc::channel(1);
 		let (a_disconnected_sender, _a_disconnected) = mpsc::channel(1);
@@ -1267,7 +1267,7 @@ mod tests {
 
 		// Check the init message sent to the peer
 
-		let mainnet_hash = ChainHash::using_genesis_block(Network::Testnet);
+		let mainnet_hash = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let a_init_msg = Init {
 			features: InitFeatures::empty(),
 			networks: Some(vec![mainnet_hash]),

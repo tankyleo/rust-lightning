@@ -1,4 +1,4 @@
-use bitcoin::hex::{FromHex, HexToArrayError};
+use hex_conservative::{FromHex, HexToArrayError};
 use bitcoin::pow::Work;
 
 pub fn hex_to_work(hex: &str) -> Result<Work, HexToArrayError> {

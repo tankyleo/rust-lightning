@@ -3,12 +3,14 @@ use crate::{
 	BlockData, BlockHeaderData, BlockSource, BlockSourceError, BlockSourceResult, HeaderCache,
 };
 
-use bitcoin::block::{Block, Header, Version};
+use bitcoin::block::{Block, Header, HeaderExt, Version};
 use bitcoin::constants::genesis_block;
+use bitcoin::hashes::Hash;
 use bitcoin::hash_types::{BlockHash, TxMerkleNode};
 use bitcoin::locktime::absolute::LockTime;
 use bitcoin::network::Network;
 use bitcoin::transaction;
+use bitcoin::BlockTime;
 use bitcoin::Transaction;
 
 use lightning::chain;
@@ -33,7 +35,9 @@ impl Blockchain {
 	}
 
 	pub fn with_network(network: Network) -> Self {
-		let blocks = vec![genesis_block(network)];
+		let genesis = genesis_block(network);
+		let blocks =
+			vec![Block::new_unchecked(genesis.header().clone(), genesis.transactions().to_vec())];
 		Self { blocks, ..Default::default() }
 	}
 
@@ -43,29 +47,29 @@ impl Blockchain {
 		for i in 1..=height {
 			let prev_block = &self.blocks[i - 1];
 			let prev_blockhash = prev_block.block_hash();
-			let time = prev_block.header.time + height as u32;
+			let time = prev_block.as_parts().0.time.to_u32() + height as u32;
 			// Must have at least one transaction, because the merkle root is not defined for an empty block
 			// and we would fail when we later checked, as of bitcoin crate 0.28.0.
 			// Note that elsewhere in tests we assume that the merkle root of an empty block is all zeros,
 			// but that's OK because those tests don't trigger the check.
 			let coinbase = Transaction {
-				version: transaction::Version(0),
+				version: transaction::Version::maybe_non_standard(0),
 				lock_time: LockTime::ZERO,
-				input: vec![],
-				output: vec![],
+				inputs: vec![],
+				outputs: vec![],
 			};
-			let merkle_root = TxMerkleNode::from_raw_hash(coinbase.compute_txid().to_raw_hash());
-			self.blocks.push(Block {
-				header: Header {
+			let merkle_root = TxMerkleNode::from_byte_array(coinbase.compute_txid().to_byte_array());
+			self.blocks.push(Block::new_unchecked(
+				Header {
 					version: Version::NO_SOFT_FORK_SIGNALLING,
 					prev_blockhash,
 					merkle_root,
-					time,
+					time: BlockTime::from_u32(time),
 					bits,
 					nonce: 0,
 				},
-				txdata: vec![coinbase],
-			});
+				vec![coinbase],
+			));
 		}
 		self
 	}
@@ -91,8 +95,10 @@ impl Blockchain {
 		let mut blocks = self.blocks.clone();
 		let mut prev_blockhash = blocks[height].block_hash();
 		for block in blocks.iter_mut().skip(height + 1) {
-			block.header.prev_blockhash = prev_blockhash;
-			block.header.nonce += 1;
+			let (mut header, transactions) = block.clone().into_parts();
+			header.prev_blockhash = prev_blockhash;
+			header.nonce += 1;
+			*block = Block::new_unchecked(header, transactions);
 			prev_blockhash = block.block_hash();
 		}
 		Self { blocks, without_blocks: None, ..*self }
@@ -119,14 +125,14 @@ impl Blockchain {
 	fn at_height_unvalidated(&self, height: usize) -> BlockHeaderData {
 		assert!(!self.blocks.is_empty());
 		assert!(height < self.blocks.len());
-		let mut total_work = self.blocks[0].header.work();
+		let mut total_work = self.blocks[0].as_parts().0.work();
 		for i in 1..=height {
-			total_work = total_work + self.blocks[i].header.work();
+			total_work = total_work + self.blocks[i].as_parts().0.work();
 		}
 		BlockHeaderData {
 			chainwork: total_work,
 			height: height as u32,
-			header: self.blocks[height].header,
+			header: self.blocks[height].as_parts().0.clone(),
 		}
 	}
 
@@ -165,10 +171,12 @@ impl BlockSource for Blockchain {
 			}
 
 			for (height, block) in self.blocks.iter().enumerate() {
-				if block.header.block_hash() == *header_hash {
+				let header = block.as_parts().0;
+				if header.block_hash() == *header_hash {
 					let mut header_data = self.at_height_unvalidated(height);
 					if self.malformed_headers {
-						header_data.header.time += 1;
+						header_data.header.time =
+							BlockTime::from_u32(header_data.header.time.to_u32() + 1);
 					}
 
 					return Ok(header_data);
@@ -183,7 +191,8 @@ impl BlockSource for Blockchain {
 	) -> impl Future<Output = BlockSourceResult<BlockData>> + Send + 'a {
 		async move {
 			for (height, block) in self.blocks.iter().enumerate() {
-				if block.header.block_hash() == *header_hash {
+				let header = block.as_parts().0;
+				if header.block_hash() == *header_hash {
 					if let Some(without_blocks) = &self.without_blocks {
 						if without_blocks.contains(&height) {
 							return Err(BlockSourceError::persistent("block not found"));
@@ -191,7 +200,7 @@ impl BlockSource for Blockchain {
 					}
 
 					if self.filtered_blocks {
-						return Ok(BlockData::HeaderOnly(block.header));
+						return Ok(BlockData::HeaderOnly(header.clone()));
 					} else {
 						return Ok(BlockData::FullBlock(block.clone()));
 					}

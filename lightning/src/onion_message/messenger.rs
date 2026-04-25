@@ -10,8 +10,8 @@
 //! LDK sends, receives, and forwards onion messages via this [`OnionMessenger`], which lives here,
 //! as well as various types, traits, and utilities that it uses.
 
-use bitcoin::hashes::hmac::{Hmac, HmacEngine};
-use bitcoin::hashes::sha256::Hash as Sha256;
+use bitcoin::hashes::hmac::HmacEngine;
+use bitcoin::hashes::sha256::HashEngine as Sha256Engine;
 use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::secp256k1::{self, PublicKey, Scalar, Secp256k1, SecretKey};
 
@@ -146,7 +146,7 @@ impl<
 /// ```
 /// # extern crate bitcoin;
 /// # use bitcoin::hashes::_export::_core::time::Duration;
-/// # use bitcoin::hex::FromHex;
+/// # use hex_conservative::FromHex;
 /// # use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey, self};
 /// # use lightning::blinded_path::EmptyNodeIdLookUp;
 /// # use lightning::blinded_path::message::{BlindedMessagePath, MessageForwardNode, MessageContext};
@@ -167,8 +167,8 @@ impl<
 /// # impl MessageRouter for FakeMessageRouter {
 /// #     fn find_path(&self, sender: PublicKey, peers: Vec<PublicKey>, destination: Destination) -> Result<OnionMessagePath, ()> {
 /// #         let secp_ctx = Secp256k1::new();
-/// #         let node_secret = SecretKey::from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
-/// #         let hop_node_id1 = PublicKey::from_secret_key(&secp_ctx, &node_secret);
+/// #         let node_secret = secret_key_from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
+/// #         let hop_node_id1 = PublicKey::from_secret_key(&node_secret);
 /// #         let hop_node_id2 = hop_node_id1;
 /// #         Ok(OnionMessagePath {
 /// #             intermediate_nodes: vec![hop_node_id1, hop_node_id2],
@@ -187,9 +187,9 @@ impl<
 /// # let time = Duration::from_secs(123456);
 /// # let keys_manager = KeysManager::new(&seed, time.as_secs(), time.subsec_nanos(), true);
 /// # let logger = Arc::new(FakeLogger {});
-/// # let node_secret = SecretKey::from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
+/// # let node_secret = secret_key_from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
 /// # let secp_ctx = Secp256k1::new();
-/// # let hop_node_id1 = PublicKey::from_secret_key(&secp_ctx, &node_secret);
+/// # let hop_node_id1 = PublicKey::from_secret_key(&node_secret);
 /// # let (hop_node_id3, hop_node_id4) = (hop_node_id1, hop_node_id1);
 /// # let destination_node_id = hop_node_id1;
 /// # let node_id_lookup = EmptyNodeIdLookUp {};
@@ -1105,12 +1105,12 @@ pub fn create_onion_message<
 	}
 
 	let blinding_secret_bytes = entropy_source.get_secure_random_bytes();
-	let blinding_secret = SecretKey::from_slice(&blinding_secret_bytes[..]).expect("RNG is busted");
+	let blinding_secret = SecretKey::from_byte_array(blinding_secret_bytes).expect("RNG is busted");
 	let (first_node_id, blinding_point) = if let Some(first_node_id) = intermediate_nodes.first() {
-		(*first_node_id, PublicKey::from_secret_key(&secp_ctx, &blinding_secret))
+		(*first_node_id, PublicKey::from_secret_key(&blinding_secret))
 	} else {
 		match &destination {
-			Destination::Node(pk) => (*pk, PublicKey::from_secret_key(&secp_ctx, &blinding_secret)),
+			Destination::Node(pk) => (*pk, PublicKey::from_secret_key(&blinding_secret)),
 			Destination::BlindedPath(path) => match path.introduction_node() {
 				IntroductionNode::NodeId(pubkey) => (*pubkey, path.blinding_point()),
 				IntroductionNode::DirectedShortChannelId(..) => {
@@ -1154,9 +1154,9 @@ pub fn peel_onion_message<NS: NodeSigner, L: Logger, CMH: CustomOnionMessageHand
 	};
 	let onion_decode_ss = {
 		let blinding_factor = {
-			let mut hmac = HmacEngine::<Sha256>::new(b"blinded_node_id");
+			let mut hmac = HmacEngine::<Sha256Engine>::new(b"blinded_node_id");
 			hmac.input(control_tlvs_ss.as_ref());
-			let hmac = Hmac::from_engine(hmac).to_byte_array();
+			let hmac = hmac.finalize().to_byte_array();
 			Scalar::from_be_bytes(hmac).unwrap()
 		};
 		let packet_pubkey = &msg.onion_routing_packet.public_key;

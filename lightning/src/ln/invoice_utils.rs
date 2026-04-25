@@ -600,7 +600,7 @@ mod test {
 	use crate::util::config::UserConfig;
 	use crate::util::dyn_signer::{DynKeysInterface, DynPhantomKeysInterface};
 	use crate::util::test_utils;
-	use bitcoin::hashes::sha256::Hash as Sha256;
+	use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
 	use bitcoin::hashes::Hash;
 	use bitcoin::network::Network;
 	use core::time::Duration;
@@ -777,7 +777,7 @@ mod test {
 		let node_chanmgrs = create_node_chanmgrs(2, &node_cfgs, &[None, None]);
 		let nodes = create_network(2, &node_cfgs, &node_chanmgrs);
 
-		let description = Bolt11InvoiceDescription::Hash(Sha256(Hash::hash(
+		let description = Bolt11InvoiceDescription::Hash(Sha256(Sha256::hash(
 			"Testing description_hash".as_bytes(),
 		)));
 		let invoice_params = Bolt11InvoiceParameters {
@@ -834,7 +834,7 @@ mod test {
 
 		let invoice_params = Bolt11InvoiceParameters::default();
 		let invoice = nodes[1].node.create_bolt11_invoice(invoice_params).unwrap();
-		let best_block = bitcoin::constants::genesis_block(Network::Testnet);
+		let best_block = bitcoin::constants::genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		assert_eq!(
 			invoice.duration_since_epoch(),
 			Duration::from_secs(best_block.header.time.into()),
@@ -851,7 +851,7 @@ mod test {
 		let invoice_params = Bolt11InvoiceParameters::default();
 		let invoice = nodes[1].node.create_bolt11_invoice(invoice_params).unwrap();
 		assert_eq!(invoice.currency(), Currency::BitcoinTestnet);
-		assert_eq!(invoice.network(), Network::Testnet);
+		assert_eq!(invoice.network(), Network::Testnet(bitcoin::network::TestnetVersion::V3));
 	}
 
 	#[test]
@@ -1229,7 +1229,7 @@ mod test {
 			None
 		};
 		let genesis_timestamp =
-			bitcoin::constants::genesis_block(bitcoin::Network::Testnet).header.time as u64;
+			bitcoin::constants::genesis_block(bitcoin::Network::Testnet(bitcoin::network::TestnetVersion::V3)).header().time.to_u32() as u64;
 		let non_default_invoice_expiry_secs = 4200;
 
 		let invoice = create_phantom_invoice::<
@@ -1418,7 +1418,7 @@ mod test {
 		let route_hints =
 			vec![nodes[1].node.get_phantom_route_hints(), nodes[2].node.get_phantom_route_hints()];
 
-		let description_hash = Sha256(Hash::hash("Description hash phantom invoice".as_bytes()));
+		let description_hash = Sha256(Sha256::hash("Description hash phantom invoice".as_bytes()));
 		let non_default_invoice_expiry_secs = 4200;
 		let invoice = create_phantom_invoice_with_description_hash::<
 			&test_utils::TestKeysInterface,

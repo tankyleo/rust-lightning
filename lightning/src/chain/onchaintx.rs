@@ -16,7 +16,7 @@ use bitcoin::amount::Amount;
 use bitcoin::hash_types::{BlockHash, Txid};
 use bitcoin::hashes::Hash;
 use bitcoin::locktime::absolute::LockTime;
-use bitcoin::script::{Script, ScriptBuf};
+use bitcoin::script::{ScriptPubKey as Script, ScriptPubKeyBuf as ScriptBuf};
 use bitcoin::secp256k1;
 use bitcoin::secp256k1::{ecdsa::Signature, PublicKey, Secp256k1};
 use bitcoin::transaction::OutPoint as BitcoinOutPoint;
@@ -106,7 +106,7 @@ impl Writeable for OnchainEventEntry {
 impl MaybeReadable for OnchainEventEntry {
 	#[rustfmt::skip]
 	fn read<R: io::Read>(reader: &mut R) -> Result<Option<Self>, DecodeError> {
-		let mut txid = Txid::all_zeros();
+		let mut txid = Txid::from_byte_array([0; 32]);
 		let mut height = 0;
 		let mut block_hash = None;
 		let mut event = UpgradableRequired(None);
@@ -656,7 +656,7 @@ impl<ChannelSigner: EcdsaChannelSigner> OnchainTxHandler<ChannelSigner> {
 				assert!(new_feerate != 0);
 
 				let transaction = cached_request.maybe_finalize_malleable_package(
-					cur_height, self, Amount::from_sat(output_value), destination_script.into(), logger
+					cur_height, self, Amount::from_sat(output_value).expect("package output value must fit in Amount"), destination_script.into(), logger
 				).unwrap();
 				assert!(predicted_weight >= transaction.0.weight().to_wu());
 				return Some((new_timer, new_feerate, OnchainClaim::Tx(transaction)));
@@ -697,8 +697,8 @@ impl<ChannelSigner: EcdsaChannelSigner> OnchainTxHandler<ChannelSigner> {
 						self.channel_value_satoshis
 					};
 
-					let fee_sat = input_amount_sats - tx.output.iter()
-						.map(|output| output.value.to_sat()).sum::<u64>();
+					let fee_sat = input_amount_sats - tx.outputs.iter()
+						.map(|output| output.amount.to_sat()).sum::<u64>();
 					let package_target_feerate_sat_per_1000_weight = cached_request
 						.compute_package_feerate(fee_estimator, conf_target, feerate_strategy);
 
@@ -712,7 +712,7 @@ impl<ChannelSigner: EcdsaChannelSigner> OnchainTxHandler<ChannelSigner> {
 						debug_assert!(channel_parameters.channel_type_features.supports_anchor_zero_fee_commitments());
 						shared_anchor_script_pubkey()
 					};
-					let anchor_output = tx.output.iter().enumerate()
+					let anchor_output = tx.outputs.iter().enumerate()
 						.find(|(_, txout)| txout.script_pubkey == script_pubkey)
 						.map(|(idx, txout)| (idx as u32, txout));
 					match anchor_output {
@@ -955,7 +955,7 @@ impl<ChannelSigner: EcdsaChannelSigner> OnchainTxHandler<ChannelSigner> {
 		for tx in txn_matched {
 			// Scan all input to verify is one of the outpoint spent is of interest for us
 			let mut claimed_outputs_material = Vec::new();
-			for inp in &tx.input {
+			for inp in &tx.inputs {
 				if let Some((claim_id, _)) = self.claimable_outpoints.get(&inp.previous_output) {
 					// If outpoint has claim request pending on it...
 					if let Some(request) = self.pending_claim_requests.get_mut(claim_id) {
@@ -964,7 +964,7 @@ impl<ChannelSigner: EcdsaChannelSigner> OnchainTxHandler<ChannelSigner> {
 						// after ANTI_REORG_DELAY blocks, otherwise we need to split it and retry
 						// claiming the remaining outputs.
 						let mut is_claim_subset_of_tx = true;
-						let mut tx_inputs = tx.input.iter().map(|input| &input.previous_output).collect::<Vec<_>>();
+						let mut tx_inputs = tx.inputs.iter().map(|input| &input.previous_output).collect::<Vec<_>>();
 						tx_inputs.sort_unstable();
 						for request_input in request.outpoints() {
 							if tx_inputs.binary_search(&request_input).is_err() {
@@ -994,7 +994,7 @@ impl<ChannelSigner: EcdsaChannelSigner> OnchainTxHandler<ChannelSigner> {
 							clean_claim_request_after_safety_delay!();
 						} else { // If false, generate new claim request with update outpoint set
 							let mut at_least_one_drop = false;
-							for input in tx.input.iter() {
+							for input in tx.inputs.iter() {
 								if let Some(package) = request.split_package(&input.previous_output) {
 									claimed_outputs_material.push(package);
 									at_least_one_drop = true;
@@ -1283,10 +1283,11 @@ impl<ChannelSigner: EcdsaChannelSigner> OnchainTxHandler<ChannelSigner> {
 #[cfg(test)]
 mod tests {
 	use bitcoin::hash_types::Txid;
-	use bitcoin::hashes::sha256::Hash as Sha256;
+	use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
 	use bitcoin::hashes::Hash;
 	use bitcoin::Network;
-	use bitcoin::{key::Secp256k1, secp256k1::PublicKey, secp256k1::SecretKey, ScriptBuf};
+	use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
+	use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 	use types::features::ChannelTypeFeatures;
 
 	use crate::chain::chaininterface::{ConfirmationTarget, LowerBoundedFeeEstimator};
@@ -1313,40 +1314,35 @@ mod tests {
 	fn test_broadcast_height() {
 		let secp_ctx = Secp256k1::new();
 		let signer = InMemorySigner::new(
-			SecretKey::from_slice(&[41; 32]).unwrap(),
-			SecretKey::from_slice(&[41; 32]).unwrap(),
-			SecretKey::from_slice(&[41; 32]).unwrap(),
-			SecretKey::from_slice(&[41; 32]).unwrap(),
+			crate::prelude::secret_key_from_slice(&[41; 32]).unwrap(),
+			crate::prelude::secret_key_from_slice(&[41; 32]).unwrap(),
+			crate::prelude::secret_key_from_slice(&[41; 32]).unwrap(),
+			crate::prelude::secret_key_from_slice(&[41; 32]).unwrap(),
 			true,
-			SecretKey::from_slice(&[41; 32]).unwrap(),
-			SecretKey::from_slice(&[41; 32]).unwrap(),
+			crate::prelude::secret_key_from_slice(&[41; 32]).unwrap(),
+			crate::prelude::secret_key_from_slice(&[41; 32]).unwrap(),
 			[41; 32],
 			[0; 32],
 			[0; 32],
 		);
 		let counterparty_pubkeys = ChannelPublicKeys {
 			funding_pubkey: PublicKey::from_secret_key(
-				&secp_ctx,
-				&SecretKey::from_slice(&[44; 32]).unwrap(),
+				&crate::prelude::secret_key_from_slice(&[44; 32]).unwrap(),
 			),
 			revocation_basepoint: RevocationBasepoint::from(PublicKey::from_secret_key(
-				&secp_ctx,
-				&SecretKey::from_slice(&[45; 32]).unwrap(),
+				&crate::prelude::secret_key_from_slice(&[45; 32]).unwrap(),
 			)),
 			payment_point: PublicKey::from_secret_key(
-				&secp_ctx,
-				&SecretKey::from_slice(&[46; 32]).unwrap(),
+				&crate::prelude::secret_key_from_slice(&[46; 32]).unwrap(),
 			),
 			delayed_payment_basepoint: DelayedPaymentBasepoint::from(PublicKey::from_secret_key(
-				&secp_ctx,
-				&SecretKey::from_slice(&[47; 32]).unwrap(),
+				&crate::prelude::secret_key_from_slice(&[47; 32]).unwrap(),
 			)),
 			htlc_basepoint: HtlcBasepoint::from(PublicKey::from_secret_key(
-				&secp_ctx,
-				&SecretKey::from_slice(&[48; 32]).unwrap(),
+				&crate::prelude::secret_key_from_slice(&[48; 32]).unwrap(),
 			)),
 		};
-		let funding_outpoint = OutPoint { txid: Txid::all_zeros(), index: u16::MAX };
+		let funding_outpoint = OutPoint { txid: Txid::from_byte_array([0; 32]), index: u16::MAX };
 
 		// Use non-anchor channels so that HTLC-Timeouts are broadcast immediately instead of sent
 		// to the user for external funding.
@@ -1396,7 +1392,7 @@ mod tests {
 		);
 
 		// Create a broadcaster with current block height 1.
-		let broadcaster = TestBroadcaster::new(Network::Testnet);
+		let broadcaster = TestBroadcaster::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		{
 			let mut blocks = broadcaster.blocks.lock().unwrap();
 			let genesis_hash = blocks[0].0.block_hash();

@@ -16,7 +16,7 @@ use crate::offers::nonce::Nonce;
 use crate::util::ser::Writeable;
 use bitcoin::hashes::cmp::fixed_time_eq;
 use bitcoin::hashes::hmac::{Hmac, HmacEngine};
-use bitcoin::hashes::sha256::Hash as Sha256;
+use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
 use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::secp256k1::{self, Keypair, PublicKey, Secp256k1, SecretKey};
 use core::fmt;
@@ -252,7 +252,7 @@ impl PartialEq for Metadata {
 #[derive(Clone)]
 pub(super) struct MetadataMaterial {
 	nonce: Nonce,
-	hmac: HmacEngine<Sha256>,
+	hmac: HmacEngine<Sha256Engine>,
 	// Some for payer metadata and None for offer metadata
 	encrypted_payment_id: Option<[u8; PaymentId::LENGTH]>,
 }
@@ -276,7 +276,7 @@ impl MetadataMaterial {
 
 		let mut bytes = self.encrypted_payment_id.map(|id| id.to_vec()).unwrap_or_default();
 		bytes.extend_from_slice(self.nonce.as_slice());
-		bytes.extend_from_slice(Hmac::from_engine(self.hmac).as_byte_array());
+		bytes.extend_from_slice(self.hmac.finalize().as_byte_array());
 		bytes
 	}
 
@@ -292,9 +292,9 @@ impl MetadataMaterial {
 
 		let bytes = self.encrypted_payment_id.map(|id| id.to_vec()).unwrap_or_default();
 
-		let hmac = Hmac::from_engine(self.hmac);
-		let privkey = SecretKey::from_slice(hmac.as_byte_array()).unwrap();
-		let keys = Keypair::from_secret_key(secp_ctx, &privkey);
+		let hmac = self.hmac.finalize();
+		let privkey = SecretKey::from_byte_array(*hmac.as_byte_array()).unwrap();
+		let keys = Keypair::from_secret_key(&privkey);
 
 		(bytes, keys)
 	}
@@ -317,8 +317,8 @@ pub(super) fn derive_keys(nonce: Nonce, expanded_key: &ExpandedKey) -> Keypair {
 	hmac.input(&nonce.0);
 
 	let secp_ctx = Secp256k1::new();
-	let privkey = SecretKey::from_slice(Hmac::from_engine(hmac).as_byte_array()).unwrap();
-	Keypair::from_secret_key(&secp_ctx, &privkey)
+	let privkey = SecretKey::from_byte_array(*hmac.finalize().as_byte_array()).unwrap();
+	Keypair::from_secret_key(&privkey)
 }
 
 /// Verifies data given in a TLV stream was used to produce the given metadata, consisting of:
@@ -349,7 +349,7 @@ pub(super) fn verify_payer_metadata<'a, T: secp256k1::Signing>(
 
 	verify_metadata(
 		&metadata[PaymentId::LENGTH..],
-		Hmac::from_engine(hmac),
+		hmac.finalize(),
 		signing_pubkey,
 		secp_ctx,
 	)?;
@@ -376,7 +376,7 @@ pub(super) fn verify_recipient_metadata<'a, T: secp256k1::Signing>(
 	let mut hmac = hmac_for_message(metadata, expanded_key, iv_bytes, tlv_stream)?;
 	hmac.input(WITHOUT_ENCRYPTED_PAYMENT_ID_HMAC_INPUT);
 
-	verify_metadata(metadata, Hmac::from_engine(hmac), signing_pubkey, secp_ctx)
+	verify_metadata(metadata, hmac.finalize(), signing_pubkey, secp_ctx)
 }
 
 fn verify_metadata<T: secp256k1::Signing>(
@@ -384,8 +384,7 @@ fn verify_metadata<T: secp256k1::Signing>(
 ) -> Result<Option<Keypair>, ()> {
 	if metadata.len() == Nonce::LENGTH {
 		let derived_keys = Keypair::from_secret_key(
-			secp_ctx,
-			&SecretKey::from_slice(hmac.as_byte_array()).unwrap(),
+			&SecretKey::from_byte_array(*hmac.as_byte_array()).unwrap(),
 		);
 		#[allow(unused_mut)]
 		let mut ok = fixed_time_eq(&signing_pubkey.serialize(), &derived_keys.public_key().serialize());
@@ -417,7 +416,7 @@ fn verify_metadata<T: secp256k1::Signing>(
 fn hmac_for_message<'a>(
 	metadata: &[u8], expanded_key: &ExpandedKey, iv_bytes: &[u8; IV_LEN],
 	tlv_stream: impl core::iter::Iterator<Item = TlvRecord<'a>>,
-) -> Result<HmacEngine<Sha256>, ()> {
+) -> Result<HmacEngine<Sha256Engine>, ()> {
 	let mut hmac = expanded_key.hmac_for_offer();
 	hmac.input(iv_bytes);
 

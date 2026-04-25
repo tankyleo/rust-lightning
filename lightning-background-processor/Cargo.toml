@@ -21,9 +21,9 @@ std = ["lightning/std", "lightning-liquidity/std", "bitcoin-io/std", "bitcoin_ha
 
 
 [dependencies]
-bitcoin = { version = "0.32.2", default-features = false }
-bitcoin_hashes = { version = "0.14.0", default-features = false }
-bitcoin-io = { version = "0.1.2", default-features = false }
+bitcoin = { version = "0.33.0-beta", default-features = false }
+bitcoin_hashes = { version = "0.20.0", default-features = false }
+bitcoin-io = { version = "0.5.0", default-features = false }
 lightning = { version = "0.3.0", path = "../lightning", default-features = false }
 lightning-rapid-gossip-sync = { version = "0.3.0", path = "../lightning-rapid-gossip-sync", default-features = false }
 lightning-liquidity = { version = "0.3.0", path = "../lightning-liquidity", default-features = false }

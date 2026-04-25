@@ -78,7 +78,7 @@ pub(crate) struct MaybeSignedTransaction(pub Transaction);
 
 impl MaybeSignedTransaction {
 	pub fn is_fully_signed(&self) -> bool {
-		!self.0.input.iter().any(|input| input.witness.is_empty())
+		!self.0.inputs.iter().any(|input| input.witness.is_empty())
 	}
 }
 
@@ -88,7 +88,7 @@ mod tests {
 	use crate::ln::types::ChannelId;
 
 	use bitcoin::consensus::encode;
-	use bitcoin::hex::FromHex;
+	use hex_conservative::FromHex;
 	use bitcoin::transaction::Transaction;
 
 	#[test]

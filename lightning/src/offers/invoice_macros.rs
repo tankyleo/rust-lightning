@@ -30,7 +30,7 @@ macro_rules! invoice_builder_methods_common { (
 	/// Successive calls to this method will add another address. Caller is responsible for not
 	/// adding duplicate addresses and only calling if capable of receiving to P2WSH addresses.
 	pub fn fallback_v0_p2wsh(
-		$($self_mut)* $self: $self_type, script_hash: &bitcoin::WScriptHash
+		$($self_mut)* $self: $self_type, script_hash: &bitcoin::script::WScriptHash
 	) -> $return_type {
 		use bitcoin::hashes::Hash;
 
@@ -47,7 +47,7 @@ macro_rules! invoice_builder_methods_common { (
 	/// Successive calls to this method will add another address. Caller is responsible for not
 	/// adding duplicate addresses and only calling if capable of receiving to P2WPKH addresses.
 	pub fn fallback_v0_p2wpkh(
-		$($self_mut)* $self: $self_type, pubkey_hash: &bitcoin::WPubkeyHash
+		$($self_mut)* $self: $self_type, pubkey_hash: &bitcoin::key::WPubkeyHash
 	) -> $return_type {
 		use bitcoin::hashes::Hash;
 

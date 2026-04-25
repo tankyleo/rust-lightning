@@ -5,7 +5,7 @@ use crate::{
 	RawTaggedField, Sha256, TaggedField,
 };
 use bech32::Fe32;
-use bitcoin::hex::FromHex;
+use hex_conservative::FromHex;
 use core::fmt::Debug;
 use std::str::FromStr;
 
@@ -222,12 +222,10 @@ fn raw_data_part() {
 
 #[test]
 fn payeepubkey() {
-	use bitcoin::key::Secp256k1;
 	use bitcoin::secp256k1::{PublicKey, SecretKey};
 
-	let secp = Secp256k1::new();
-	let dummy_secret_key = SecretKey::from_slice(&[1; 32]).unwrap();
-	let payee_pub_key = PayeePubKey(PublicKey::from_secret_key(&secp, &dummy_secret_key));
+	let dummy_secret_key = SecretKey::from_byte_array([1; 32]).unwrap();
+	let payee_pub_key = PayeePubKey(PublicKey::from_secret_key(&dummy_secret_key));
 	ser_de_test_len(payee_pub_key, "qvdcf32k0vfxgsyet5ldt246q4jaw8scx3sysx0lnstlt6w4m5rc7");
 }
 
@@ -250,14 +248,13 @@ fn min_final_cltv_expiry_delta() {
 #[test]
 fn fallback() {
 	use crate::{Fallback, PubkeyHash, ScriptHash, WitnessVersion};
-	use bitcoin::hashes::Hash;
 
 	{
-		let fallback = Fallback::PubKeyHash(PubkeyHash::from_slice(&[3; 20]).unwrap());
+		let fallback = Fallback::PubKeyHash(PubkeyHash::from_byte_array([3; 20]));
 		ser_de_test_len(fallback, "3qvpsxqcrqvpsxqcrqvpsxqcrqvpsxqcr");
 	}
 	{
-		let fallback = Fallback::ScriptHash(ScriptHash::from_slice(&[3; 20]).unwrap());
+		let fallback = Fallback::ScriptHash(ScriptHash::from_byte_array([3; 20]));
 		ser_de_test_len(fallback, "jqvpsxqcrqvpsxqcrqvpsxqcrqvpsxqcr");
 	}
 	{

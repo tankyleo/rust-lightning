@@ -15,7 +15,7 @@ use bitcoin::hash_types::{BlockHash, Txid};
 use bitcoin::hashes::sha256::Hash as Sha256;
 use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::network::Network;
-use bitcoin::script::{Script, ScriptBuf};
+use bitcoin::script::{ScriptPubKey as Script, ScriptPubKeyBuf as ScriptBuf};
 use bitcoin::secp256k1::PublicKey;
 
 use crate::chain::channelmonitor::{
@@ -56,7 +56,7 @@ impl BestBlock {
 	/// Constructs a `BestBlock` that represents the genesis block at height 0 of the given
 	/// network.
 	pub fn from_network(network: Network) -> Self {
-		let block_hash = genesis_block(network).header.block_hash();
+		let block_hash = genesis_block(network).block_hash();
 		let previous_blocks = [None; ANTI_REORG_DELAY as usize * 2];
 		BestBlock { block_hash, height: 0, previous_blocks }
 	}
@@ -186,8 +186,9 @@ pub trait Listen {
 
 	/// Notifies the listener that a block was added at the given height.
 	fn block_connected(&self, block: &Block, height: u32) {
-		let txdata: Vec<_> = block.txdata.iter().enumerate().collect();
-		self.filtered_block_connected(&block.header, &txdata, height);
+		let (header, transactions) = block.as_parts();
+		let txdata: Vec<_> = transactions.iter().enumerate().collect();
+		self.filtered_block_connected(header, &txdata, height);
 	}
 
 	/// Notifies the listener that one or more blocks were removed in anticipation of a reorg.

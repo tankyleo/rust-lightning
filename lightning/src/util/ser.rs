@@ -35,7 +35,7 @@ use bitcoin::hash_types::{BlockHash, Txid};
 use bitcoin::hashes::hmac::Hmac;
 use bitcoin::hashes::sha256::Hash as Sha256;
 use bitcoin::hashes::sha256d::Hash as Sha256dHash;
-use bitcoin::script::{self, ScriptBuf};
+use bitcoin::script::{self, ScriptPubKeyBuf as ScriptBuf};
 use bitcoin::secp256k1::constants::{
 	COMPACT_SIGNATURE_SIZE, PUBLIC_KEY_SIZE, SCHNORR_SIGNATURE_SIZE, SECRET_KEY_SIZE,
 };
@@ -1198,7 +1198,7 @@ impl Writeable for SecretKey {
 impl Readable for SecretKey {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
 		let buf: [u8; SECRET_KEY_SIZE] = Readable::read(r)?;
-		match SecretKey::from_slice(&buf) {
+		match SecretKey::from_byte_array(buf) {
 			Ok(key) => Ok(key),
 			Err(_) => return Err(DecodeError::InvalidValue),
 		}
@@ -1207,7 +1207,9 @@ impl Readable for SecretKey {
 
 impl Writeable for Hmac<Sha256> {
 	fn write<W: Writer>(&self, w: &mut W) -> Result<(), io::Error> {
-		w.write_all(&self[..])
+		use bitcoin::hashes::Hash;
+
+		w.write_all(self.as_byte_array())
 	}
 }
 
@@ -1222,16 +1224,16 @@ impl Readable for Hmac<Sha256> {
 
 impl Writeable for Sha256dHash {
 	fn write<W: Writer>(&self, w: &mut W) -> Result<(), io::Error> {
-		w.write_all(&self[..])
+		w.write_all(self.as_byte_array())
 	}
 }
 
 impl Readable for Sha256dHash {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
-		use bitcoin::hashes::Hash;
+		
 
 		let buf: [u8; 32] = Readable::read(r)?;
-		Ok(Sha256dHash::from_slice(&buf[..]).unwrap())
+		Ok(Sha256dHash::from_byte_array(buf))
 	}
 }
 
@@ -1366,7 +1368,7 @@ impl Writeable for Amount {
 impl Readable for Amount {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
 		let amount: u64 = Readable::read(r)?;
-		Ok(Amount::from_sat(amount))
+		Amount::from_sat(amount).map_err(|_| DecodeError::InvalidValue)
 	}
 }
 
@@ -1379,7 +1381,7 @@ impl Writeable for SignedAmount {
 impl Readable for SignedAmount {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
 		let amount: i64 = Readable::read(r)?;
-		Ok(SignedAmount::from_sat(amount))
+		SignedAmount::from_sat(amount).map_err(|_| DecodeError::InvalidValue)
 	}
 }
 
@@ -1398,44 +1400,44 @@ impl Readable for Weight {
 
 impl Writeable for FeeRate {
 	fn write<W: Writer>(&self, w: &mut W) -> Result<(), io::Error> {
-		self.to_sat_per_kwu().write(w)
+		self.to_sat_per_kwu_floor().write(w)
 	}
 }
 
 impl Readable for FeeRate {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
 		let sat_kwu: u64 = Readable::read(r)?;
-		Ok(FeeRate::from_sat_per_kwu(sat_kwu))
+		Ok(FeeRate::from_sat_per_kwu(sat_kwu.try_into().unwrap()))
 	}
 }
 
 impl Writeable for Txid {
 	fn write<W: Writer>(&self, w: &mut W) -> Result<(), io::Error> {
-		w.write_all(&self[..])
+		w.write_all(self.as_byte_array())
 	}
 }
 
 impl Readable for Txid {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
-		use bitcoin::hashes::Hash;
+		
 
 		let buf: [u8; 32] = Readable::read(r)?;
-		Ok(Txid::from_slice(&buf[..]).unwrap())
+		Ok(Txid::from_byte_array(buf))
 	}
 }
 
 impl Writeable for BlockHash {
 	fn write<W: Writer>(&self, w: &mut W) -> Result<(), io::Error> {
-		w.write_all(&self[..])
+		w.write_all(self.as_byte_array())
 	}
 }
 
 impl Readable for BlockHash {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
-		use bitcoin::hashes::Hash;
+		
 
 		let buf: [u8; 32] = Readable::read(r)?;
-		Ok(BlockHash::from_slice(&buf[..]).unwrap())
+		Ok(BlockHash::from_byte_array(buf))
 	}
 }
 
@@ -1453,13 +1455,13 @@ impl Writeable for [Option<BlockHash>; 12] {
 
 impl Readable for [Option<BlockHash>; 12] {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
-		use bitcoin::hashes::Hash;
+		
 
 		let mut res = [None; 12];
 		for hash_opt in res.iter_mut() {
 			let buf: [u8; 32] = Readable::read(r)?;
 			if buf != [0; 32] {
-				*hash_opt = Some(BlockHash::from_slice(&buf[..]).unwrap());
+				*hash_opt = Some(BlockHash::from_byte_array(buf));
 			}
 		}
 		Ok(res)
@@ -1774,7 +1776,7 @@ impl Readable for ClaimId {
 mod tests {
 	use crate::prelude::*;
 	use crate::util::ser::{Hostname, Readable, Writeable};
-	use bitcoin::hex::FromHex;
+	use hex_conservative::FromHex;
 	use bitcoin::secp256k1::ecdsa;
 
 	#[test]

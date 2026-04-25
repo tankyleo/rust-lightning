@@ -2,6 +2,7 @@
 
 use crate::{BlockData, BlockHeaderData, BlockSource, BlockSourceError, BlockSourceResult};
 
+use bitcoin::block::HeaderExt;
 use bitcoin::hash_types::BlockHash;
 use bitcoin::network::Network;
 use lightning::chain::BestBlock;
@@ -82,11 +83,11 @@ impl Validate for BlockHeaderData {
 impl Validate for BlockData {
 	type T = ValidatedBlock;
 
-	fn validate(self, block_hash: BlockHash) -> BlockSourceResult<Self::T> {
-		let header = match &self {
-			BlockData::FullBlock(block) => &block.header,
-			BlockData::HeaderOnly(header) => header,
-		};
+		fn validate(self, block_hash: BlockHash) -> BlockSourceResult<Self::T> {
+			let header = match &self {
+				BlockData::FullBlock(block) => block.as_parts().0,
+				BlockData::HeaderOnly(header) => header,
+			};
 
 		let pow_valid_block_hash =
 			header.validate_pow(header.target()).map_err(BlockSourceError::persistent)?;
@@ -100,9 +101,9 @@ impl Validate for BlockData {
 				return Err(BlockSourceError::persistent("invalid merkle root"));
 			}
 
-			if !block.check_witness_commitment() {
-				return Err(BlockSourceError::persistent("invalid witness commitment"));
-			}
+				if !block.check_witness_commitment().0 {
+					return Err(BlockSourceError::persistent("invalid witness commitment"));
+				}
 		}
 
 		Ok(ValidatedBlock { block_hash, inner: self })
@@ -316,8 +317,10 @@ mod tests {
 		let best_known_chain_tip = chain.at_height(0);
 
 		// Invalidate the tip by changing its target.
-		chain.blocks.last_mut().unwrap().header.bits =
-			bitcoin::Target::from_be_bytes([0x01; 32]).to_compact_lossy();
+		let last_block = chain.blocks.last_mut().unwrap();
+		let (mut header, transactions) = last_block.clone().into_parts();
+		header.bits = bitcoin::Target::from_be_bytes([0x01; 32]).to_compact_lossy();
+		*last_block = bitcoin::block::Block::new_unchecked(header, transactions);
 
 		let poller = ChainPoller::new(&chain, Network::Bitcoin);
 		match poller.poll_chain_tip(best_known_chain_tip).await {
@@ -365,7 +368,10 @@ mod tests {
 		let best_known_chain_tip = chain.tip();
 
 		// Change the nonce to get a different block hash with the same chainwork.
-		chain.blocks.last_mut().unwrap().header.nonce += 1;
+		let last_block = chain.blocks.last_mut().unwrap();
+		let (mut header, transactions) = last_block.clone().into_parts();
+		header.nonce += 1;
+		*last_block = bitcoin::block::Block::new_unchecked(header, transactions);
 		let worse_chain_tip = chain.tip();
 		assert_eq!(best_known_chain_tip.chainwork, worse_chain_tip.chainwork);
 

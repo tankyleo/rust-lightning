@@ -311,7 +311,7 @@ fn shutdown_on_unfunded_channel() {
 	let open_chan = get_event_msg!(nodes[0], MessageSendEvent::SendOpenChannel, node_b_id);
 
 	// Create a dummy P2WPKH script
-	let script = Builder::new().push_int(0).push_slice(&[0; 20]).into_script();
+	let script = Builder::new().push_int(0).unwrap().push_slice(&[0; 20]).into_script();
 
 	nodes[0].node.handle_shutdown(
 		node_b_id,
@@ -395,7 +395,7 @@ fn updates_shutdown_wait() {
 	let chan_2 = create_announced_chan_between_nodes(&nodes, 1, 2);
 	let logger = test_utils::TestLogger::new();
 	let scorer = test_utils::TestScorer::new();
-	let keys_manager = test_utils::TestKeysInterface::new(&[0u8; 32], Network::Testnet);
+	let keys_manager = test_utils::TestKeysInterface::new(&[0u8; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 	let random_seed_bytes = keys_manager.get_secure_random_bytes();
 
 	let (payment_preimage_0, payment_hash_0, ..) =
@@ -987,7 +987,7 @@ fn test_unsupported_anysegwit_upfront_shutdown_script() {
 	let node_b_id = nodes[1].node.get_our_node_id();
 
 	// Use a non-v0 segwit script supported by option_shutdown_anysegwit
-	let anysegwit_shutdown_script = Builder::new().push_int(16).push_slice(&[0, 40]).into_script();
+	let anysegwit_shutdown_script = Builder::new().push_int(16).unwrap().push_slice(&[0, 40]).into_script();
 
 	// Check script when handling an open_channel message
 	nodes[0].node.create_channel(node_b_id, 100000, 10001, 42, None, None).unwrap();
@@ -1070,7 +1070,7 @@ fn test_invalid_upfront_shutdown_script() {
 	// Use a segwit v0 script with an unsupported witness program
 	let mut open_channel = get_event_msg!(nodes[0], MessageSendEvent::SendOpenChannel, node_b_id);
 	open_channel.common_fields.shutdown_scriptpubkey =
-		Some(Builder::new().push_int(0).push_slice(&[0, 0]).into_script());
+		Some(Builder::new().push_int(0).unwrap().push_slice(&[0, 0]).into_script());
 	nodes[1].node.handle_open_channel(node_a_id, &open_channel);
 	let events = nodes[1].node.get_and_clear_pending_events();
 	assert_eq!(events.len(), 1);
@@ -1118,7 +1118,7 @@ fn test_segwit_v0_shutdown_script() {
 
 	// Use a segwit v0 script supported even without option_shutdown_anysegwit
 	let mut node_0_shutdown = get_event_msg!(nodes[1], MessageSendEvent::SendShutdown, node_a_id);
-	node_0_shutdown.scriptpubkey = Builder::new().push_int(0).push_slice(&[0; 20]).into_script();
+	node_0_shutdown.scriptpubkey = Builder::new().push_int(0).unwrap().push_slice(&[0; 20]).into_script();
 	nodes[0].node.handle_shutdown(node_b_id, &node_0_shutdown);
 
 	let events = nodes[0].node.get_and_clear_pending_msg_events();
@@ -1157,7 +1157,7 @@ fn test_anysegwit_shutdown_script() {
 
 	// Use a non-v0 segwit script supported by option_shutdown_anysegwit
 	let mut node_0_shutdown = get_event_msg!(nodes[1], MessageSendEvent::SendShutdown, node_a_id);
-	node_0_shutdown.scriptpubkey = Builder::new().push_int(16).push_slice(&[0, 0]).into_script();
+	node_0_shutdown.scriptpubkey = Builder::new().push_int(16).unwrap().push_slice(&[0, 0]).into_script();
 	nodes[0].node.handle_shutdown(node_b_id, &node_0_shutdown);
 
 	let events = nodes[0].node.get_and_clear_pending_msg_events();
@@ -1247,7 +1247,7 @@ fn test_invalid_shutdown_script() {
 
 	// Use a segwit v0 script with an unsupported witness program
 	let mut node_0_shutdown = get_event_msg!(nodes[1], MessageSendEvent::SendShutdown, node_a_id);
-	node_0_shutdown.scriptpubkey = Builder::new().push_int(0).push_slice(&[0, 0]).into_script();
+	node_0_shutdown.scriptpubkey = Builder::new().push_int(0).unwrap().push_slice(&[0, 0]).into_script();
 	nodes[0].node.handle_shutdown(node_b_id, &node_0_shutdown);
 
 	assert_eq!(
@@ -1270,7 +1270,7 @@ fn test_user_shutdown_script() {
 	let node_a_id = nodes[0].node.get_our_node_id();
 
 	// Segwit v0 script of the form OP_0 <20-byte hash>
-	let script = Builder::new().push_int(0).push_slice(&[0; 20]).into_script();
+	let script = Builder::new().push_int(0).unwrap().push_slice(&[0; 20]).into_script();
 
 	let shutdown_script = ShutdownScript::try_from(script.clone()).unwrap();
 
@@ -1299,7 +1299,7 @@ fn test_already_set_user_shutdown_script() {
 	let node_a_id = nodes[0].node.get_our_node_id();
 
 	// Segwit v0 script of the form OP_0 <20-byte hash>
-	let script = Builder::new().push_int(0).push_slice(&[0; 20]).into_script();
+	let script = Builder::new().push_int(0).unwrap().push_slice(&[0; 20]).into_script();
 
 	let shutdown_script = ShutdownScript::try_from(script).unwrap();
 
@@ -1407,14 +1407,14 @@ fn do_test_closing_signed_reinit_timeout(timeout_step: TimeoutStep) {
 
 	let txn = nodes[1].tx_broadcaster.txn_broadcasted.lock().unwrap().clone();
 	assert_eq!(txn.len(), 1);
-	assert_eq!(txn[0].output.len(), 2);
+	assert_eq!(txn[0].outputs.len(), 2);
 
 	if timeout_step != TimeoutStep::NoTimeout {
 		assert!(
-			(txn[0].output[0].script_pubkey.is_p2wpkh()
-				&& txn[0].output[1].script_pubkey.is_p2wsh())
-				|| (txn[0].output[1].script_pubkey.is_p2wpkh()
-					&& txn[0].output[0].script_pubkey.is_p2wsh())
+			(txn[0].outputs[0].script_pubkey.is_p2wpkh()
+				&& txn[0].outputs[1].script_pubkey.is_p2wsh())
+				|| (txn[0].outputs[1].script_pubkey.is_p2wpkh()
+					&& txn[0].outputs[0].script_pubkey.is_p2wsh())
 		);
 		check_closed_broadcast(&nodes[1], 1, true);
 		check_added_monitors(&nodes[1], 1);
@@ -1423,8 +1423,8 @@ fn do_test_closing_signed_reinit_timeout(timeout_step: TimeoutStep) {
 		};
 		check_closed_event(&nodes[1], 1, reason, &[node_a_id], 100000);
 	} else {
-		assert!(txn[0].output[0].script_pubkey.is_p2wpkh());
-		assert!(txn[0].output[1].script_pubkey.is_p2wpkh());
+		assert!(txn[0].outputs[0].script_pubkey.is_p2wpkh());
+		assert!(txn[0].outputs[1].script_pubkey.is_p2wpkh());
 
 		let events = nodes[1].node.get_and_clear_pending_msg_events();
 		assert_eq!(events.len(), 1);
@@ -1693,8 +1693,8 @@ fn batch_funding_failure() {
 	let mut tx = Transaction {
 		version: Version::TWO,
 		lock_time: LockTime::ZERO,
-		input: Vec::new(),
-		output: Vec::new(),
+		inputs: Vec::new(),
+		outputs: Vec::new(),
 	};
 	let mut chans = Vec::new();
 	for (idx, ev) in events.iter().enumerate() {
@@ -1706,8 +1706,8 @@ fn batch_funding_failure() {
 		} = ev
 		{
 			if idx == 0 {
-				tx.output.push(TxOut {
-					value: Amount::from_sat(1_000_000),
+				tx.outputs.push(TxOut {
+					amount: amount_from_sat(1_000_000),
 					script_pubkey: output_script.clone(),
 				});
 			}
@@ -2269,9 +2269,9 @@ fn test_simple_close_v1_fallback() {
 
 	// Complete the standard v1 closing_signed flow.
 	nodes[1].node.handle_closing_signed(node_a_id, &closing_signed_0);
-	let (_, closing_signed_1_opt) = get_closing_signed_broadcast(nodes[1].node, node_a_id);
+	let (_, closing_signed_1_opt) = get_closing_signed_broadcast(&nodes[1], node_a_id);
 	nodes[0].node.handle_closing_signed(node_b_id, &closing_signed_1_opt.unwrap());
-	let (_, none_0) = get_closing_signed_broadcast(nodes[0].node, node_b_id);
+	let (_, none_0) = get_closing_signed_broadcast(&nodes[0], node_b_id);
 	assert!(none_0.is_none());
 
 	let reason_a = ClosureReason::LocallyInitiatedCooperativeClosure;

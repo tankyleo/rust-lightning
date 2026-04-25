@@ -32,8 +32,8 @@ use crate::util::ser::{
 };
 
 use bitcoin::hashes::cmp::fixed_time_eq;
-use bitcoin::hashes::hmac::{Hmac, HmacEngine};
-use bitcoin::hashes::sha256::Hash as Sha256;
+use bitcoin::hashes::hmac::HmacEngine;
+use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
 use bitcoin::hashes::{Hash, HashEngine};
 
 use bitcoin::secp256k1;
@@ -63,21 +63,21 @@ pub(crate) struct OnionKeys {
 #[inline]
 pub(crate) fn gen_rho_from_shared_secret(shared_secret: &[u8]) -> [u8; 32] {
 	assert_eq!(shared_secret.len(), 32);
-	let mut hmac = HmacEngine::<Sha256>::new(b"rho");
+	let mut hmac = HmacEngine::<Sha256Engine>::new(b"rho");
 	hmac.input(&shared_secret);
-	Hmac::from_engine(hmac).to_byte_array()
+	hmac.finalize().to_byte_array()
 }
 
 #[inline]
 pub(crate) fn gen_rho_mu_from_shared_secret(shared_secret: &[u8]) -> ([u8; 32], [u8; 32]) {
 	assert_eq!(shared_secret.len(), 32);
-	let mut engine_rho = HmacEngine::<Sha256>::new(b"rho");
+	let mut engine_rho = HmacEngine::<Sha256Engine>::new(b"rho");
 	engine_rho.input(&shared_secret);
-	let hmac_rho = Hmac::from_engine(engine_rho).to_byte_array();
+	let hmac_rho = engine_rho.finalize().to_byte_array();
 
-	let mut engine_mu = HmacEngine::<Sha256>::new(b"mu");
+	let mut engine_mu = HmacEngine::<Sha256Engine>::new(b"mu");
 	engine_mu.input(&shared_secret);
-	let hmac_mu = Hmac::from_engine(engine_mu).to_byte_array();
+	let hmac_mu = engine_mu.finalize().to_byte_array();
 
 	(hmac_rho, hmac_mu)
 }
@@ -85,34 +85,34 @@ pub(crate) fn gen_rho_mu_from_shared_secret(shared_secret: &[u8]) -> ([u8; 32], 
 #[inline]
 pub(super) fn gen_um_from_shared_secret(shared_secret: &[u8]) -> [u8; 32] {
 	assert_eq!(shared_secret.len(), 32);
-	let mut hmac = HmacEngine::<Sha256>::new(b"um");
+	let mut hmac = HmacEngine::<Sha256Engine>::new(b"um");
 	hmac.input(&shared_secret);
-	Hmac::from_engine(hmac).to_byte_array()
+	hmac.finalize().to_byte_array()
 }
 
 #[inline]
 pub(super) fn gen_ammag_from_shared_secret(shared_secret: &[u8]) -> [u8; 32] {
 	assert_eq!(shared_secret.len(), 32);
-	let mut hmac = HmacEngine::<Sha256>::new(b"ammag");
+	let mut hmac = HmacEngine::<Sha256Engine>::new(b"ammag");
 	hmac.input(&shared_secret);
-	Hmac::from_engine(hmac).to_byte_array()
+	hmac.finalize().to_byte_array()
 }
 
 #[inline]
 pub(super) fn gen_ammagext_from_shared_secret(shared_secret: &[u8]) -> [u8; 32] {
 	assert_eq!(shared_secret.len(), 32);
-	let mut hmac = HmacEngine::<Sha256>::new(b"ammagext");
+	let mut hmac = HmacEngine::<Sha256Engine>::new(b"ammagext");
 	hmac.input(&shared_secret);
-	Hmac::from_engine(hmac).to_byte_array()
+	hmac.finalize().to_byte_array()
 }
 
 #[cfg(test)]
 #[inline]
 pub(super) fn gen_pad_from_shared_secret(shared_secret: &[u8]) -> [u8; 32] {
 	assert_eq!(shared_secret.len(), 32);
-	let mut hmac = HmacEngine::<Sha256>::new(b"pad");
+	let mut hmac = HmacEngine::<Sha256Engine>::new(b"pad");
 	hmac.input(&shared_secret);
-	Hmac::from_engine(hmac).to_byte_array()
+	hmac.finalize().to_byte_array()
 }
 
 /// Calculates a pubkey for the next hop, such as the next hop's packet pubkey or blinding point.
@@ -126,7 +126,7 @@ pub(crate) fn next_hop_pubkey<T: secp256k1::Verification>(
 		Sha256::from_engine(sha).to_byte_array()
 	};
 
-	curr_pubkey.mul_tweak(secp_ctx, &Scalar::from_be_bytes(blinding_factor).unwrap())
+	curr_pubkey.mul_tweak(&Scalar::from_be_bytes(blinding_factor).unwrap())
 }
 
 trait HopInfo {
@@ -330,7 +330,7 @@ where
 	H: HopInfo,
 {
 	let mut blinded_priv = session_priv.clone();
-	let mut blinded_pub = PublicKey::from_secret_key(secp_ctx, &blinded_priv);
+	let mut blinded_pub = PublicKey::from_secret_key(&blinded_priv);
 
 	let unblinded_hops = hops.iter().map(|h| (h.node_pubkey(), Some(h)));
 	let blinded_pubkeys = blinded_tail
@@ -352,7 +352,7 @@ where
 		blinded_priv = blinded_priv
 			.mul_tweak(&Scalar::from_be_bytes(blinding_factor).expect("You broke SHA-256"))
 			.expect("Blinding are never invalid as we picked the starting private key randomly");
-		blinded_pub = PublicKey::from_secret_key(secp_ctx, &blinded_priv);
+		blinded_pub = PublicKey::from_secret_key(&blinded_priv);
 
 		(shared_secret, blinding_factor, ephemeral_pubkey, route_hop_opt, idx)
 	})
@@ -882,12 +882,12 @@ fn construct_onion_packet_with_init_noise<HD: Writeable, P: Packet>(
 			packet_data[start_index..stop_index].copy_from_slice(&filler[..]);
 		}
 
-		let mut hmac = HmacEngine::<Sha256>::new(&keys.mu);
+		let mut hmac = HmacEngine::<Sha256Engine>::new(&keys.mu);
 		hmac.input(packet_data);
 		if let Some(associated_data) = associated_data {
 			hmac.input(&associated_data.0[..]);
 		}
-		hmac_res = Hmac::from_engine(hmac).to_byte_array();
+		hmac_res = hmac.finalize().to_byte_array();
 	}
 
 	Ok(P::new(onion_keys.first().unwrap().ephemeral_pubkey, packet_data, hmac_res))
@@ -941,9 +941,9 @@ fn build_unencrypted_failure_packet(
 
 	// Calculate and store HMAC.
 	let um = gen_um_from_shared_secret(&shared_secret);
-	let mut hmac = HmacEngine::<Sha256>::new(&um);
+	let mut hmac = HmacEngine::<Sha256Engine>::new(&um);
 	hmac.input(&writer.0[32..]);
-	let hmac = Hmac::from_engine(hmac).to_byte_array();
+	let hmac = hmac.finalize().to_byte_array();
 	writer.0[..32].copy_from_slice(&hmac);
 
 	// Prepare attribution data.
@@ -1295,10 +1295,10 @@ fn process_onion_failure_inner<T: secp256k1::Signing, L: Logger>(
 		}
 
 		// Check legacy HMAC.
-		let mut hmac = HmacEngine::<Sha256>::new(&um);
+		let mut hmac = HmacEngine::<Sha256Engine>::new(&um);
 		hmac.input(&encrypted_packet.data[32..]);
 
-		if &Hmac::from_engine(hmac).to_byte_array() != &encrypted_packet.data[..32] {
+		if &hmac.finalize().to_byte_array() != &encrypted_packet.data[..32] {
 			continue;
 		}
 
@@ -2333,9 +2333,9 @@ pub(crate) fn decode_next_payment_hop<NS: NodeSigner>(
 ) -> Result<Hop, OnionDecodeErr> {
 	let blinded_node_id_tweak = blinding_point.map(|bp| {
 		let blinded_tlvs_ss = node_signer.ecdh(recipient, &bp, None).unwrap().secret_bytes();
-		let mut hmac = HmacEngine::<Sha256>::new(b"blinded_node_id");
+		let mut hmac = HmacEngine::<Sha256Engine>::new(b"blinded_node_id");
 		hmac.input(blinded_tlvs_ss.as_ref());
-		Scalar::from_be_bytes(Hmac::from_engine(hmac).to_byte_array()).unwrap()
+		Scalar::from_be_bytes(hmac.finalize().to_byte_array()).unwrap()
 	});
 	let shared_secret =
 		node_signer.ecdh(recipient, hop_pubkey, blinded_node_id_tweak.as_ref()).unwrap();
@@ -2399,9 +2399,9 @@ pub(crate) fn decode_next_payment_hop<NS: NodeSigner>(
 				let trampoline_blinded_node_id_tweak = hop_data.current_path_key.map(|bp| {
 					let blinded_tlvs_ss =
 						node_signer.ecdh(recipient, &bp, None).unwrap().secret_bytes();
-					let mut hmac = HmacEngine::<Sha256>::new(b"blinded_node_id");
+					let mut hmac = HmacEngine::<Sha256Engine>::new(b"blinded_node_id");
 					hmac.input(blinded_tlvs_ss.as_ref());
-					Scalar::from_be_bytes(Hmac::from_engine(hmac).to_byte_array()).unwrap()
+					Scalar::from_be_bytes(hmac.finalize().to_byte_array()).unwrap()
 				});
 				let trampoline_shared_secret = node_signer
 					.ecdh(
@@ -2627,7 +2627,7 @@ pub(super) fn compute_trampoline_session_priv(outer_onion_session_priv: &SecretK
 	// When creating the inner trampoline onion, we set the session priv to the hash of the outer
 	// onion session priv.
 	let session_priv_hash = Sha256::hash(&outer_onion_session_priv.secret_bytes()).to_byte_array();
-	SecretKey::from_slice(&session_priv_hash[..]).expect("You broke SHA-256!")
+	SecretKey::from_byte_array(session_priv_hash).expect("You broke SHA-256!")
 }
 
 /// Build a payment onion, returning the first hop msat and cltv values as well.
@@ -2722,12 +2722,12 @@ fn decode_next_hop<T, R: ReadableArgs<T>, N: NextPacketBytes>(
 	payment_hash: Option<PaymentHash>, read_args: T,
 ) -> Result<(R, Option<([u8; 32], N)>), OnionDecodeErr> {
 	let (rho, mu) = gen_rho_mu_from_shared_secret(&shared_secret);
-	let mut hmac = HmacEngine::<Sha256>::new(&mu);
+	let mut hmac = HmacEngine::<Sha256Engine>::new(&mu);
 	hmac.input(hop_data);
 	if let Some(tag) = payment_hash {
 		hmac.input(&tag.0[..]);
 	}
-	if !fixed_time_eq(&Hmac::from_engine(hmac).to_byte_array(), &hmac_bytes) {
+	if !fixed_time_eq(&hmac.finalize().to_byte_array(), &hmac_bytes) {
 		return Err(OnionDecodeErr::Malformed {
 			err_msg: "HMAC Check failed",
 			reason: LocalHTLCFailureReason::InvalidOnionHMAC,
@@ -2858,12 +2858,12 @@ impl AttributionData {
 
 			// The HMAC covers the original message and - for the assumed position - all the hold times and downstream
 			// HMACs. As position decreases, fewer downstream HMACs are included.
-			let mut hmac_engine = HmacEngine::<Sha256>::new(&um);
+			let mut hmac_engine = HmacEngine::<Sha256Engine>::new(&um);
 			hmac_engine.input(&message);
 			hmac_engine.input(&self.hold_times[..(position + 1) * HOLD_TIME_LEN]);
 			self.write_downstream_hmacs(position, &mut hmac_engine);
 
-			let full_hmac = Hmac::from_engine(hmac_engine).to_byte_array();
+			let full_hmac = hmac_engine.finalize().to_byte_array();
 
 			// Truncate the HMAC to save space. A low-probability collision acceptable here because the consequence is just
 			// a pathfinding penalty.
@@ -2876,7 +2876,7 @@ impl AttributionData {
 
 	/// Writes the HMACs corresponding to the given position that have been added already by downstream hops. Position is
 	/// relative to the final node. The final node is at position 0.
-	pub(crate) fn write_downstream_hmacs(&self, position: usize, w: &mut HmacEngine<Sha256>) {
+	pub(crate) fn write_downstream_hmacs(&self, position: usize, w: &mut HmacEngine<Sha256Engine>) {
 		// Set the index to the first downstream HMAC that we need to include. Note that we skip the first MAX_HOPS HMACs
 		// because this is space reserved for the HMACs that we are producing for the current node.
 		let mut hmac_idx = MAX_HOPS + MAX_HOPS - position - 1;
@@ -2898,11 +2898,11 @@ impl AttributionData {
 	fn verify(&self, message: &[u8], shared_secret: &[u8], position: usize) -> Result<u32, ()> {
 		// Calculate the expected HMAC.
 		let um = gen_um_from_shared_secret(shared_secret);
-		let mut hmac = HmacEngine::<Sha256>::new(&um);
+		let mut hmac = HmacEngine::<Sha256Engine>::new(&um);
 		hmac.input(&message);
 		hmac.input(&self.hold_times[..(position + 1) * HOLD_TIME_LEN]);
 		self.write_downstream_hmacs(position, &mut hmac);
-		let expected_hmac = &Hmac::from_engine(hmac).to_byte_array()[..HMAC_LEN];
+		let expected_hmac = &hmac.finalize().to_byte_array()[..HMAC_LEN];
 
 		// Compare with the actual HMAC.
 		let hmac_idx = MAX_HOPS - position - 1;
@@ -3042,14 +3042,14 @@ mod tests {
 	use crate::util::test_utils::TestLogger;
 
 	use super::*;
-	use bitcoin::hex::{DisplayHex, FromHex};
+	use hex_conservative::{DisplayHex, FromHex};
 	use bitcoin::secp256k1::Secp256k1;
 	use bitcoin::secp256k1::{PublicKey, SecretKey};
 	use types::features::Features;
 
 	fn get_test_session_key() -> SecretKey {
 		let hex = "4141414141414141414141414141414141414141414141414141414141414141";
-		SecretKey::from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap()
+		crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap()
 	}
 
 	fn build_test_path() -> Path {
@@ -3692,8 +3692,8 @@ mod tests {
 		{
 			// test vector per https://github.com/lightning/bolts/blob/079f761bf68caa48544bd6bf0a29591d43425b0b/bolt04/trampoline-onion-error-test.json
 			// all dummy values
-			let trampoline_session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
-			let outer_session_priv = SecretKey::from_slice(&[4; 32]).unwrap();
+			let trampoline_session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
+			let outer_session_priv = crate::prelude::secret_key_from_slice(&[4; 32]).unwrap();
 
 			let error_packet_hex = "f8941a320b8fde4ad7b9b920c69cbf334114737497d93059d77e591eaa78d6334d3e2aeefcb0cc83402eaaf91d07d695cd895d9cad1018abdaf7d2a49d7657b1612729db7f393f0bb62b25afaaaa326d72a9214666025385033f2ec4605dcf1507467b5726d806da180ea224a7d8631cd31b0bdd08eead8bfe14fc8c7475e17768b1321b54dd4294aecc96da391efe0ca5bd267a45ee085c85a60cf9a9ac152fa4795fff8700a3ea4f848817f5e6943e855ab2e86f6929c9e885d8b20c49b14d2512c59ed21f10bd38691110b0d82c00d9fa48a20f10c7550358724c6e8e2b966e56a0aadf458695b273768062fa7c6e60eb72d4cdc67bf525c194e4a17fdcaa0e9d80480b586bf113f14eea530b6728a1c53fe5cee092e24a90f21f4b764015e7ed5e23";
 			let error_packet = OnionErrorPacket {
@@ -3891,8 +3891,8 @@ mod tests {
 		for i in 0..LEGACY_MAX_HOPS {
 			let mut secret_bytes = [0; 32];
 			secret_bytes[0] = (i + 1) as u8;
-			let secret_key = SecretKey::from_slice(&secret_bytes).unwrap();
-			let pubkey = secret_key.public_key(&secp_ctx);
+			let secret_key = crate::prelude::secret_key_from_slice(&secret_bytes).unwrap();
+			let pubkey = secret_key.public_key();
 
 			hops.push(RouteHop {
 				pubkey,
@@ -3958,9 +3958,9 @@ mod tests {
 		// The failure message is a single 0 byte.
 		let mut packet = [0u8; 33];
 
-		let mut hmac = HmacEngine::<Sha256>::new(&um);
+		let mut hmac = HmacEngine::<Sha256Engine>::new(&um);
 		hmac.input(&packet[32..]);
-		let hmac = Hmac::from_engine(hmac).to_byte_array();
+		let hmac = hmac.finalize().to_byte_array();
 		packet[..32].copy_from_slice(&hmac);
 
 		let mut onion_error_packet = OnionErrorPacket {
@@ -3993,9 +3993,9 @@ mod tests {
 		let pad = Vec::new();
 		let mut packet = msgs::DecodedOnionErrorPacket { hmac: [0; 32], failuremsg, pad };
 
-		let mut hmac = HmacEngine::<Sha256>::new(&um);
+		let mut hmac = HmacEngine::<Sha256Engine>::new(&um);
 		hmac.input(&packet.encode()[32..]);
-		packet.hmac = Hmac::from_engine(hmac).to_byte_array();
+		packet.hmac = hmac.finalize().to_byte_array();
 
 		let mut onion_error_packet = OnionErrorPacket {
 			data: packet.encode(),

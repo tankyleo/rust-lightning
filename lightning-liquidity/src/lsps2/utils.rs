@@ -10,8 +10,8 @@
 use crate::lsps2::msgs::LSPS2OpeningFeeParams;
 use crate::utils;
 
-use bitcoin::hashes::hmac::{Hmac, HmacEngine};
-use bitcoin::hashes::sha256::Hash as Sha256;
+use bitcoin::hashes::hmac::HmacEngine;
+use bitcoin::hashes::sha256::HashEngine as Sha256Engine;
 use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::secp256k1::PublicKey;
 
@@ -22,7 +22,7 @@ pub fn is_valid_opening_fee_params(
 	if is_expired_opening_fee_params(fee_params) {
 		return false;
 	}
-	let mut hmac = HmacEngine::<Sha256>::new(promise_secret);
+	let mut hmac = HmacEngine::<Sha256Engine>::new(promise_secret);
 	hmac.input(&counterparty_node_id.serialize());
 	hmac.input(&fee_params.min_fee_msat.to_be_bytes());
 	hmac.input(&fee_params.proportional.to_be_bytes());
@@ -31,7 +31,7 @@ pub fn is_valid_opening_fee_params(
 	hmac.input(&fee_params.max_client_to_self_delay.to_be_bytes());
 	hmac.input(&fee_params.min_payment_size_msat.to_be_bytes());
 	hmac.input(&fee_params.max_payment_size_msat.to_be_bytes());
-	let promise_bytes = Hmac::from_engine(hmac).to_byte_array();
+	let promise_bytes = hmac.finalize().to_byte_array();
 	let promise = utils::hex_str(&promise_bytes[..]);
 	promise == fee_params.promise
 }

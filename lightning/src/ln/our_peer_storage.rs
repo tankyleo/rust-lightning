@@ -11,8 +11,8 @@
 //! It provides encryption of data to maintain data integrity and
 //! security during transmission.
 
-use bitcoin::hashes::sha256::Hash as Sha256;
-use bitcoin::hashes::{Hash, HashEngine, Hmac, HmacEngine};
+use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
+use bitcoin::hashes::{Hash, HashEngine, HmacEngine};
 use bitcoin::secp256k1::PublicKey;
 
 use crate::ln::types::ChannelId;
@@ -139,11 +139,11 @@ impl EncryptedOurPeerStorage {
 fn derive_nonce(key: &PeerStorageKey, random_bytes: &[u8]) -> [u8; 12] {
 	let key_hash = Sha256::hash(&key.inner);
 
-	let mut hmac = HmacEngine::<Sha256>::new(key_hash.as_byte_array());
+	let mut hmac = HmacEngine::<Sha256Engine>::new(key_hash.as_byte_array());
 	hmac.input(&random_bytes);
 	let mut nonce = [0u8; 12];
 	// First 4 bytes of the nonce should be 0.
-	nonce[4..].copy_from_slice(&Hmac::from_engine(hmac).to_byte_array()[0..8]);
+	nonce[4..].copy_from_slice(&hmac.finalize().to_byte_array()[0..8]);
 
 	nonce
 }

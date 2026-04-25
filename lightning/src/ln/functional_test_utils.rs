@@ -57,19 +57,22 @@ use crate::util::wallet_utils::{WalletSourceSync, WalletSync};
 use bitcoin::amount::Amount;
 use bitcoin::block::{Block, Header, Version as BlockVersion};
 use bitcoin::hash_types::{BlockHash, TxMerkleNode};
-use bitcoin::hashes::sha256::Hash as Sha256;
+use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
 use bitcoin::hashes::Hash as _;
-use bitcoin::locktime::absolute::{LockTime, LOCK_TIME_THRESHOLD};
+use bitcoin::locktime::absolute::LockTime;
 use bitcoin::network::Network;
 use bitcoin::policy::MAX_STANDARD_TX_WEIGHT;
 use bitcoin::pow::CompactTarget;
-use bitcoin::script::ScriptBuf;
+use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::transaction::{self, Version as TxVersion};
 use bitcoin::transaction::{Transaction, TxIn, TxOut};
-use bitcoin::WPubkeyHash;
+use bitcoin::key::WPubkeyHash;
+use bitcoin::BlockTime;
 
 use crate::io;
+
+const LOCK_TIME_THRESHOLD: u32 = 500_000_000;
 use crate::prelude::*;
 use crate::sync::{Arc, LockTestExt, Mutex, RwLock};
 use alloc::rc::Rc;
@@ -79,6 +82,10 @@ use core::mem;
 use core::ops::Deref;
 
 pub const CHAN_CONFIRM_DEPTH: u32 = 10;
+
+pub fn amount_from_sat(sats: u64) -> Amount {
+	Amount::from_sat(sats).expect("test amounts must fit in bitcoin::Amount")
+}
 
 /// Mine the given transaction in the next block and then mine CHAN_CONFIRM_DEPTH - 1 blocks on
 /// top, giving the given transaction CHAN_CONFIRM_DEPTH confirmations.
@@ -109,27 +116,26 @@ pub fn mine_transaction_without_consistency_checks<'a, 'b, 'c, 'd>(
 	node: &'a Node<'b, 'c, 'd>, tx: &Transaction,
 ) {
 	let height = node.best_block_info().1 + 1;
-	let mut block = Block {
-		header: Header {
-			version: BlockVersion::NO_SOFT_FORK_SIGNALLING,
-			prev_blockhash: node.best_block_hash(),
-			merkle_root: TxMerkleNode::all_zeros(),
-			time: height,
-			bits: CompactTarget::from_consensus(42),
-			nonce: 42,
-		},
-		txdata: Vec::new(),
+	let header = Header {
+		version: BlockVersion::NO_SOFT_FORK_SIGNALLING,
+		prev_blockhash: node.best_block_hash(),
+		merkle_root: TxMerkleNode::all_zeros(),
+		time: BlockTime::from_u32(height),
+		bits: CompactTarget::from_consensus(42),
+		nonce: 42,
 	};
+	let mut txdata = Vec::new();
 	for _ in 0..*node.network_chan_count.borrow() {
 		// Make sure we don't end up with channels at the same short id by offsetting by chan_count
-		block.txdata.push(Transaction {
-			version: transaction::Version(0),
+		txdata.push(Transaction {
+			version: transaction::Version::maybe_non_standard(0),
 			lock_time: LockTime::ZERO,
-			input: Vec::new(),
-			output: Vec::new(),
+			inputs: Vec::new(),
+			outputs: Vec::new(),
 		});
 	}
-	block.txdata.push((*tx).clone());
+	txdata.push((*tx).clone());
+	let block = Block::new_unchecked(header, txdata);
 	do_connect_block_without_consistency_checks(node, block, false);
 }
 /// Mine the given transaction at the given height, mining blocks as required to build to that
@@ -149,10 +155,10 @@ pub fn confirm_transactions_at<'a, 'b, 'c, 'd>(
 	for _ in 0..*node.network_chan_count.borrow() {
 		// Make sure we don't end up with channels at the same short id by offsetting by chan_count
 		txdata.push(Transaction {
-			version: transaction::Version(0),
+			version: transaction::Version::maybe_non_standard(0),
 			lock_time: LockTime::ZERO,
-			input: Vec::new(),
-			output: Vec::new(),
+			inputs: Vec::new(),
+			outputs: Vec::new(),
 		});
 	}
 	for tx in txn {
@@ -160,7 +166,8 @@ pub fn confirm_transactions_at<'a, 'b, 'c, 'd>(
 	}
 	let block = create_dummy_block(node.best_block_hash(), conf_height, txdata);
 	connect_block(node, &block);
-	scid_utils::scid_from_parts(conf_height as u64, block.txdata.len() as u64 - 1, 0).unwrap()
+	scid_utils::scid_from_parts(conf_height as u64, block.as_parts().1.len() as u64 - 1, 0)
+		.unwrap()
 }
 pub fn confirm_transaction_at<'a, 'b, 'c, 'd>(
 	node: &'a Node<'b, 'c, 'd>, tx: &Transaction, conf_height: u32,
@@ -263,14 +270,14 @@ pub fn create_dummy_header(prev_blockhash: BlockHash, time: u32) -> Header {
 		version: BlockVersion::NO_SOFT_FORK_SIGNALLING,
 		prev_blockhash,
 		merkle_root: TxMerkleNode::all_zeros(),
-		time,
+		time: BlockTime::from_u32(time),
 		bits: CompactTarget::from_consensus(42),
 		nonce: 42,
 	}
 }
 
 pub fn create_dummy_block(prev_blockhash: BlockHash, time: u32, txdata: Vec<Transaction>) -> Block {
-	Block { header: create_dummy_header(prev_blockhash, time), txdata }
+	Block::new_unchecked(create_dummy_header(prev_blockhash, time), txdata)
 }
 
 pub fn connect_blocks<'a, 'b, 'c, 'd>(node: &'a Node<'b, 'c, 'd>, depth: u32) -> BlockHash {
@@ -280,11 +287,11 @@ pub fn connect_blocks<'a, 'b, 'c, 'd>(node: &'a Node<'b, 'c, 'd>, depth: u32) ->
 	let mut block = create_dummy_block(node.best_block_hash(), height, Vec::new());
 	assert!(depth >= 1);
 	for i in 1..depth {
-		let prev_blockhash = block.header.block_hash();
+		let prev_blockhash = block.block_hash();
 		do_connect_block_with_consistency_checks(node, block, skip_intermediaries);
 		block = create_dummy_block(prev_blockhash, height + i, Vec::new());
 	}
-	let hash = block.header.block_hash();
+	let hash = block.block_hash();
 	do_connect_block_with_consistency_checks(node, block, false);
 	hash
 }
@@ -318,20 +325,17 @@ fn do_connect_block_without_consistency_checks<'a, 'b, 'c, 'd>(
 	// transaction broadcast are correct.
 	node.blocks.lock().unwrap().push((block.clone(), height));
 	if !skip_intermediaries {
-		let txdata: Vec<_> = block.txdata.iter().enumerate().collect();
+		let (header, transactions) = block.as_parts();
+		let txdata: Vec<_> = transactions.iter().enumerate().collect();
 		match *node.connect_style.borrow() {
 			ConnectStyle::BestBlockFirst
 			| ConnectStyle::BestBlockFirstSkippingBlocks
 			| ConnectStyle::BestBlockFirstReorgsOnlyTip => {
-				node.chain_monitor.chain_monitor.best_block_updated(&block.header, height);
+				node.chain_monitor.chain_monitor.best_block_updated(header, height);
 				call_claimable_balances(node);
-				node.chain_monitor.chain_monitor.transactions_confirmed(
-					&block.header,
-					&txdata,
-					height,
-				);
-				node.node.best_block_updated(&block.header, height);
-				node.node.transactions_confirmed(&block.header, &txdata, height);
+				node.chain_monitor.chain_monitor.transactions_confirmed(header, &txdata, height);
+				node.node.best_block_updated(header, height);
+				node.node.transactions_confirmed(header, &txdata, height);
 			},
 			ConnectStyle::TransactionsFirst
 			| ConnectStyle::TransactionsFirstSkippingBlocks
@@ -343,7 +347,7 @@ fn do_connect_block_without_consistency_checks<'a, 'b, 'c, 'd>(
 				{
 					let mut connections = Vec::new();
 					for (block, height) in node.blocks.lock().unwrap().iter() {
-						if !block.txdata.is_empty() {
+						if !block.as_parts().1.is_empty() {
 							// Reconnect all transactions we've ever seen to ensure transaction connection
 							// is *really* idempotent. This is a somewhat likely deployment for some
 							// esplora implementations of chain sync which try to reduce state and
@@ -355,31 +359,24 @@ fn do_connect_block_without_consistency_checks<'a, 'b, 'c, 'd>(
 						}
 					}
 					for (old_block, height) in connections {
+						let (old_header, old_transactions) = old_block.as_parts();
 						node.chain_monitor.chain_monitor.transactions_confirmed(
-							&old_block.header,
-							&old_block.txdata.iter().enumerate().collect::<Vec<_>>(),
+							old_header,
+							&old_transactions.iter().enumerate().collect::<Vec<_>>(),
 							height,
 						);
 					}
 				}
-				node.chain_monitor.chain_monitor.transactions_confirmed(
-					&block.header,
-					&txdata,
-					height,
-				);
+				node.chain_monitor.chain_monitor.transactions_confirmed(header, &txdata, height);
 				if *node.connect_style.borrow()
 					== ConnectStyle::TransactionsDuplicativelyFirstSkippingBlocks
 				{
-					node.chain_monitor.chain_monitor.transactions_confirmed(
-						&block.header,
-						&txdata,
-						height,
-					);
+					node.chain_monitor.chain_monitor.transactions_confirmed(header, &txdata, height);
 				}
 				call_claimable_balances(node);
-				node.chain_monitor.chain_monitor.best_block_updated(&block.header, height);
-				node.node.transactions_confirmed(&block.header, &txdata, height);
-				node.node.best_block_updated(&block.header, height);
+				node.chain_monitor.chain_monitor.best_block_updated(header, height);
+				node.node.transactions_confirmed(header, &txdata, height);
+				node.node.best_block_updated(header, height);
 			},
 			ConnectStyle::FullBlockViaListen
 			| ConnectStyle::FullBlockDisconnectionsSkippingViaListen => {
@@ -389,12 +386,12 @@ fn do_connect_block_without_consistency_checks<'a, 'b, 'c, 'd>(
 		}
 	}
 
-	for tx in &block.txdata {
-		for input in &tx.input {
+	for tx in block.as_parts().1 {
+		for input in &tx.inputs {
 			node.wallet_source.remove_utxo(input.previous_output);
 		}
 		let wallet_script = node.wallet_source.get_change_script().unwrap();
-		for (idx, output) in tx.output.iter().enumerate() {
+		for (idx, output) in tx.outputs.iter().enumerate() {
 			if output.script_pubkey == wallet_script {
 				node.wallet_source.add_utxo(tx.clone(), idx as u32);
 			}
@@ -413,14 +410,14 @@ pub fn provide_utxo_reserves<'a, 'b, 'c>(
 	for node in nodes {
 		let script_pubkey = node.wallet_source.get_change_script().unwrap();
 		for _ in 0..utxos {
-			output.push(TxOut { value: amount, script_pubkey: script_pubkey.clone() });
+			output.push(TxOut { amount: amount, script_pubkey: script_pubkey.clone() });
 		}
 	}
 	let tx = Transaction {
 		version: TxVersion::TWO,
 		lock_time: LockTime::from_height(nodes[0].best_block_info().1).unwrap(),
-		input: vec![TxIn { ..Default::default() }],
-		output,
+		inputs: vec![TxIn::EMPTY_COINBASE],
+		outputs: output,
 	};
 	let height = nodes[0].best_block_info().1 + 1;
 	let block = create_dummy_block(nodes[0].best_block_hash(), height, vec![tx.clone()]);
@@ -444,13 +441,13 @@ pub fn disconnect_blocks<'a, 'b, 'c, 'd>(node: &'a Node<'b, 'c, 'd>, count: u32)
 
 		match *node.connect_style.borrow() {
 			ConnectStyle::FullBlockViaListen => {
-				let best_block = BestBlock::new(orig.0.header.prev_blockhash, orig.1 - 1);
+				let best_block = BestBlock::new(orig.0.as_parts().0.prev_blockhash, orig.1 - 1);
 				node.chain_monitor.chain_monitor.blocks_disconnected(best_block);
 				Listen::blocks_disconnected(node.node, best_block);
 			},
 			ConnectStyle::FullBlockDisconnectionsSkippingViaListen => {
 				if i == count - 1 {
-					let best_block = BestBlock::new(orig.0.header.prev_blockhash, orig.1 - 1);
+					let best_block = BestBlock::new(orig.0.as_parts().0.prev_blockhash, orig.1 - 1);
 					node.chain_monitor.chain_monitor.blocks_disconnected(best_block);
 					Listen::blocks_disconnected(node.node, best_block);
 				}
@@ -460,20 +457,20 @@ pub fn disconnect_blocks<'a, 'b, 'c, 'd>(node: &'a Node<'b, 'c, 'd>, count: u32)
 			| ConnectStyle::HighlyRedundantTransactionsFirstSkippingBlocks
 			| ConnectStyle::TransactionsDuplicativelyFirstSkippingBlocks => {
 				if i == count - 1 {
-					node.chain_monitor.chain_monitor.best_block_updated(&prev.0.header, prev.1);
-					node.node.best_block_updated(&prev.0.header, prev.1);
+					node.chain_monitor.chain_monitor.best_block_updated(prev.0.as_parts().0, prev.1);
+					node.node.best_block_updated(prev.0.as_parts().0, prev.1);
 				}
 			},
 			ConnectStyle::BestBlockFirstReorgsOnlyTip
 			| ConnectStyle::TransactionsFirstReorgsOnlyTip => {
-				for tx in orig.0.txdata {
+				for tx in orig.0.into_parts().1 {
 					node.chain_monitor.chain_monitor.transaction_unconfirmed(&tx.compute_txid());
 					node.node.transaction_unconfirmed(&tx.compute_txid());
 				}
 			},
 			_ => {
-				node.chain_monitor.chain_monitor.best_block_updated(&prev.0.header, prev.1);
-				node.node.best_block_updated(&prev.0.header, prev.1);
+				node.chain_monitor.chain_monitor.best_block_updated(prev.0.as_parts().0, prev.1);
+				node.node.best_block_updated(prev.0.as_parts().0, prev.1);
 			},
 		}
 		call_claimable_balances(node);
@@ -618,7 +615,7 @@ impl<'a, 'b, 'c> Node<'a, 'b, 'c> {
 		self.blocks.lock().unwrap().last().map(|(a, b)| (a.block_hash(), *b)).unwrap()
 	}
 	pub fn get_block_header(&self, height: u32) -> Header {
-		self.blocks.lock().unwrap()[height as usize].0.header
+		self.blocks.lock().unwrap()[height as usize].0.as_parts().0.clone()
 	}
 
 	pub fn provide_funding_utxos(&self, utxos: usize, amount: Amount) -> Transaction {
@@ -929,7 +926,7 @@ impl<'a, 'b, 'c> Drop for Node<'a, 'b, 'c> {
 			}
 
 			let persister = test_utils::TestPersister::new();
-			let chain_source = test_utils::TestChainSource::new(Network::Testnet);
+			let chain_source = test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 			let chain_monitor = test_utils::TestChainMonitor::new(
 				Some(&chain_source),
 				&broadcaster,
@@ -1496,17 +1493,17 @@ fn internal_create_funding_transaction<'a, 'b, 'c>(
 			assert_eq!(user_channel_id, expected_user_chan_id);
 
 			let input = if coinbase {
-				vec![TxIn { previous_output: bitcoin::OutPoint::null(), ..Default::default() }]
+				vec![TxIn { previous_output: bitcoin::OutPoint::null(), ..TxIn::EMPTY_COINBASE }]
 			} else {
 				Vec::new()
 			};
 
 			let tx = Transaction {
-				version: transaction::Version(chan_id as i32),
+				version: transaction::Version::maybe_non_standard(chan_id as u32),
 				lock_time: LockTime::ZERO,
-				input,
-				output: vec![TxOut {
-					value: Amount::from_sat(*channel_value_satoshis),
+				inputs: input,
+				outputs: vec![TxOut {
+					amount: amount_from_sat(*channel_value_satoshis),
 					script_pubkey: output_script.clone(),
 				}],
 			};
@@ -1531,17 +1528,17 @@ pub fn create_dual_funding_utxos_with_prev_txs(
 			) % LOCK_TIME_THRESHOLD,
 		)
 		.unwrap(),
-		input: vec![],
-		output: utxo_values_in_satoshis
+		inputs: vec![],
+		outputs: utxo_values_in_satoshis
 			.iter()
 			.map(|value_satoshis| TxOut {
-				value: Amount::from_sat(*value_satoshis),
-				script_pubkey: ScriptBuf::new_p2wpkh(&WPubkeyHash::all_zeros()),
+				amount: amount_from_sat(*value_satoshis),
+				script_pubkey: ScriptBuf::new_p2wpkh(WPubkeyHash::all_zeros()),
 			})
 			.collect(),
 	};
 
-	tx.output
+	tx.outputs
 		.iter()
 		.enumerate()
 		.map(|(index, _)| index as u32)
@@ -2141,17 +2138,17 @@ pub fn update_nodes_with_chan_announce<'a, 'b, 'c, 'd>(
 pub fn do_check_spends<F: Fn(&bitcoin::transaction::OutPoint) -> Option<TxOut>>(
 	tx: &Transaction, get_output: F,
 ) {
-	if tx.version == TxVersion::non_standard(3) {
+	if tx.version == TxVersion::maybe_non_standard(3) {
 		assert!(tx.weight().to_wu() <= TRUC_MAX_WEIGHT);
 	} else {
 		assert!(tx.weight().to_wu() <= MAX_STANDARD_TX_WEIGHT as u64);
 	}
 	let mut p2a_output_below_dust = false;
 	let mut has_p2a_output = false;
-	for outp in tx.output.iter() {
+	for outp in tx.outputs.iter() {
 		let is_p2a = outp.script_pubkey == crate::ln::chan_utils::shared_anchor_script_pubkey();
 		has_p2a_output |= is_p2a;
-		if outp.value < outp.script_pubkey.minimal_non_dust() {
+		if outp.amount < outp.script_pubkey.minimal_non_dust() {
 			if p2a_output_below_dust || !is_p2a {
 				panic!("Spending tx output didn't meet dust limit");
 			}
@@ -2159,16 +2156,16 @@ pub fn do_check_spends<F: Fn(&bitcoin::transaction::OutPoint) -> Option<TxOut>>(
 		};
 	}
 	let mut total_value_in = 0;
-	for input in tx.input.iter() {
+	for input in tx.inputs.iter() {
 		let output = get_output(&input.previous_output).unwrap();
 		if output.script_pubkey == crate::ln::chan_utils::shared_anchor_script_pubkey() {
 			assert!(input.witness.is_empty());
 		}
-		total_value_in += output.value.to_sat();
+		total_value_in += output.amount.to_sat();
 	}
 	let mut total_value_out = 0;
-	for output in tx.output.iter() {
-		total_value_out += output.value.to_sat();
+	for output in tx.outputs.iter() {
+		total_value_out += output.amount.to_sat();
 	}
 	if p2a_output_below_dust {
 		assert_eq!(
@@ -2190,8 +2187,8 @@ macro_rules! check_spends {
 		{
 			$(
 			let mut single_output_below_dust = false;
-			for outp in $spends_txn.output.iter() {
-				if outp.value < outp.script_pubkey.minimal_non_dust() {
+			for outp in $spends_txn.outputs.iter() {
+				if outp.amount < outp.script_pubkey.minimal_non_dust() {
 					if single_output_below_dust || outp.script_pubkey != $crate::ln::chan_utils::shared_anchor_script_pubkey() {
 						panic!("Input tx output didn't meet dust limit");
 					} else {
@@ -2203,7 +2200,7 @@ macro_rules! check_spends {
 			let get_output = |out_point: &bitcoin::transaction::OutPoint| {
 				$(
 					if out_point.txid == $spends_txn.compute_txid() {
-						return $spends_txn.output.get(out_point.vout as usize).cloned()
+						return $spends_txn.outputs.get(out_point.vout as usize).cloned()
 					}
 				)*
 				None
@@ -2845,7 +2842,7 @@ pub fn get_payment_preimage_hash(
 /// Gets a route from the given sender to the node described in `payment_params`.
 pub fn get_route(send_node: &Node, route_params: &RouteParameters) -> Result<Route, &'static str> {
 	let scorer = TestScorer::new();
-	let keys_manager = TestKeysInterface::new(&[0u8; 32], Network::Testnet);
+	let keys_manager = TestKeysInterface::new(&[0u8; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 	let random_seed_bytes = keys_manager.get_secure_random_bytes();
 	let first_hops = send_node.node.list_usable_channels();
 	router::get_route(
@@ -2863,7 +2860,7 @@ pub fn get_route(send_node: &Node, route_params: &RouteParameters) -> Result<Rou
 /// Like `get_route` above, but adds a random CLTV offset to the final hop.
 pub fn find_route(send_node: &Node, route_params: &RouteParameters) -> Result<Route, &'static str> {
 	let scorer = TestScorer::new();
-	let keys_manager = TestKeysInterface::new(&[0u8; 32], Network::Testnet);
+	let keys_manager = TestKeysInterface::new(&[0u8; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 	let random_seed_bytes = keys_manager.get_secure_random_bytes();
 	router::find_route(
 		&send_node.node.get_our_node_id(),
@@ -4050,7 +4047,7 @@ pub fn pass_claimed_payment_along_route(args: ClaimAlongRouteArgs) -> u64 {
 			ref onion_fields,
 			..
 		} => {
-			assert_eq!(&payment_hash.0, &Sha256::hash(&args.payment_preimage.0)[..]);
+			assert_eq!(&payment_hash.0, Sha256::hash(&args.payment_preimage.0).as_byte_array());
 			assert_eq!(htlcs.len(), args.expected_paths.len()); // One per path.
 			assert_eq!(htlcs.iter().map(|h| h.value_msat).sum::<u64>(), amount_msat);
 			assert_eq!(onion_fields.as_ref().unwrap().custom_tlvs, args.custom_tlvs);
@@ -4543,9 +4540,9 @@ pub fn create_chanmon_cfgs_internal(
 	let mut chan_mon_cfgs = Vec::new();
 	let phantom_seed = if phantom { Some(&[42; 32]) } else { None };
 	for i in 0..node_count {
-		let tx_broadcaster = test_utils::TestBroadcaster::new(Network::Testnet);
+		let tx_broadcaster = test_utils::TestBroadcaster::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let fee_estimator = test_utils::TestFeeEstimator::new(253);
-		let chain_source = test_utils::TestChainSource::new(Network::Testnet);
+		let chain_source = test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let logger = test_utils::TestLogger::with_id(format!("node {}", i));
 		let persister = test_utils::TestPersister::new();
 		let mut seed = [i as u8; 32];
@@ -4559,7 +4556,7 @@ pub fn create_chanmon_cfgs_internal(
 		}
 		let keys_manager = test_utils::TestKeysInterface::with_settings(
 			&seed,
-			Network::Testnet,
+			Network::Testnet(bitcoin::network::TestnetVersion::V3),
 			// Use legacy (V1) remote_key derivation for tests using legacy key sets.
 			predefined_keys_ids.is_some(),
 			phantom_seed,
@@ -4602,7 +4599,7 @@ where
 
 	for i in 0..node_count {
 		let cfg = &chanmon_cfgs[i];
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, &cfg.logger));
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &cfg.logger));
 		let chain_monitor = if deferred {
 			test_utils::TestChainMonitor::new_deferred(
 				Some(&cfg.chain_source),
@@ -4744,7 +4741,7 @@ pub fn create_node_chanmgrs<'a, 'b>(
 > {
 	let mut chanmgrs = Vec::new();
 	for i in 0..node_count {
-		let network = Network::Testnet;
+		let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 		let genesis_block = bitcoin::constants::genesis_block(network);
 		let params = ChainParameters { network, best_block: BestBlock::from_network(network) };
 		let node = ChannelManager::new(
@@ -4763,7 +4760,7 @@ pub fn create_node_chanmgrs<'a, 'b>(
 				test_default_channel_config()
 			},
 			params,
-			genesis_block.header.time,
+			genesis_block.header().time.to_u32(),
 		);
 		chanmgrs.push(node);
 	}
@@ -4842,7 +4839,7 @@ pub fn create_network<'a, 'b: 'a, 'c: 'b>(
 		);
 		let gossip_sync = P2PGossipSync::new(cfgs[i].network_graph.as_ref(), None, cfgs[i].logger);
 		let wallet_source = Arc::new(test_utils::TestWalletSource::new(
-			SecretKey::from_slice(&[i as u8 + 1; 32]).unwrap(),
+			crate::prelude::secret_key_from_slice(&[i as u8 + 1; 32]).unwrap(),
 		));
 		let wallet = Arc::new(WalletSync::new(Arc::clone(&wallet_source), cfgs[i].logger));
 		nodes.push(Node {
@@ -4960,7 +4957,7 @@ pub fn test_txn_broadcast<'a, 'b, 'c>(
 
 	let mut res = Vec::with_capacity(2);
 	node_txn.retain(|tx| {
-		if tx.input.len() == 1 && tx.input[0].previous_output.txid == chan.3.compute_txid() {
+		if tx.inputs.len() == 1 && tx.inputs[0].previous_output.txid == chan.3.compute_txid() {
 			check_spends!(tx, chan.3);
 			if commitment_tx.is_none() {
 				res.push(tx.clone());
@@ -4978,7 +4975,7 @@ pub fn test_txn_broadcast<'a, 'b, 'c>(
 
 	if has_htlc_tx != HTLCType::NONE {
 		node_txn.retain(|tx| {
-			if tx.input.len() == 1 && tx.input[0].previous_output.txid == res[0].compute_txid() {
+			if tx.inputs.len() == 1 && tx.inputs[0].previous_output.txid == res[0].compute_txid() {
 				check_spends!(tx, res[0]);
 				if has_htlc_tx == HTLCType::TIMEOUT {
 					assert_ne!(tx.lock_time, LockTime::ZERO);
@@ -5013,7 +5010,7 @@ pub fn test_revoked_htlc_claim_txn_broadcast<'a, 'b, 'c>(
 		assert!(false);
 	}
 	node_txn.retain(|tx| {
-		if tx.input.len() == 1 && tx.input[0].previous_output.txid == revoked_tx.compute_txid() {
+		if tx.inputs.len() == 1 && tx.inputs[0].previous_output.txid == revoked_tx.compute_txid() {
 			check_spends!(tx, revoked_tx);
 			false
 		} else {
@@ -5037,13 +5034,13 @@ pub fn check_preimage_claim<'a, 'b, 'c>(
 	let mut found_prev = false;
 	for prev_tx in prev_txn {
 		for tx in &*node_txn {
-			if tx.input[0].previous_output.txid == prev_tx.compute_txid() {
+			if tx.inputs[0].previous_output.txid == prev_tx.compute_txid() {
 				check_spends!(tx, prev_tx);
-				let mut iter = tx.input[0].witness.iter();
+				let mut iter = tx.inputs[0].witness.iter();
 				iter.next().expect("expected 3 witness items");
 				iter.next().expect("expected 3 witness items");
 				assert!(iter.next().expect("expected 3 witness items").len() > 106); // must spend an htlc output
-				assert_eq!(tx.input.len(), 1); // must spend a commitment tx
+				assert_eq!(tx.inputs.len(), 1); // must spend a commitment tx
 
 				found_prev = true;
 				break;
@@ -5762,7 +5759,7 @@ pub fn create_batch_channel_funding<'a, 'b, 'c>(
 				assert_eq!(channel_value_satoshis, event_channel_value_satoshis);
 				assert_eq!(user_channel_id, event_user_channel_id);
 				tx_outs.push(TxOut {
-					value: Amount::from_sat(*channel_value_satoshis),
+					amount: amount_from_sat(*channel_value_satoshis),
 					script_pubkey: output_script.clone(),
 				});
 			},
@@ -5775,8 +5772,8 @@ pub fn create_batch_channel_funding<'a, 'b, 'c>(
 	let tx = Transaction {
 		version: transaction::Version::TWO,
 		lock_time: LockTime::ZERO,
-		input: Vec::new(),
-		output: tx_outs,
+		inputs: Vec::new(),
+		outputs: tx_outs,
 	};
 	assert!(funding_node
 		.node

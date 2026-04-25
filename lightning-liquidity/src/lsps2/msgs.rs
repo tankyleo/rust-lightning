@@ -14,8 +14,8 @@ use alloc::vec::Vec;
 
 use core::convert::TryFrom;
 
-use bitcoin::hashes::hmac::{Hmac, HmacEngine};
-use bitcoin::hashes::sha256::Hash as Sha256;
+use bitcoin::hashes::hmac::HmacEngine;
+use bitcoin::hashes::sha256::HashEngine as Sha256Engine;
 use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::secp256k1::PublicKey;
 
@@ -71,7 +71,7 @@ impl LSPS2RawOpeningFeeParams {
 	pub(crate) fn into_opening_fee_params(
 		self, promise_secret: &[u8; 32], counterparty_node_id: &PublicKey,
 	) -> LSPS2OpeningFeeParams {
-		let mut hmac = HmacEngine::<Sha256>::new(promise_secret);
+		let mut hmac = HmacEngine::<Sha256Engine>::new(promise_secret);
 		hmac.input(&counterparty_node_id.serialize());
 		hmac.input(&self.min_fee_msat.to_be_bytes());
 		hmac.input(&self.proportional.to_be_bytes());
@@ -80,7 +80,7 @@ impl LSPS2RawOpeningFeeParams {
 		hmac.input(&self.max_client_to_self_delay.to_be_bytes());
 		hmac.input(&self.min_payment_size_msat.to_be_bytes());
 		hmac.input(&self.max_payment_size_msat.to_be_bytes());
-		let promise_bytes = Hmac::from_engine(hmac).to_byte_array();
+		let promise_bytes = hmac.finalize().to_byte_array();
 		let promise = utils::hex_str(&promise_bytes[..]);
 		LSPS2OpeningFeeParams {
 			min_fee_msat: self.min_fee_msat,
@@ -276,10 +276,7 @@ mod tests {
 		};
 
 		let promise_secret = [1u8; 32];
-		let client_node_id = PublicKey::from_secret_key(
-			&Secp256k1::new(),
-			&SecretKey::from_slice(&[0xcd; 32]).unwrap(),
-		);
+		let client_node_id = PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
 
 		let opening_fee_params = raw.into_opening_fee_params(&promise_secret, &client_node_id);
 
@@ -315,10 +312,7 @@ mod tests {
 		};
 
 		let promise_secret = [1u8; 32];
-		let client_node_id = PublicKey::from_secret_key(
-			&Secp256k1::new(),
-			&SecretKey::from_slice(&[0xcd; 32]).unwrap(),
-		);
+		let client_node_id = PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
 
 		let mut opening_fee_params = raw.into_opening_fee_params(&promise_secret, &client_node_id);
 		opening_fee_params.min_fee_msat = min_fee_msat + 1;
@@ -352,10 +346,7 @@ mod tests {
 		let promise_secret = [1u8; 32];
 		let other_secret = [2u8; 32];
 
-		let client_node_id = PublicKey::from_secret_key(
-			&Secp256k1::new(),
-			&SecretKey::from_slice(&[0xcd; 32]).unwrap(),
-		);
+		let client_node_id = PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
 
 		let opening_fee_params = raw.into_opening_fee_params(&promise_secret, &client_node_id);
 		assert!(!is_valid_opening_fee_params(&opening_fee_params, &other_secret, &client_node_id));
@@ -383,15 +374,9 @@ mod tests {
 
 		let promise_secret = [1u8; 32];
 
-		let client_node_id = PublicKey::from_secret_key(
-			&Secp256k1::new(),
-			&SecretKey::from_slice(&[0xcd; 32]).unwrap(),
-		);
+		let client_node_id = PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
 
-		let other_public_key = PublicKey::from_secret_key(
-			&Secp256k1::new(),
-			&SecretKey::from_slice(&[0xcf; 32]).unwrap(),
-		);
+		let other_public_key = PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcf; 32]).unwrap());
 
 		let opening_fee_params = raw.into_opening_fee_params(&promise_secret, &client_node_id);
 		assert!(is_valid_opening_fee_params(&opening_fee_params, &promise_secret, &client_node_id));
@@ -425,10 +410,7 @@ mod tests {
 		};
 
 		let promise_secret = [1u8; 32];
-		let client_node_id = PublicKey::from_secret_key(
-			&Secp256k1::new(),
-			&SecretKey::from_slice(&[0xcd; 32]).unwrap(),
-		);
+		let client_node_id = PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
 
 		let opening_fee_params = raw.into_opening_fee_params(&promise_secret, &client_node_id);
 		assert!(!is_valid_opening_fee_params(
@@ -459,10 +441,7 @@ mod tests {
 		};
 
 		let promise_secret = [1u8; 32];
-		let client_node_id = PublicKey::from_secret_key(
-			&Secp256k1::new(),
-			&SecretKey::from_slice(&[0xcd; 32]).unwrap(),
-		);
+		let client_node_id = PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
 
 		let opening_fee_params = raw.into_opening_fee_params(&promise_secret, &client_node_id);
 		let json_str = r#"{"max_client_to_self_delay":128,"max_payment_size_msat":"100000000","min_fee_msat":"100","min_lifetime":144,"min_payment_size_msat":"1","promise":"75eb57db4c37dc092a37f1d2e0026c5ff36a7834a717ea97c41d91a8d5b50ce8","proportional":21,"valid_until":"2023-05-20T08:30:45Z"}"#;

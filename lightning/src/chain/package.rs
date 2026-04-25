@@ -15,7 +15,7 @@ use bitcoin::amount::Amount;
 use bitcoin::constants::WITNESS_SCALE_FACTOR;
 use bitcoin::hash_types::Txid;
 use bitcoin::locktime::absolute::LockTime;
-use bitcoin::script::{Script, ScriptBuf};
+use bitcoin::script::{ScriptPubKey as Script, ScriptPubKeyBuf as ScriptBuf};
 use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::sighash::EcdsaSighashType;
 use bitcoin::transaction::OutPoint as BitcoinOutPoint;
@@ -563,7 +563,7 @@ impl HolderHTLCOutput {
 				&htlc_descriptor.htlc, &channel_parameters.channel_type_features,
 				&keys.broadcaster_htlc_key, &keys.countersignatory_htlc_key, &keys.revocation_key,
 			);
-			htlc_tx.input[0].witness = chan_utils::build_htlc_input_witness(
+			htlc_tx.inputs[0].witness = chan_utils::build_htlc_input_witness(
 				&htlc_sig, &htlc_descriptor.counterparty_sig, &htlc_descriptor.preimage,
 				&htlc_redeem_script, &channel_parameters.channel_type_features,
 			);
@@ -869,7 +869,7 @@ impl PackageSolvingData {
 		};
 		TxIn {
 			previous_output,
-			script_sig: ScriptBuf::new(),
+			script_sig: bitcoin::ScriptSigBuf::new(),
 			sequence,
 			witness: Witness::new(),
 		}
@@ -898,9 +898,9 @@ impl PackageSolvingData {
 				if let Ok(sig) = onchain_handler.signer.sign_justice_revoked_output(channel_parameters, &bumped_tx, i, outp.amount.to_sat(), &outp.per_commitment_key, &onchain_handler.secp_ctx) {
 					let mut ser_sig = sig.serialize_der().to_vec();
 					ser_sig.push(EcdsaSighashType::All as u8);
-					bumped_tx.input[i].witness.push(ser_sig);
-					bumped_tx.input[i].witness.push(vec!(1));
-					bumped_tx.input[i].witness.push(witness_script.clone().into_bytes());
+					bumped_tx.inputs[i].witness.push(ser_sig);
+					bumped_tx.inputs[i].witness.push(vec!(1));
+					bumped_tx.inputs[i].witness.push(witness_script.clone().into_bytes());
 				} else { return false; }
 			},
 			PackageSolvingData::RevokedHTLCOutput(ref outp) => {
@@ -925,9 +925,9 @@ impl PackageSolvingData {
 				if let Ok(sig) = onchain_handler.signer.sign_justice_revoked_htlc(channel_parameters, &bumped_tx, i, outp.amount, &outp.per_commitment_key, &outp.htlc, &onchain_handler.secp_ctx) {
 					let mut ser_sig = sig.serialize_der().to_vec();
 					ser_sig.push(EcdsaSighashType::All as u8);
-					bumped_tx.input[i].witness.push(ser_sig);
-					bumped_tx.input[i].witness.push(chan_keys.revocation_key.to_public_key().serialize().to_vec());
-					bumped_tx.input[i].witness.push(witness_script.clone().into_bytes());
+					bumped_tx.inputs[i].witness.push(ser_sig);
+					bumped_tx.inputs[i].witness.push(chan_keys.revocation_key.to_public_key().serialize().to_vec());
+					bumped_tx.inputs[i].witness.push(witness_script.clone().into_bytes());
 				} else { return false; }
 			},
 			PackageSolvingData::CounterpartyOfferedHTLCOutput(ref outp) => {
@@ -952,9 +952,9 @@ impl PackageSolvingData {
 				if let Ok(sig) = onchain_handler.signer.sign_counterparty_htlc_transaction(channel_parameters, &bumped_tx, i, &outp.htlc.amount_msat / 1000, &outp.per_commitment_point, &outp.htlc, &onchain_handler.secp_ctx) {
 					let mut ser_sig = sig.serialize_der().to_vec();
 					ser_sig.push(EcdsaSighashType::All as u8);
-					bumped_tx.input[i].witness.push(ser_sig);
-					bumped_tx.input[i].witness.push(outp.preimage.0.to_vec());
-					bumped_tx.input[i].witness.push(witness_script.clone().into_bytes());
+					bumped_tx.inputs[i].witness.push(ser_sig);
+					bumped_tx.inputs[i].witness.push(outp.preimage.0.to_vec());
+					bumped_tx.inputs[i].witness.push(witness_script.clone().into_bytes());
 				}
 			},
 			PackageSolvingData::CounterpartyReceivedHTLCOutput(ref outp) => {
@@ -979,10 +979,10 @@ impl PackageSolvingData {
 				if let Ok(sig) = onchain_handler.signer.sign_counterparty_htlc_transaction(channel_parameters, &bumped_tx, i, &outp.htlc.amount_msat / 1000, &outp.per_commitment_point, &outp.htlc, &onchain_handler.secp_ctx) {
 					let mut ser_sig = sig.serialize_der().to_vec();
 					ser_sig.push(EcdsaSighashType::All as u8);
-					bumped_tx.input[i].witness.push(ser_sig);
+					bumped_tx.inputs[i].witness.push(ser_sig);
 					// Due to BIP146 (MINIMALIF) this must be a zero-length element to relay.
-					bumped_tx.input[i].witness.push(vec![]);
-					bumped_tx.input[i].witness.push(witness_script.clone().into_bytes());
+					bumped_tx.inputs[i].witness.push(vec![]);
+					bumped_tx.inputs[i].witness.push(witness_script.clone().into_bytes());
 				}
 			},
 			_ => { panic!("API Error!"); }
@@ -1399,14 +1399,14 @@ impl PackageTemplate {
 		let mut bumped_tx = Transaction {
 			version: Version::TWO,
 			lock_time: LockTime::from_consensus(self.package_locktime(current_height)),
-			input: vec![],
-			output: vec![TxOut {
+			inputs: vec![],
+			outputs: vec![TxOut {
 				script_pubkey: destination_script,
-				value,
+				amount: value,
 			}],
 		};
 		for (outpoint, outp) in self.inputs.iter() {
-			bumped_tx.input.push(outp.as_tx_input(*outpoint));
+			bumped_tx.inputs.push(outp.as_tx_input(*outpoint));
 		}
 		for (i, (outpoint, out)) in self.inputs.iter().enumerate() {
 			log_debug!(logger, "Adding claiming input for outpoint {}:{}", outpoint.txid, outpoint.vout);
@@ -1780,12 +1780,12 @@ mod tests {
 	use bitcoin::absolute::LockTime;
 	use bitcoin::amount::Amount;
 	use bitcoin::constants::WITNESS_SCALE_FACTOR;
-	use bitcoin::script::ScriptBuf;
+	use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
 	use bitcoin::transaction::OutPoint as BitcoinOutPoint;
 	use bitcoin::transaction::Version;
 	use bitcoin::{Transaction, TxOut};
 
-	use bitcoin::hex::FromHex;
+	use hex_conservative::FromHex;
 
 	use crate::chain::chaininterface::{
 		ConfirmationTarget, FeeEstimator, LowerBoundedFeeEstimator, FEERATE_FLOOR_SATS_PER_KW,
@@ -1799,11 +1799,11 @@ mod tests {
 	#[rustfmt::skip]
 	fn fake_txid(n: u64) -> Txid {
 		Transaction {
-			version: Version(0),
+			version: Version::maybe_non_standard(0),
 			lock_time: LockTime::ZERO,
-			input: vec![],
-			output: vec![TxOut {
-				value: Amount::from_sat(n),
+			inputs: vec![],
+			outputs: vec![TxOut {
+				amount: Amount::from_sat(n).expect("amount must fit"),
 				script_pubkey: ScriptBuf::new(),
 			}],
 		}.compute_txid()
@@ -1814,8 +1814,8 @@ mod tests {
 		() => {
 			{
 				let secp_ctx = Secp256k1::new();
-				let dumb_scalar = SecretKey::from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
-				let dumb_point = PublicKey::from_secret_key(&secp_ctx, &dumb_scalar);
+				let dumb_scalar = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
+				let dumb_point = PublicKey::from_secret_key(&dumb_scalar);
 				let channel_parameters = ChannelTransactionParameters::test_dummy(0);
 				PackageSolvingData::RevokedOutput(RevokedOutput::build(dumb_point, dumb_scalar, Amount::ZERO, channel_parameters, 0))
 			}
@@ -1827,8 +1827,8 @@ mod tests {
 		() => {
 			{
 				let secp_ctx = Secp256k1::new();
-				let dumb_scalar = SecretKey::from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
-				let dumb_point = PublicKey::from_secret_key(&secp_ctx, &dumb_scalar);
+				let dumb_scalar = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
+				let dumb_point = PublicKey::from_secret_key(&dumb_scalar);
 				let hash = PaymentHash([1; 32]);
 				let htlc = HTLCOutputInCommitment { offered: false, amount_msat: 1_000_000, cltv_expiry: 0, payment_hash: hash, transaction_output_index: None };
 				let mut channel_parameters = ChannelTransactionParameters::test_dummy(0);
@@ -1846,8 +1846,8 @@ mod tests {
 		($amt: expr, $expiry: expr, $features: expr) => {
 			{
 				let secp_ctx = Secp256k1::new();
-				let dumb_scalar = SecretKey::from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
-				let dumb_point = PublicKey::from_secret_key(&secp_ctx, &dumb_scalar);
+				let dumb_scalar = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
+				let dumb_point = PublicKey::from_secret_key(&dumb_scalar);
 				let hash = PaymentHash([1; 32]);
 				let htlc = HTLCOutputInCommitment { offered: true, amount_msat: $amt, cltv_expiry: $expiry, payment_hash: hash, transaction_output_index: None };
 				let mut channel_parameters = ChannelTransactionParameters::test_dummy(0);
@@ -1864,8 +1864,8 @@ mod tests {
 		($amt: expr, $features: expr) => {
 			{
 				let secp_ctx = Secp256k1::new();
-				let dumb_scalar = SecretKey::from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
-				let dumb_point = PublicKey::from_secret_key(&secp_ctx, &dumb_scalar);
+				let dumb_scalar = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
+				let dumb_point = PublicKey::from_secret_key(&dumb_scalar);
 				let hash = PaymentHash([1; 32]);
 				let preimage = PaymentPreimage([2;32]);
 				let htlc = HTLCOutputInCommitment { offered: false, amount_msat: $amt, cltv_expiry: 0, payment_hash: hash, transaction_output_index: None };

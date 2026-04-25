@@ -10,8 +10,8 @@
 //! Utilities to generate inbound payment information in service of invoice creation.
 
 use bitcoin::hashes::cmp::fixed_time_eq;
-use bitcoin::hashes::hmac::{Hmac, HmacEngine};
-use bitcoin::hashes::sha256::Hash as Sha256;
+use bitcoin::hashes::hmac::HmacEngine;
+use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
 use bitcoin::hashes::{Hash, HashEngine};
 
 use crate::crypto::chacha20::ChaCha20;
@@ -90,8 +90,8 @@ impl ExpandedKey {
 	/// Returns an [`HmacEngine`] used to construct [`Offer::metadata`].
 	///
 	/// [`Offer::metadata`]: crate::offers::offer::Offer::metadata
-	pub(crate) fn hmac_for_offer(&self) -> HmacEngine<Sha256> {
-		HmacEngine::<Sha256>::new(&self.offers_base_key)
+	pub(crate) fn hmac_for_offer(&self) -> HmacEngine<Sha256Engine> {
+		HmacEngine::<Sha256Engine>::new(&self.offers_base_key)
 	}
 
 	/// Encrypts or decrypts the given `bytes`. Used for data included in an offer message's
@@ -167,10 +167,10 @@ pub fn create<ES: EntropySource>(
 	let rand_bytes = entropy_source.get_secure_random_bytes();
 	iv_bytes.copy_from_slice(&rand_bytes[..IV_LEN]);
 
-	let mut hmac = HmacEngine::<Sha256>::new(&keys.ldk_pmt_hash_key);
+	let mut hmac = HmacEngine::<Sha256Engine>::new(&keys.ldk_pmt_hash_key);
 	hmac.input(&iv_bytes);
 	hmac.input(&metadata_bytes);
-	let payment_preimage_bytes = Hmac::from_engine(hmac).to_byte_array();
+	let payment_preimage_bytes = hmac.finalize().to_byte_array();
 
 	let ldk_pmt_hash = PaymentHash(Sha256::hash(&payment_preimage_bytes).to_byte_array());
 	let payment_secret = construct_payment_secret(&iv_bytes, &metadata_bytes, &keys.metadata_key);
@@ -203,10 +203,10 @@ pub fn create_from_hash(
 		min_final_cltv_expiry_delta,
 	)?;
 
-	let mut hmac = HmacEngine::<Sha256>::new(&keys.user_pmt_hash_key);
+	let mut hmac = HmacEngine::<Sha256Engine>::new(&keys.user_pmt_hash_key);
 	hmac.input(&metadata_bytes);
 	hmac.input(&payment_hash.0);
-	let hmac_bytes = Hmac::from_engine(hmac).to_byte_array();
+	let hmac_bytes = hmac.finalize().to_byte_array();
 
 	let mut iv_bytes = [0 as u8; IV_LEN];
 	iv_bytes.copy_from_slice(&hmac_bytes[..IV_LEN]);
@@ -226,9 +226,9 @@ pub(crate) fn create_for_spontaneous_payment(
 		min_final_cltv_expiry_delta,
 	)?;
 
-	let mut hmac = HmacEngine::<Sha256>::new(&keys.spontaneous_pmt_key);
+	let mut hmac = HmacEngine::<Sha256Engine>::new(&keys.spontaneous_pmt_key);
 	hmac.input(&metadata_bytes);
-	let hmac_bytes = Hmac::from_engine(hmac).to_byte_array();
+	let hmac_bytes = hmac.finalize().to_byte_array();
 
 	let mut iv_bytes = [0 as u8; IV_LEN];
 	iv_bytes.copy_from_slice(&hmac_bytes[..IV_LEN]);
@@ -367,12 +367,12 @@ pub(super) fn verify<L: Logger>(
 
 	match payment_type_res {
 		Ok(Method::UserPaymentHash) | Ok(Method::UserPaymentHashCustomFinalCltv) => {
-			let mut hmac = HmacEngine::<Sha256>::new(&keys.user_pmt_hash_key);
+			let mut hmac = HmacEngine::<Sha256Engine>::new(&keys.user_pmt_hash_key);
 			hmac.input(&metadata_bytes[..]);
 			hmac.input(&payment_hash.0);
 			if !fixed_time_eq(
 				&iv_bytes,
-				&Hmac::from_engine(hmac).to_byte_array().split_at_mut(IV_LEN).0,
+				&hmac.finalize().to_byte_array().split_at_mut(IV_LEN).0,
 			) {
 				log_trace!(
 					logger,
@@ -397,11 +397,11 @@ pub(super) fn verify<L: Logger>(
 			}
 		},
 		Ok(Method::SpontaneousPayment) => {
-			let mut hmac = HmacEngine::<Sha256>::new(&keys.spontaneous_pmt_key);
+			let mut hmac = HmacEngine::<Sha256Engine>::new(&keys.spontaneous_pmt_key);
 			hmac.input(&metadata_bytes[..]);
 			if !fixed_time_eq(
 				&iv_bytes,
-				&Hmac::from_engine(hmac).to_byte_array().split_at_mut(IV_LEN).0,
+				&hmac.finalize().to_byte_array().split_at_mut(IV_LEN).0,
 			) {
 				log_trace!(logger, "Failing async payment HTLC with sender-generated payment_hash {}: unexpected payment_secret", &payment_hash);
 				return Err(());
@@ -501,10 +501,10 @@ fn derive_ldk_payment_preimage(
 	payment_hash: PaymentHash, iv_bytes: &[u8; IV_LEN], metadata_bytes: &[u8; METADATA_LEN],
 	keys: &ExpandedKey,
 ) -> Result<PaymentPreimage, [u8; 32]> {
-	let mut hmac = HmacEngine::<Sha256>::new(&keys.ldk_pmt_hash_key);
+	let mut hmac = HmacEngine::<Sha256Engine>::new(&keys.ldk_pmt_hash_key);
 	hmac.input(iv_bytes);
 	hmac.input(metadata_bytes);
-	let decoded_payment_preimage = Hmac::from_engine(hmac).to_byte_array();
+	let decoded_payment_preimage = hmac.finalize().to_byte_array();
 	if !fixed_time_eq(&payment_hash.0, &Sha256::hash(&decoded_payment_preimage).to_byte_array()) {
 		return Err(decoded_payment_preimage);
 	}

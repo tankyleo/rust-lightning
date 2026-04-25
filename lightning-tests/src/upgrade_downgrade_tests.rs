@@ -453,7 +453,7 @@ fn do_test_0_1_htlc_forward_after_splice(fail_htlc: bool) {
 	reconnect_nodes(reconnect_b_c_args);
 
 	let outputs = vec![TxOut {
-		value: Amount::from_sat(1_000),
+		amount: Amount::from_sat(1_000),
 		script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 	}];
 	let channel_id = ChannelId(chan_id_bytes_a);

@@ -78,21 +78,21 @@ macro_rules! log_route {
 pub(crate) struct DebugTx<'a>(pub &'a Transaction);
 impl<'a> core::fmt::Display for DebugTx<'a> {
 	fn fmt(&self, f: &mut core::fmt::Formatter) -> Result<(), core::fmt::Error> {
-		if self.0.input.len() >= 1 && self.0.input.iter().any(|i| !i.witness.is_empty()) {
-			let first_input = &self.0.input[0];
+		if self.0.inputs.len() >= 1 && self.0.inputs.iter().any(|i| !i.witness.is_empty()) {
+			let first_input = &self.0.inputs[0];
 			let witness_script_len = first_input.witness.last().unwrap_or(&[]).len();
-			if self.0.input.len() == 1
+			if self.0.inputs.len() == 1
 				&& witness_script_len == 71
 				&& (first_input.sequence.0 >> 8 * 3) as u8 == 0x80
 			{
 				write!(f, "commitment tx ")?;
-			} else if self.0.input.len() == 1 && witness_script_len == 71 {
+			} else if self.0.inputs.len() == 1 && witness_script_len == 71 {
 				write!(f, "closing tx ")?;
-			} else if self.0.input.len() == 1
+			} else if self.0.inputs.len() == 1
 				&& HTLCClaim::from_witness(&first_input.witness) == Some(HTLCClaim::OfferedTimeout)
 			{
 				write!(f, "HTLC-timeout tx ")?;
-			} else if self.0.input.len() == 1
+			} else if self.0.inputs.len() == 1
 				&& HTLCClaim::from_witness(&first_input.witness)
 					== Some(HTLCClaim::AcceptedPreimage)
 			{
@@ -101,7 +101,7 @@ impl<'a> core::fmt::Display for DebugTx<'a> {
 				let mut num_preimage = 0;
 				let mut num_timeout = 0;
 				let mut num_revoked = 0;
-				for inp in &self.0.input {
+				for inp in &self.0.inputs {
 					let htlc_claim = HTLCClaim::from_witness(&inp.witness);
 					match htlc_claim {
 						Some(HTLCClaim::AcceptedPreimage) | Some(HTLCClaim::OfferedPreimage) => {

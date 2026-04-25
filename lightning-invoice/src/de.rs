@@ -14,8 +14,9 @@ use bech32::{Fe32, Fe32IterExt};
 use crate::prelude::*;
 use crate::Bolt11Bech32;
 use bitcoin::hashes::sha256;
-use bitcoin::hashes::Hash;
-use bitcoin::{PubkeyHash, ScriptHash, WitnessVersion};
+use bitcoin::key::PubkeyHash;
+use bitcoin::script::ScriptHash;
+use bitcoin::WitnessVersion;
 use lightning_types::payment::{PaymentHash, PaymentSecret};
 use lightning_types::routing::{RouteHint, RouteHintHop, RoutingFees};
 
@@ -483,7 +484,7 @@ impl FromBase32 for Bolt11InvoiceSignature {
 		}
 		let recoverable_signature_bytes = <[u8; 65]>::from_base32(signature)?;
 		let signature = &recoverable_signature_bytes[0..64];
-		let recovery_id = RecoveryId::from_i32(recoverable_signature_bytes[64] as i32)?;
+		let recovery_id = RecoveryId::try_from(recoverable_signature_bytes[64] as i32)?;
 
 		Ok(Bolt11InvoiceSignature(RecoverableSignature::from_compact(signature, recovery_id)?))
 	}
@@ -601,8 +602,7 @@ impl FromBase32 for Sha256 {
 			Err(Bolt11ParseError::Skip)
 		} else {
 			Ok(Sha256(
-				sha256::Hash::from_slice(&<[u8; 32]>::from_base32(field_data)?)
-					.expect("length was checked before (52 u5 -> 32 u8)"),
+				sha256::Hash::from_byte_array(<[u8; 32]>::from_base32(field_data)?),
 			))
 		}
 	}
@@ -678,19 +678,19 @@ impl FromBase32 for Fallback {
 					.expect("0 through 16 are valid SegWit versions");
 				Ok(Fallback::SegWitProgram { version, program: bytes })
 			},
-			17 => {
-				let pkh = match PubkeyHash::from_slice(&bytes) {
-					Ok(pkh) => pkh,
-					Err(_) => return Err(Bolt11ParseError::InvalidPubKeyHashLength),
-				};
-				Ok(Fallback::PubKeyHash(pkh))
-			},
-			18 => {
-				let sh = match ScriptHash::from_slice(&bytes) {
-					Ok(sh) => sh,
-					Err(_) => return Err(Bolt11ParseError::InvalidScriptHashLength),
-				};
-				Ok(Fallback::ScriptHash(sh))
+				17 => {
+					let pkh = match bytes.as_slice().try_into() {
+						Ok(bytes) => PubkeyHash::from_byte_array(bytes),
+						Err(_) => return Err(Bolt11ParseError::InvalidPubKeyHashLength),
+					};
+					Ok(Fallback::PubKeyHash(pkh))
+				},
+				18 => {
+					let sh = match bytes.as_slice().try_into() {
+						Ok(bytes) => ScriptHash::from_byte_array(bytes),
+						Err(_) => return Err(Bolt11ParseError::InvalidScriptHashLength),
+					};
+					Ok(Fallback::ScriptHash(sh))
 			},
 			_ => Err(Bolt11ParseError::Skip),
 		}
@@ -973,28 +973,27 @@ mod test {
 	#[test]
 	fn test_parse_fallback() {
 		use crate::Fallback;
-		use bitcoin::hashes::Hash;
-		use bitcoin::{PubkeyHash, ScriptHash, WitnessVersion};
+		use bitcoin::key::PubkeyHash;
+		use bitcoin::script::ScriptHash;
+		use bitcoin::WitnessVersion;
 
 		let cases = vec![
 			(
 				from_bech32("3x9et2e20v6pu37c5d9vax37wxq72un98".as_bytes()),
 				Ok(Fallback::PubKeyHash(
-					PubkeyHash::from_slice(&[
+					PubkeyHash::from_byte_array([
 						0x31, 0x72, 0xb5, 0x65, 0x4f, 0x66, 0x83, 0xc8, 0xfb, 0x14, 0x69, 0x59,
 						0xd3, 0x47, 0xce, 0x30, 0x3c, 0xae, 0x4c, 0xa7,
-					])
-					.unwrap(),
+					]),
 				)),
 			),
 			(
 				from_bech32("j3a24vwu6r8ejrss3axul8rxldph2q7z9".as_bytes()),
 				Ok(Fallback::ScriptHash(
-					ScriptHash::from_slice(&[
+					ScriptHash::from_byte_array([
 						0x8f, 0x55, 0x56, 0x3b, 0x9a, 0x19, 0xf3, 0x21, 0xc2, 0x11, 0xe9, 0xb9,
 						0xf3, 0x8c, 0xdf, 0x68, 0x6e, 0xa0, 0x78, 0x45,
-					])
-					.unwrap(),
+					]),
 				)),
 			),
 			(
@@ -1082,7 +1081,7 @@ mod test {
 			Bolt11InvoiceSignature, Currency, PositiveTimestamp, RawBolt11Invoice, RawDataPart,
 			RawHrp, SiPrefix, SignedRawBolt11Invoice,
 		};
-		use bitcoin::hex::FromHex;
+		use hex_conservative::FromHex;
 		use bitcoin::secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
 		use lightning_types::features::Bolt11InvoiceFeatures;
 
@@ -1130,7 +1129,7 @@ mod test {
 						0x12, 0xf9, 0x5d, 0x97, 0x60, 0x82, 0xea, 0xac, 0x81, 0x39, 0x11, 0xda,
 						0xe0, 0x1a, 0xf3, 0xc1,
 					],
-					RecoveryId::from_i32(1).unwrap(),
+					RecoveryId::One,
 				)
 				.unwrap(),
 			),
@@ -1146,7 +1145,7 @@ mod test {
 			Bolt11InvoiceSignature, Currency, PositiveTimestamp, RawBolt11Invoice, RawDataPart,
 			RawHrp, SignedRawBolt11Invoice,
 		};
-		use bitcoin::hex::FromHex;
+		use hex_conservative::FromHex;
 		use bitcoin::secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
 
 		assert_eq!(
@@ -1195,7 +1194,7 @@ mod test {
 						0x0d, 0x6e, 0x35, 0x6d, 0x46, 0x7e, 0xc8, 0xc0, 0x25, 0x53, 0xf9,
 						0xaa, 0xb1, 0x5e, 0x57, 0x38, 0xb1, 0x1f, 0x12, 0x7f
 					],
-					RecoveryId::from_i32(0).unwrap()
+					RecoveryId::Zero
 				).unwrap()),
 				}
 			)
@@ -1319,7 +1318,7 @@ mod test {
 			PositiveTimestamp, RawBolt11Invoice, RawDataPart, RawHrp, RawTaggedField,
 			SignedRawBolt11Invoice,
 		};
-		use bitcoin::hex::FromHex;
+		use hex_conservative::FromHex;
 		use bitcoin::secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
 		use bitcoin::secp256k1::PublicKey;
 		use lightning_types::routing::{RouteHint, RouteHintHop, RoutingFees};
@@ -1410,7 +1409,7 @@ mod test {
 			0xf1, 0xdf, 0x2d, 0xb6, 0xbd, 0xf5, 0x0a, 0x20,
 		];
 		let signature = Bolt11InvoiceSignature(
-			RecoverableSignature::from_compact(signature, RecoveryId::from_i32(1).unwrap())
+			RecoverableSignature::from_compact(signature, RecoveryId::One)
 				.unwrap(),
 		);
 		let signed_invoice = SignedRawBolt11Invoice { raw_invoice, hash, signature };

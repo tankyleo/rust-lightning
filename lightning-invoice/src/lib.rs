@@ -32,8 +32,10 @@ use std::time::SystemTime;
 
 use bech32::primitives::decode::CheckedHrpstringError;
 use bech32::{Checksum, Fe32};
-use bitcoin::hashes::{sha256, Hash};
-use bitcoin::{Address, Network, PubkeyHash, ScriptHash, WitnessProgram, WitnessVersion};
+use bitcoin::hashes::sha256;
+use bitcoin::key::PubkeyHash;
+use bitcoin::script::ScriptHash;
+use bitcoin::{Address, Network, TestnetVersion, WitnessProgram, WitnessVersion};
 use lightning_types::features::Bolt11InvoiceFeatures;
 
 use bitcoin::secp256k1::ecdsa::RecoverableSignature;
@@ -181,7 +183,6 @@ impl Checksum for Bolt11Bech32 {
 /// extern crate lightning_invoice;
 /// extern crate bitcoin;
 ///
-/// use bitcoin::hashes::Hash;
 /// use bitcoin::hashes::sha256;
 ///
 /// use bitcoin::secp256k1::Secp256k1;
@@ -195,12 +196,12 @@ impl Checksum for Bolt11Bech32 {
 /// # fn main() {}
 /// # #[cfg(feature = "std")]
 /// # fn main() {
-/// let private_key = SecretKey::from_slice(
-///		&[
+/// let private_key = SecretKey::from_byte_array(
+///		[
 ///			0xe1, 0x26, 0xf6, 0x8f, 0x7e, 0xaf, 0xcc, 0x8b, 0x74, 0xf5, 0x4d, 0x26, 0x9f,
 ///			0xe2, 0x06, 0xbe, 0x71, 0x50, 0x00, 0xf9, 0x4d, 0xac, 0x06, 0x7d, 0x1c, 0x04,
 /// 		0xa8, 0xca, 0x3b, 0x2d, 0xb7, 0x34
-/// 	][..]
+/// 	]
 ///	).unwrap();
 ///
 /// let payment_hash = PaymentHash([0; 32]);
@@ -213,7 +214,7 @@ impl Checksum for Bolt11Bech32 {
 /// 	.current_timestamp()
 /// 	.min_final_cltv_expiry_delta(144)
 /// 	.build_signed(|hash| {
-/// 		Secp256k1::new().sign_ecdsa_recoverable(hash, &private_key)
+/// 		Secp256k1::new().sign_ecdsa_recoverable(*hash, &private_key)
 /// 	})
 /// 	.unwrap();
 ///
@@ -438,7 +439,7 @@ pub enum Currency {
 
 	/// Bitcoin testnet
 	///
-	/// Note this will also be used for invoices on [`Network::Testnet4`].
+	/// Note this will also be used for invoices on [`Network::Testnet(TestnetVersion::V4)`].
 	BitcoinTestnet,
 
 	/// Bitcoin regtest
@@ -455,8 +456,7 @@ impl From<Network> for Currency {
 	fn from(network: Network) -> Self {
 		match network {
 			Network::Bitcoin => Currency::Bitcoin,
-			Network::Testnet => Currency::BitcoinTestnet,
-			Network::Testnet4 => Currency::BitcoinTestnet,
+			Network::Testnet(_) => Currency::BitcoinTestnet,
 			Network::Regtest => Currency::Regtest,
 			Network::Signet => Currency::Signet,
 		}
@@ -467,7 +467,7 @@ impl From<Currency> for Network {
 	fn from(currency: Currency) -> Self {
 		match currency {
 			Currency::Bitcoin => Network::Bitcoin,
-			Currency::BitcoinTestnet => Network::Testnet,
+			Currency::BitcoinTestnet => Network::Testnet(TestnetVersion::V3),
 			Currency::Regtest => Network::Regtest,
 			Currency::Simnet => Network::Regtest,
 			Currency::Signet => Network::Signet,
@@ -546,7 +546,7 @@ impl Sha256 {
 	/// single sha256 hash.
 	#[cfg(c_bindings)]
 	pub fn from_bytes(bytes: &[u8; 32]) -> Self {
-		Self(sha256::Hash::from_slice(bytes).expect("from_slice only fails if len is not 32"))
+		Self(sha256::Hash::from_byte_array(*bytes))
 	}
 }
 
@@ -1007,7 +1007,7 @@ impl SignedRawBolt11Invoice {
 	pub fn recover_payee_pub_key(&self) -> Result<PayeePubKey, bitcoin::secp256k1::Error> {
 		let hash = Message::from_digest(self.hash);
 
-		Ok(PayeePubKey(Secp256k1::new().recover_ecdsa(&hash, &self.signature)?))
+		Ok(PayeePubKey(Secp256k1::new().recover_ecdsa(hash, &self.signature)?))
 	}
 
 	/// Checks if the signature is valid for the included payee public key or if none exists if it's
@@ -1019,7 +1019,7 @@ impl SignedRawBolt11Invoice {
 
 				let secp_context = Secp256k1::new();
 				let verification_result =
-					secp_context.verify_ecdsa(&hash, &self.signature.to_standard(), pk);
+					secp_context.verify_ecdsa(hash, &self.signature.to_standard(), pk);
 
 				verification_result.is_ok()
 			},
@@ -1623,8 +1623,9 @@ impl Bolt11Invoice {
 
 	/// Returns the network for which the invoice was issued
 	///
-	/// **Caution**: On Testnet4, this method will return [`Network::Testnet`]` rather than
-	/// [`Network::Testnet4`].
+		/// **Caution**: On Testnet4, this method will return
+		/// [`Network::Testnet(TestnetVersion::V3)`] rather than
+		/// [`Network::Testnet(TestnetVersion::V4)`].
 	///
 	/// This is not exported to bindings users, see [`Self::currency`] instead.
 	pub fn network(&self) -> Network {
@@ -1922,9 +1923,9 @@ impl<'de> Deserialize<'de> for Bolt11Invoice {
 	}
 }
 
-#[cfg(test)]
-mod test {
-	use bitcoin::ScriptBuf;
+	#[cfg(test)]
+	mod test {
+		use bitcoin::script::{ScriptBuf, ScriptPubKeyBufExt};
 	#[test]
 	fn test_system_time_bounds_assumptions() {
 		assert_eq!(
@@ -1939,7 +1940,7 @@ mod test {
 		use crate::{
 			Currency, PaymentHash, PositiveTimestamp, RawBolt11Invoice, RawDataPart, RawHrp,
 		};
-		use bitcoin::hex::FromHex;
+		use hex_conservative::FromHex;
 
 		let invoice = RawBolt11Invoice {
 			hrp: RawHrp { currency: Currency::Bitcoin, raw_amount: None, si_prefix: None },
@@ -1983,7 +1984,7 @@ mod test {
 			Bolt11InvoiceSignature, Currency, PaymentHash, PositiveTimestamp, RawBolt11Invoice,
 			RawDataPart, RawHrp, SignedRawBolt11Invoice,
 		};
-		use bitcoin::hex::FromHex;
+		use hex_conservative::FromHex;
 		use bitcoin::secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
 		use bitcoin::secp256k1::Secp256k1;
 		use bitcoin::secp256k1::{PublicKey, SecretKey};
@@ -2027,7 +2028,7 @@ mod test {
 						0x46, 0x7e, 0xc8, 0xc0, 0x25, 0x53, 0xf9, 0xaa, 0xb1, 0x5e, 0x57, 0x38,
 						0xb1, 0x1f, 0x12, 0x7f,
 					],
-					RecoveryId::from_i32(0).unwrap(),
+						RecoveryId::Zero,
 				)
 				.unwrap(),
 			),
@@ -2035,21 +2036,21 @@ mod test {
 
 		assert!(invoice.check_signature());
 
-		let private_key = SecretKey::from_slice(
-			&[
+		let private_key = SecretKey::from_byte_array(
+			[
 				0xe1, 0x26, 0xf6, 0x8f, 0x7e, 0xaf, 0xcc, 0x8b, 0x74, 0xf5, 0x4d, 0x26, 0x9f, 0xe2,
 				0x06, 0xbe, 0x71, 0x50, 0x00, 0xf9, 0x4d, 0xac, 0x06, 0x7d, 0x1c, 0x04, 0xa8, 0xca,
 				0x3b, 0x2d, 0xb7, 0x34,
-			][..],
+			],
 		)
 		.unwrap();
-		let public_key = PublicKey::from_secret_key(&Secp256k1::new(), &private_key);
+		let public_key = PublicKey::from_secret_key(&private_key);
 
 		assert_eq!(invoice.recover_payee_pub_key(), Ok(crate::PayeePubKey(public_key)));
 
 		let (raw_invoice, _, _) = invoice.into_parts();
 		let new_signed = raw_invoice
-			.sign::<_, ()>(|hash| Ok(Secp256k1::new().sign_ecdsa_recoverable(hash, &private_key)))
+			.sign::<_, ()>(|hash| Ok(Secp256k1::new().sign_ecdsa_recoverable(*hash, &private_key)))
 			.unwrap();
 
 		assert!(new_signed.check_signature());
@@ -2062,12 +2063,12 @@ mod test {
 			Bolt11Invoice, Bolt11SemanticError, Currency, PaymentHash, PositiveTimestamp,
 			RawBolt11Invoice, RawDataPart, RawHrp,
 		};
-		use bitcoin::hex::FromHex;
+		use hex_conservative::FromHex;
 		use bitcoin::secp256k1::Secp256k1;
 		use bitcoin::secp256k1::SecretKey;
 		use lightning_types::features::Bolt11InvoiceFeatures;
 
-		let private_key = SecretKey::from_slice(&[42; 32]).unwrap();
+		let private_key = SecretKey::from_byte_array([42; 32]).unwrap();
 		let payment_secret = lightning_types::payment::PaymentSecret([21; 32]);
 		let invoice_template = RawBolt11Invoice {
 			hrp: RawHrp { currency: Currency::Bitcoin, raw_amount: None, si_prefix: None },
@@ -2100,7 +2101,7 @@ mod test {
 			let mut invoice = invoice_template.clone();
 			invoice.data.tagged_fields.push(PaymentSecret(payment_secret).into());
 			invoice.sign::<_, ()>(|hash| {
-				Ok(Secp256k1::new().sign_ecdsa_recoverable(hash, &private_key))
+				Ok(Secp256k1::new().sign_ecdsa_recoverable(*hash, &private_key))
 			})
 		}
 		.unwrap();
@@ -2112,7 +2113,7 @@ mod test {
 			invoice.data.tagged_fields.push(PaymentSecret(payment_secret).into());
 			invoice.data.tagged_fields.push(Features(Bolt11InvoiceFeatures::empty()).into());
 			invoice.sign::<_, ()>(|hash| {
-				Ok(Secp256k1::new().sign_ecdsa_recoverable(hash, &private_key))
+				Ok(Secp256k1::new().sign_ecdsa_recoverable(*hash, &private_key))
 			})
 		}
 		.unwrap();
@@ -2127,7 +2128,7 @@ mod test {
 			invoice.data.tagged_fields.push(PaymentSecret(payment_secret).into());
 			invoice.data.tagged_fields.push(Features(payment_secret_features.clone()).into());
 			invoice.sign::<_, ()>(|hash| {
-				Ok(Secp256k1::new().sign_ecdsa_recoverable(hash, &private_key))
+				Ok(Secp256k1::new().sign_ecdsa_recoverable(*hash, &private_key))
 			})
 		}
 		.unwrap();
@@ -2137,7 +2138,7 @@ mod test {
 		let invoice = {
 			let invoice = invoice_template.clone();
 			invoice.sign::<_, ()>(|hash| {
-				Ok(Secp256k1::new().sign_ecdsa_recoverable(hash, &private_key))
+				Ok(Secp256k1::new().sign_ecdsa_recoverable(*hash, &private_key))
 			})
 		}
 		.unwrap();
@@ -2148,7 +2149,7 @@ mod test {
 			let mut invoice = invoice_template.clone();
 			invoice.data.tagged_fields.push(Features(Bolt11InvoiceFeatures::empty()).into());
 			invoice.sign::<_, ()>(|hash| {
-				Ok(Secp256k1::new().sign_ecdsa_recoverable(hash, &private_key))
+				Ok(Secp256k1::new().sign_ecdsa_recoverable(*hash, &private_key))
 			})
 		}
 		.unwrap();
@@ -2159,7 +2160,7 @@ mod test {
 			let mut invoice = invoice_template.clone();
 			invoice.data.tagged_fields.push(Features(payment_secret_features).into());
 			invoice.sign::<_, ()>(|hash| {
-				Ok(Secp256k1::new().sign_ecdsa_recoverable(hash, &private_key))
+				Ok(Secp256k1::new().sign_ecdsa_recoverable(*hash, &private_key))
 			})
 		}
 		.unwrap();
@@ -2171,7 +2172,7 @@ mod test {
 			invoice.data.tagged_fields.push(PaymentSecret(payment_secret).into());
 			invoice.data.tagged_fields.push(PaymentSecret(payment_secret).into());
 			invoice.sign::<_, ()>(|hash| {
-				Ok(Secp256k1::new().sign_ecdsa_recoverable(hash, &private_key))
+				Ok(Secp256k1::new().sign_ecdsa_recoverable(*hash, &private_key))
 			})
 		}
 		.unwrap();
@@ -2255,15 +2256,15 @@ mod test {
 
 		let secp_ctx = Secp256k1::new();
 
-		let private_key = SecretKey::from_slice(
-			&[
+		let private_key = SecretKey::from_byte_array(
+			[
 				0xe1, 0x26, 0xf6, 0x8f, 0x7e, 0xaf, 0xcc, 0x8b, 0x74, 0xf5, 0x4d, 0x26, 0x9f, 0xe2,
 				0x06, 0xbe, 0x71, 0x50, 0x00, 0xf9, 0x4d, 0xac, 0x06, 0x7d, 0x1c, 0x04, 0xa8, 0xca,
 				0x3b, 0x2d, 0xb7, 0x34,
-			][..],
+			],
 		)
 		.unwrap();
-		let public_key = PublicKey::from_secret_key(&secp_ctx, &private_key);
+		let public_key = PublicKey::from_secret_key(&private_key);
 
 		let route_1 = RouteHint(vec![
 			RouteHintHop {
@@ -2309,17 +2310,17 @@ mod test {
 			.payee_pub_key(public_key)
 			.expiry_time(Duration::from_secs(54321))
 			.min_final_cltv_expiry_delta(144)
-			.fallback(Fallback::PubKeyHash(PubkeyHash::from_slice(&[0; 20]).unwrap()))
+			.fallback(Fallback::PubKeyHash(PubkeyHash::from_byte_array([0; 20])))
 			.private_route(route_1.clone())
 			.private_route(route_2.clone())
-			.description_hash(sha256::Hash::from_slice(&[3; 32][..]).unwrap())
+			.description_hash(sha256::Hash::from_byte_array([3; 32]))
 			.payment_hash(PaymentHash([21; 32]))
 			.payment_secret(PaymentSecret([42; 32]))
 			.basic_mpp();
 
 		let invoice = builder
 			.clone()
-			.build_signed(|hash| secp_ctx.sign_ecdsa_recoverable(hash, &private_key))
+			.build_signed(|hash| secp_ctx.sign_ecdsa_recoverable(*hash, &private_key))
 			.unwrap();
 
 		assert!(invoice.check_signature().is_ok());
@@ -2338,11 +2339,11 @@ mod test {
 		assert_eq!(invoice.min_final_cltv_expiry_delta(), 144);
 		assert_eq!(
 			invoice.fallbacks(),
-			vec![&Fallback::PubKeyHash(PubkeyHash::from_slice(&[0; 20]).unwrap())]
+			vec![&Fallback::PubKeyHash(PubkeyHash::from_byte_array([0; 20]))]
 		);
 		let address = Address::from_script(
-			&ScriptBuf::new_p2pkh(&PubkeyHash::from_slice(&[0; 20]).unwrap()),
-			Network::Testnet,
+			&ScriptBuf::new_p2pkh(PubkeyHash::from_byte_array([0; 20])),
+			Network::Testnet(TestnetVersion::V3),
 		)
 		.unwrap();
 		assert_eq!(invoice.fallback_addresses(), vec![address]);
@@ -2350,7 +2351,7 @@ mod test {
 		assert_eq!(
 			invoice.description(),
 			Bolt11InvoiceDescriptionRef::Hash(&Sha256(
-				sha256::Hash::from_slice(&[3; 32][..]).unwrap()
+				sha256::Hash::from_byte_array([3; 32])
 			))
 		);
 		assert_eq!(invoice.payment_hash(), PaymentHash([21; 32]));
@@ -2380,9 +2381,9 @@ mod test {
 			.build_raw()
 			.unwrap()
 			.sign::<_, ()>(|hash| {
-				let privkey = SecretKey::from_slice(&[41; 32]).unwrap();
+				let privkey = SecretKey::from_byte_array([41; 32]).unwrap();
 				let secp_ctx = Secp256k1::new();
-				Ok(secp_ctx.sign_ecdsa_recoverable(hash, &privkey))
+				Ok(secp_ctx.sign_ecdsa_recoverable(*hash, &privkey))
 			})
 			.unwrap();
 		let invoice = Bolt11Invoice::from_signed(signed_invoice).unwrap();
@@ -2406,9 +2407,9 @@ mod test {
 			.build_raw()
 			.unwrap()
 			.sign::<_, ()>(|hash| {
-				let privkey = SecretKey::from_slice(&[41; 32]).unwrap();
+				let privkey = SecretKey::from_byte_array([41; 32]).unwrap();
 				let secp_ctx = Secp256k1::new();
-				Ok(secp_ctx.sign_ecdsa_recoverable(hash, &privkey))
+				Ok(secp_ctx.sign_ecdsa_recoverable(*hash, &privkey))
 			})
 			.unwrap();
 		let invoice = Bolt11Invoice::from_signed(signed_invoice).unwrap();
@@ -2442,7 +2443,7 @@ mod test {
 	#[test]
 	fn raw_tagged_field_ordering() {
 		use crate::{Description, Fe32, PaymentHash, RawTaggedField, TaggedField, UntrustedString};
-		use bitcoin::hex::FromHex;
+		use hex_conservative::FromHex;
 
 		let field10 = RawTaggedField::KnownSemantics(crate::TaggedField::PaymentHash(PaymentHash(
 			<[u8; 32]>::try_from(

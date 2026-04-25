@@ -4110,7 +4110,7 @@ mod tests {
 	use bitcoin::amount::Amount;
 	use bitcoin::constants::ChainHash;
 	use bitcoin::hashes::Hash;
-	use bitcoin::hex::FromHex;
+	use hex_conservative::FromHex;
 	use bitcoin::network::Network;
 	use bitcoin::opcodes;
 	use bitcoin::script::Builder;
@@ -4272,7 +4272,7 @@ mod tests {
 
 		// Disable other paths
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 12,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -4285,7 +4285,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 3,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -4298,7 +4298,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[7], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 13,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -4311,7 +4311,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 6,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -4324,7 +4324,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 7,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -4340,7 +4340,7 @@ mod tests {
 		// Check against amount_to_transfer_over_msat.
 		// Set minimal HTLC of 200_000_000 msat.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 2,
 			timestamp: 3,
 			message_flags: 1, // Only must_be_one
@@ -4356,7 +4356,7 @@ mod tests {
 		// Second hop only allows to forward 199_999_999 at most, thus not allowing the first hop to
 		// be used.
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[1], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 4,
 			timestamp: 3,
 			message_flags: 1, // Only must_be_one
@@ -4380,7 +4380,7 @@ mod tests {
 
 		// Lift the restriction on the first hop.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 2,
 			timestamp: 4,
 			message_flags: 1, // Only must_be_one
@@ -4415,7 +4415,7 @@ mod tests {
 		// One path allows transferring 35-40 sats, another one also allows 35-40 sats.
 		// Thus, they can't send 60 without overpaying.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 2,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -4428,7 +4428,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 12,
 			timestamp: 3,
 			message_flags: 1, // Only must_be_one
@@ -4443,7 +4443,7 @@ mod tests {
 
 		// Make 0 fee.
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[7], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 13,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -4456,7 +4456,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[1], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 4,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -4471,7 +4471,7 @@ mod tests {
 
 		// Disable other paths
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 3,
 			message_flags: 1, // Only must_be_one
@@ -4497,7 +4497,7 @@ mod tests {
 		// Now, test that if there are 2 paths, a "cheaper" by fee path wouldn't be prioritized
 		// while taking even more fee to match htlc_minimum_msat.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 12,
 			timestamp: 4,
 			message_flags: 1, // Only must_be_one
@@ -4510,7 +4510,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 2,
 			timestamp: 3,
 			message_flags: 1, // Only must_be_one
@@ -4523,7 +4523,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[1], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 4,
 			timestamp: 4,
 			message_flags: 1, // Only must_be_one
@@ -4569,7 +4569,7 @@ mod tests {
 
 		// First disable all paths except the us -> node1 -> node2 path
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 13,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -4584,7 +4584,7 @@ mod tests {
 
 		// Set channel 4 to free but with a high htlc_minimum_msat
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[1], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 4,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -4629,7 +4629,7 @@ mod tests {
 
 		// // Disable channels 4 and 12 by flags=2
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[1], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 4,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -4642,7 +4642,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 12,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -5083,7 +5083,7 @@ mod tests {
 
 		// Disabling channels 6 & 7 by flags=2
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 6,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -5096,7 +5096,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 7,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -5153,8 +5153,8 @@ mod tests {
 		let (secp_ctx, network_graph, gossip_sync, _, logger) = build_graph();
 		let (_, our_id, privkeys, nodes) = get_nodes(&secp_ctx);
 
-		let non_announced_privkey = SecretKey::from_slice(&<Vec<u8>>::from_hex(&format!("{:02x}", 0xf0).repeat(32)).unwrap()[..]).unwrap();
-		let non_announced_pubkey = PublicKey::from_secret_key(&secp_ctx, &non_announced_privkey);
+		let non_announced_privkey = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(&format!("{:02x}", 0xf0).repeat(32)).unwrap()[..]).unwrap();
+		let non_announced_pubkey = PublicKey::from_secret_key(&non_announced_privkey);
 
 		let last_hops = multi_hop_last_hops_hint([nodes[2], non_announced_pubkey]);
 		let payment_params = PaymentParameters::from_node_id(nodes[6], 42).with_route_hints(last_hops.clone()).unwrap();
@@ -5164,7 +5164,7 @@ mod tests {
 
 		// Disabling channels 6 & 7 by flags=2
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 6,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -5177,7 +5177,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 7,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -5439,9 +5439,9 @@ mod tests {
 
 	#[rustfmt::skip]
 	fn do_unannounced_path_test(last_hop_htlc_max: Option<u64>, last_hop_fee_prop: u32, outbound_capacity_msat: u64, route_val: u64) -> Result<Route, &'static str> {
-		let source_node_id = PublicKey::from_secret_key(&Secp256k1::new(), &SecretKey::from_slice(&<Vec<u8>>::from_hex(&format!("{:02}", 41).repeat(32)).unwrap()[..]).unwrap());
-		let middle_node_id = PublicKey::from_secret_key(&Secp256k1::new(), &SecretKey::from_slice(&<Vec<u8>>::from_hex(&format!("{:02}", 42).repeat(32)).unwrap()[..]).unwrap());
-		let target_node_id = PublicKey::from_secret_key(&Secp256k1::new(), &SecretKey::from_slice(&<Vec<u8>>::from_hex(&format!("{:02}", 43).repeat(32)).unwrap()[..]).unwrap());
+		let source_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(&format!("{:02}", 41).repeat(32)).unwrap()[..]).unwrap());
+		let middle_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(&format!("{:02}", 42).repeat(32)).unwrap()[..]).unwrap());
+		let target_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(&format!("{:02}", 43).repeat(32)).unwrap()[..]).unwrap());
 
 		// If we specify a channel to a middle hop, that overrides our local channel view and that gets used
 		let last_hops = RouteHint(vec![RouteHintHop {
@@ -5460,7 +5460,7 @@ mod tests {
 		let scorer = ln_test_utils::TestScorer::new();
 		let random_seed_bytes = [42; 32];
 		let logger = ln_test_utils::TestLogger::new();
-		let network_graph = NetworkGraph::new(Network::Testnet, &logger);
+		let network_graph = NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger);
 		let route_params = RouteParameters::from_payment_params_and_value(payment_params, route_val);
 		let route = get_route(&source_node_id, &route_params, &network_graph.read_only(),
 				Some(&our_chans.iter().collect::<Vec<_>>()), &logger, &scorer, &Default::default(),
@@ -5476,8 +5476,8 @@ mod tests {
 		// hints.
 		let route = do_unannounced_path_test(None, 1, 2000000, 1000000).unwrap();
 
-		let middle_node_id = PublicKey::from_secret_key(&Secp256k1::new(), &SecretKey::from_slice(&<Vec<u8>>::from_hex(&format!("{:02}", 42).repeat(32)).unwrap()[..]).unwrap());
-		let target_node_id = PublicKey::from_secret_key(&Secp256k1::new(), &SecretKey::from_slice(&<Vec<u8>>::from_hex(&format!("{:02}", 43).repeat(32)).unwrap()[..]).unwrap());
+		let middle_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(&format!("{:02}", 42).repeat(32)).unwrap()[..]).unwrap());
+		let target_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(&format!("{:02}", 43).repeat(32)).unwrap()[..]).unwrap());
 		assert_eq!(route.paths[0].hops.len(), 2);
 
 		assert_eq!(route.paths[0].hops[0].pubkey, middle_node_id);
@@ -5534,7 +5534,7 @@ mod tests {
 
 		// First disable all other paths.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 2,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -5547,7 +5547,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 12,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -5563,7 +5563,7 @@ mod tests {
 		// Make the first channel (#1) very permissive,
 		// and we will be testing all limits on the second channel.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -5579,7 +5579,7 @@ mod tests {
 		// First, let's see if routing works if we have absolutely no idea about the available amount.
 		// In this case, it should be set to 250_000 sats.
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 3,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -5619,7 +5619,7 @@ mod tests {
 		// Check that setting next_outbound_htlc_limit_msat in first_hops limits the channels.
 		// Disable channel #1 and use another first hop.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 3,
 			message_flags: 1, // Only must_be_one
@@ -5663,7 +5663,7 @@ mod tests {
 
 		// Enable channel #1 back.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 4,
 			message_flags: 1, // Only must_be_one
@@ -5679,7 +5679,7 @@ mod tests {
 
 		// Now let's see if routing works if we know only htlc_maximum_msat.
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 3,
 			timestamp: 3,
 			message_flags: 1, // Only must_be_one
@@ -5721,7 +5721,7 @@ mod tests {
 		// We can't change UTXO capacity on the fly, so we'll disable
 		// the existing channel and add another one with the capacity we need.
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 3,
 			timestamp: 4,
 			message_flags: 1, // Only must_be_one
@@ -5735,17 +5735,17 @@ mod tests {
 		});
 
 		let good_script = Builder::new().push_opcode(opcodes::all::OP_PUSHNUM_2)
-		.push_slice(&PublicKey::from_secret_key(&secp_ctx, &privkeys[0]).serialize())
-		.push_slice(&PublicKey::from_secret_key(&secp_ctx, &privkeys[2]).serialize())
+		.push_slice(&PublicKey::from_secret_key(&privkeys[0]).serialize())
+		.push_slice(&PublicKey::from_secret_key(&privkeys[2]).serialize())
 		.push_opcode(opcodes::all::OP_PUSHNUM_2)
 		.push_opcode(opcodes::all::OP_CHECKMULTISIG).into_script().to_p2wsh();
 
 
 		*chain_monitor.utxo_ret.lock().unwrap() =
-			UtxoResult::Sync(Ok(TxOut { value: Amount::from_sat(15), script_pubkey: good_script.clone() }));
+			UtxoResult::Sync(Ok(TxOut { amount: Amount::from_sat(15).expect("amount must fit"), script_pubkey: good_script.clone() }));
 		add_channel_skipping_utxo_update(&gossip_sync, &secp_ctx, &privkeys[0], &privkeys[2], ChannelFeatures::from_le_bytes(id_to_feature_flags(3)), 333);
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 333,
 			timestamp: 1,
 			message_flags: 1, // Only must_be_one
@@ -5758,7 +5758,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 333,
 			timestamp: 1,
 			message_flags: 1, // Only must_be_one
@@ -5797,7 +5797,7 @@ mod tests {
 
 		// Now let's see if routing chooses htlc_maximum_msat over UTXO capacity.
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 333,
 			timestamp: 6,
 			message_flags: 1, // Only must_be_one
@@ -5855,7 +5855,7 @@ mod tests {
 
 		// Disable other potential paths.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 2,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -5868,7 +5868,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 7,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -5884,7 +5884,7 @@ mod tests {
 		// Limit capacities
 
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 12,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -5897,7 +5897,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[7], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 13,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -5911,7 +5911,7 @@ mod tests {
 		});
 
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 6,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -5924,7 +5924,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[4], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 11,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -5991,7 +5991,7 @@ mod tests {
 
 		// Path via node0 is channels {1, 3}. Limit them to 100 and 50 sats (total limit 50).
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6004,7 +6004,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 3,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6095,7 +6095,7 @@ mod tests {
 
 		// Path via node0 is channels {1, 3}. Limit them to 100 and 50 sats (total limit 50).
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6108,7 +6108,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 3,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6124,7 +6124,7 @@ mod tests {
 		// Path via node7 is channels {12, 13}. Limit them to 60 and 60 sats
 		// (total limit 60).
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 12,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6137,7 +6137,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[7], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 13,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6153,7 +6153,7 @@ mod tests {
 		// Path via node1 is channels {2, 4}. Limit them to 200 and 180 sats
 		// (total capacity 180 sats).
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 2,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6166,7 +6166,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[1], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 4,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6334,7 +6334,7 @@ mod tests {
 
 		// Disable other potential paths.
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 7,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6347,7 +6347,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[1], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 4,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6362,7 +6362,7 @@ mod tests {
 
 		// Path via {node0, node2} is channels {1, 3, 5}.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6375,7 +6375,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 3,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6390,7 +6390,7 @@ mod tests {
 
 		add_channel(&gossip_sync, &secp_ctx, &privkeys[1], &privkeys[3], ChannelFeatures::from_le_bytes(id_to_feature_flags(16)), 16);
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[1], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 16,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6403,7 +6403,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[3], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 16,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6420,7 +6420,7 @@ mod tests {
 		// Add 100 sats to the capacities of {12, 13}, because these channels
 		// are also used for 3rd path. 100 sats for the rest. Total capacity: 100 sats.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 12,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6433,7 +6433,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[7], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 13,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6447,7 +6447,7 @@ mod tests {
 		});
 
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 6,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6460,7 +6460,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[4], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 11,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6510,7 +6510,7 @@ mod tests {
 
 		// Disable other potential paths.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 2,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6524,7 +6524,7 @@ mod tests {
 		});
 
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 7,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6539,7 +6539,7 @@ mod tests {
 
 		// Path via {node0, node2} is channels {1, 3, 5}.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6552,7 +6552,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 3,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6567,7 +6567,7 @@ mod tests {
 
 		add_channel(&gossip_sync, &secp_ctx, &privkeys[2], &privkeys[3], ChannelFeatures::from_le_bytes(id_to_feature_flags(5)), 5);
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 5,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6580,7 +6580,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[3], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 5,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6604,7 +6604,7 @@ mod tests {
 		// - fee for channel 6 is 150 sats
 		// Let's test this by enforcing these 2 conditions and removing other limits.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 12,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6617,7 +6617,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[7], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 13,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6631,7 +6631,7 @@ mod tests {
 		});
 
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 6,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6644,7 +6644,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[4], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 11,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6735,7 +6735,7 @@ mod tests {
 		// we think we can only send up to 1 additional sat over the last-hop but refuse to as its
 		// under 5% of our payment amount.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6748,7 +6748,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 2,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6761,7 +6761,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[1], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 4,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6774,7 +6774,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[7], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 13,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6834,7 +6834,7 @@ mod tests {
 
 		// Path via node0 is channels {1, 3}. Limit them to 100 and 50 sats (total limit 50);
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6847,7 +6847,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 3,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6862,7 +6862,7 @@ mod tests {
 
 		// Path via node7 is channels {12, 13}. Limit them to 60 and 60 sats (total limit 60);
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 12,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6875,7 +6875,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[7], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 13,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6890,7 +6890,7 @@ mod tests {
 
 		// Path via node1 is channels {2, 4}. Limit them to 20 and 20 sats (total capacity 20 sats).
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 2,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6903,7 +6903,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[1], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 4,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -6990,7 +6990,7 @@ mod tests {
 		// "previous hop" being set to node 3, creating a loop in the path.
 		let secp_ctx = Secp256k1::new();
 		let logger = Arc::new(ln_test_utils::TestLogger::new());
-		let network = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
+		let network = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), Arc::clone(&logger)));
 		let gossip_sync = P2PGossipSync::new(Arc::clone(&network), None, Arc::clone(&logger));
 		let (our_privkey, our_id, privkeys, nodes) = get_nodes(&secp_ctx);
 		let scorer = ln_test_utils::TestScorer::new();
@@ -7000,7 +7000,7 @@ mod tests {
 		add_channel(&gossip_sync, &secp_ctx, &our_privkey, &privkeys[1], ChannelFeatures::from_le_bytes(id_to_feature_flags(6)), 6);
 		for (key, channel_flags) in [(&our_privkey, 0), (&privkeys[1], 3)] {
 			update_channel(&gossip_sync, &secp_ctx, key, UnsignedChannelUpdate {
-				chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+				chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 				short_channel_id: 6,
 				timestamp: 1,
 				message_flags: 1, // Only must_be_one
@@ -7018,7 +7018,7 @@ mod tests {
 		add_channel(&gossip_sync, &secp_ctx, &privkeys[1], &privkeys[4], ChannelFeatures::from_le_bytes(id_to_feature_flags(5)), 5);
 		for (key, channel_flags) in [(&privkeys[1], 0), (&privkeys[4], 3)] {
 			update_channel(&gossip_sync, &secp_ctx, key, UnsignedChannelUpdate {
-				chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+				chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 				short_channel_id: 5,
 				timestamp: 1,
 				message_flags: 1, // Only must_be_one
@@ -7036,7 +7036,7 @@ mod tests {
 		add_channel(&gossip_sync, &secp_ctx, &privkeys[4], &privkeys[3], ChannelFeatures::from_le_bytes(id_to_feature_flags(4)), 4);
 		for (key, channel_flags) in [(&privkeys[4], 0), (&privkeys[3], 3)] {
 			update_channel(&gossip_sync, &secp_ctx, key, UnsignedChannelUpdate {
-				chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+				chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 				short_channel_id: 4,
 				timestamp: 1,
 				message_flags: 1, // Only must_be_one
@@ -7054,7 +7054,7 @@ mod tests {
 		add_channel(&gossip_sync, &secp_ctx, &privkeys[3], &privkeys[2], ChannelFeatures::from_le_bytes(id_to_feature_flags(3)), 3);
 		for (key, channel_flags) in [(&privkeys[3], 0), (&privkeys[2], 3)] {
 			update_channel(&gossip_sync, &secp_ctx, key, UnsignedChannelUpdate {
-				chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+				chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 				short_channel_id: 3,
 				timestamp: 1,
 				message_flags: 1, // Only must_be_one
@@ -7072,7 +7072,7 @@ mod tests {
 		add_channel(&gossip_sync, &secp_ctx, &privkeys[2], &privkeys[4], ChannelFeatures::from_le_bytes(id_to_feature_flags(2)), 2);
 		for (key, channel_flags) in [(&privkeys[2], 0), (&privkeys[4], 3)] {
 			update_channel(&gossip_sync, &secp_ctx, key, UnsignedChannelUpdate {
-				chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+				chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 				short_channel_id: 2,
 				timestamp: 1,
 				message_flags: 1, // Only must_be_one
@@ -7089,7 +7089,7 @@ mod tests {
 		add_channel(&gossip_sync, &secp_ctx, &privkeys[4], &privkeys[6], ChannelFeatures::from_le_bytes(id_to_feature_flags(1)), 1);
 		for (key, channel_flags) in [(&privkeys[4], 0), (&privkeys[6], 3)] {
 			update_channel(&gossip_sync, &secp_ctx, key, UnsignedChannelUpdate {
-				chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+				chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 				short_channel_id: 1,
 				timestamp: 1,
 				message_flags: 1, // Only must_be_one
@@ -7151,7 +7151,7 @@ mod tests {
 		// We modify the graph to set the htlc_maximum of channel 2 to below the value we wish to
 		// send.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 2,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -7165,7 +7165,7 @@ mod tests {
 		});
 
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 12,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -7225,7 +7225,7 @@ mod tests {
 		// gets an htlc_maximum_msat of 80_000 and channel 4 an htlc_minimum_msat of 90_000. We
 		// then try to send 90_000.
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 2,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -7238,7 +7238,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[1], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 4,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -7291,7 +7291,7 @@ mod tests {
 		let secp_ctx = Secp256k1::new();
 		let (_, our_id, _, nodes) = get_nodes(&secp_ctx);
 		let logger = Arc::new(ln_test_utils::TestLogger::new());
-		let network_graph = NetworkGraph::new(Network::Testnet, Arc::clone(&logger));
+		let network_graph = NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), Arc::clone(&logger));
 		let scorer = ln_test_utils::TestScorer::new();
 		let config = UserConfig::default();
 		let payment_params = PaymentParameters::from_node_id(nodes[0], 42)
@@ -7785,7 +7785,7 @@ mod tests {
 		// Set the fee on channel 13 to 0% to match channel 4 giving us two equivalent paths (us
 		// -> node 7 -> node2 and us -> node 1 -> node 2) which we should balance over.
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[1], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 4,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -7798,7 +7798,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[7], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 13,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -8010,7 +8010,7 @@ mod tests {
 		// Check that if we have a first hop channel peer that's connected to multiple provided route
 		// hints, that we properly split the payment between the route hints if needed.
 		let logger = Arc::new(ln_test_utils::TestLogger::new());
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), Arc::clone(&logger)));
 		let scorer = ln_test_utils::TestScorer::new();
 		let random_seed_bytes = [42; 32];
 		let config = UserConfig::default();
@@ -8541,7 +8541,7 @@ mod tests {
 
 		let secp_ctx = Secp256k1::new();
 		let logger = Arc::new(ln_test_utils::TestLogger::new());
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), Arc::clone(&logger)));
 		let gossip_sync = P2PGossipSync::new(Arc::clone(&network_graph), None, Arc::clone(&logger));
 		let scorer = ln_test_utils::TestScorer::new();
 		let random_seed_bytes = [42; 32];
@@ -8551,7 +8551,7 @@ mod tests {
 		add_channel(&gossip_sync, &secp_ctx, &privkeys[0], &privkeys[1],
 			ChannelFeatures::from_le_bytes(id_to_feature_flags(1)), 1);
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 1,
 			message_flags: 1, // Only must_be_one
@@ -8564,7 +8564,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[1], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 1,
 			message_flags: 1, // Only must_be_one
@@ -8630,7 +8630,7 @@ mod tests {
 		//    larger amount
 		let secp_ctx = Secp256k1::new();
 		let logger = Arc::new(ln_test_utils::TestLogger::new());
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), Arc::clone(&logger)));
 		let scorer = ln_test_utils::TestScorer::new();
 		let random_seed_bytes = [42; 32];
 		let config = UserConfig::default();
@@ -8776,7 +8776,7 @@ mod tests {
 		// that the used liquidity for a hop was less than its available liquidity limit.
 		let secp_ctx = Secp256k1::new();
 		let logger = Arc::new(ln_test_utils::TestLogger::new());
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), Arc::clone(&logger)));
 		let scorer = ln_test_utils::TestScorer::new();
 		let random_seed_bytes = [42; 32];
 		let config = UserConfig::default();
@@ -8850,7 +8850,7 @@ mod tests {
 		// asserting that the used liquidity for a hop was less than its available liquidity limit.
 		let secp_ctx = Secp256k1::new();
 		let logger = Arc::new(ln_test_utils::TestLogger::new());
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), Arc::clone(&logger)));
 		let scorer = ln_test_utils::TestScorer::new();
 		let random_seed_bytes = [42; 32];
 		let config = UserConfig::default();
@@ -8924,7 +8924,7 @@ mod tests {
 		// to a debug panic upon invalid path construction.
 		let secp_ctx = Secp256k1::new();
 		let logger = Arc::new(ln_test_utils::TestLogger::new());
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), Arc::clone(&logger)));
 		let gossip_sync = P2PGossipSync::new(Arc::clone(&network_graph), None, Arc::clone(&logger));
 		let scorer = ProbabilisticScorer::new(ProbabilisticScoringDecayParameters::default(), Arc::clone(&network_graph), Arc::clone(&logger));
 		let random_seed_bytes = [42; 32];
@@ -8939,7 +8939,7 @@ mod tests {
 
 		add_channel(&gossip_sync, &secp_ctx, &privkeys[0], &privkeys[6], ChannelFeatures::from_le_bytes(id_to_feature_flags(6)), 6);
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 6,
 			timestamp: 1,
 			message_flags: 1, // Only must_be_one
@@ -8989,7 +8989,7 @@ mod tests {
 		// selection, both tested here.
 		let secp_ctx = Secp256k1::new();
 		let logger = Arc::new(ln_test_utils::TestLogger::new());
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), Arc::clone(&logger)));
 		let scorer = ProbabilisticScorer::new(ProbabilisticScoringDecayParameters::default(), Arc::clone(&network_graph), Arc::clone(&logger));
 		let random_seed_bytes = [42; 32];
 		let config = UserConfig::default();
@@ -9041,7 +9041,7 @@ mod tests {
 		// they gave us, but we'd still consider all subsequent hints if they are more attractive.
 		let secp_ctx = Secp256k1::new();
 		let logger = Arc::new(ln_test_utils::TestLogger::new());
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), Arc::clone(&logger)));
 		let gossip_sync = P2PGossipSync::new(Arc::clone(&network_graph), None, Arc::clone(&logger));
 		let scorer = ln_test_utils::TestScorer::new();
 		let random_seed_bytes = [42; 32];
@@ -9053,7 +9053,7 @@ mod tests {
 		add_channel(&gossip_sync, &secp_ctx, &our_privkey, &privkeys[0],
 			ChannelFeatures::from_le_bytes(id_to_feature_flags(1)), 1);
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 1,
 			message_flags: 1, // Only must_be_one
@@ -9066,7 +9066,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 1,
 			message_flags: 1, // Only must_be_one
@@ -9082,7 +9082,7 @@ mod tests {
 		add_channel(&gossip_sync, &secp_ctx, &privkeys[0], &privkeys[1],
 			ChannelFeatures::from_le_bytes(id_to_feature_flags(1)), 2);
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 2,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9095,7 +9095,7 @@ mod tests {
 			excess_data: Vec::new()
 		});
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[1], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 2,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9198,7 +9198,7 @@ mod tests {
 
 		// Enable channel 1, setting max HTLC to 1M sats
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9213,7 +9213,7 @@ mod tests {
 
 		// Set the fee on channel 3 to zero
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 3,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9228,7 +9228,7 @@ mod tests {
 
 		// Set the fee on channel 6 to 1 millionth
 		update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 6,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9254,7 +9254,7 @@ mod tests {
 
 		// Now set channel 1 max HTLC to 1M + 1 sats
 		update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 3,
 			message_flags: 1, // Only must_be_one
@@ -9283,7 +9283,7 @@ mod tests {
 		// Check that we consider a route hint even if we are the src of the first hop.
 		let secp_ctx = Secp256k1::new();
 		let logger = Arc::new(ln_test_utils::TestLogger::new());
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), Arc::clone(&logger)));
 		let scorer = ln_test_utils::TestScorer::new();
 		let random_seed_bytes = [42; 32];
 		let config = UserConfig::default();
@@ -9346,7 +9346,7 @@ mod tests {
 
 		// Enable channel 1
 		let update_1 = UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 1,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9362,7 +9362,7 @@ mod tests {
 
 		// Set the fee on channel 3 to 1 sat, max HTLC to 1M msat
 		let update_3 = UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 3,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9378,7 +9378,7 @@ mod tests {
 
 		// Set the fee on channel 13 to 1 sat, max HTLC to 1M msat
 		let update_13 = UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 13,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9394,7 +9394,7 @@ mod tests {
 
 		// Set the fee on channel 4 to 1 sat, max HTLC to 1M msat
 		let update_4 = UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 4,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9421,7 +9421,7 @@ mod tests {
 
 			// Set the fee on channel 16 to 2 sats, max HTLC to 3M msat
 			let update_a = UnsignedChannelUpdate {
-				chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+				chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 				short_channel_id: i + 42,
 				timestamp: 2,
 				message_flags: 1, // Only must_be_one
@@ -9437,7 +9437,7 @@ mod tests {
 
 			// Enable channel 16 by providing an update in both directions
 			let update_b = UnsignedChannelUpdate {
-				chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+				chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 				short_channel_id: i + 42,
 				timestamp: 2,
 				message_flags: 1, // Only must_be_one
@@ -9483,7 +9483,7 @@ mod tests {
 
 		// Set the fee on channel 16 to 2 sats, max HTLC to 3M msat
 		let update_16_a = UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 16,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9499,7 +9499,7 @@ mod tests {
 
 		// Enable channel 16 by providing an update in both directions
 		let update_16_b = UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 			short_channel_id: 16,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9616,7 +9616,7 @@ pub(crate) mod bench_utils {
 
 	pub(crate) fn payer_pubkey() -> PublicKey {
 		let secp_ctx = Secp256k1::new();
-		PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap())
+		PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap())
 	}
 
 	#[inline]

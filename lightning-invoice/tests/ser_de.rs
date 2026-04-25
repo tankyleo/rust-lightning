@@ -1,11 +1,13 @@
 extern crate bech32;
 extern crate lightning_invoice;
 
-use bitcoin::hashes::{sha256, Hash};
-use bitcoin::hex::FromHex;
+use bitcoin::hashes::sha256;
+use bitcoin::key::PubkeyHash;
+use bitcoin::script::ScriptHash;
+use hex_conservative::FromHex;
 use bitcoin::secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::{PubkeyHash, ScriptHash, WitnessVersion};
+use bitcoin::WitnessVersion;
 use lightning_invoice::*;
 use std::collections::HashSet;
 use std::str::FromStr;
@@ -33,7 +35,7 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				.sign(|_| {
 					RecoverableSignature::from_compact(
 						&<Vec<u8>>::from_hex("8d3ce9e28357337f62da0162d9454df827f83cfe499aeb1c1db349d4d81127425e434ca29929406c23bba1ae8ac6ca32880b38d4bf6ff874024cac34ba9625f1").unwrap(),
-						RecoveryId::from_i32(1).unwrap()
+						RecoveryId::One
 					)
 				}).unwrap(),
 			false, // Same features as set in InvoiceBuilder
@@ -61,7 +63,7 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				.sign(|_| {
 					RecoverableSignature::from_compact(
 						&<Vec<u8>>::from_hex("e59e3ffbd3945e4334879158d31e89b076dff54f3fa7979ae79df2db9dcaf5896cbfe1a478b8d2307e92c88139464cb7e6ef26e414c4abe33337961ddc5e8ab1").unwrap(),
-						RecoveryId::from_i32(1).unwrap()
+						RecoveryId::One
 					)
 				}).unwrap(),
 			false, // Same features as set in InvoiceBuilder
@@ -89,7 +91,7 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				.sign(|_| {
 					RecoverableSignature::from_compact(
 						&<Vec<u8>>::from_hex("bae41ef385e0fc972977c7ea42b12cbd76577d2412919da8a8a22f9577b6507710c0e96dd78c821dea16453037f717f44aa7e3d196ebb18fbb97307dcb7336c3").unwrap(),
-						RecoveryId::from_i32(1).unwrap()
+						RecoveryId::One
 					)
 				}).unwrap(),
 			false, // Same features as set in InvoiceBuilder
@@ -116,7 +118,7 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				.sign(|_| {
 					RecoverableSignature::from_compact(
 						&<Vec<u8>>::from_hex("f67a5f696648fa4fb102e1a07b230e54722f8e024cee71e80b4847ac191da3fb2d2cdb28cc32344d7e9a9cf5c9b6a0ee0582ae46e9938b9c81e344a4dbb5289d").unwrap(),
-						RecoveryId::from_i32(1).unwrap()
+						RecoveryId::One
 					)
 				}).unwrap(),
 			false, // Same features as set in InvoiceBuilder
@@ -138,13 +140,13 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				)
 				.unwrap(),
 			))
-				.fallback(Fallback::PubKeyHash(PubkeyHash::from_slice(&[49, 114, 181, 101, 79, 102, 131, 200, 251, 20, 105, 89, 211, 71, 206, 48, 60, 174, 76, 167]).unwrap()))
+					.fallback(Fallback::PubKeyHash(PubkeyHash::from_byte_array([49, 114, 181, 101, 79, 102, 131, 200, 251, 20, 105, 89, 211, 71, 206, 48, 60, 174, 76, 167])))
 				.build_raw()
 				.unwrap()
 				.sign(|_| {
 					RecoverableSignature::from_compact(
 						&<Vec<u8>>::from_hex("6ca95a74dc32e69ced6175b15a5cc56a92bf19f5dace0f134b7d94d464b9f5cf6090a18d48b243f289394d17bdf89466d8e6b37df5981f696bc3dd5986e1bee1").unwrap(),
-						RecoveryId::from_i32(1).unwrap()
+						RecoveryId::One
 					)
 				}).unwrap(),
 			false, // Same features as set in InvoiceBuilder
@@ -166,7 +168,7 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				)
 				.unwrap(),
 			))
-				.fallback(Fallback::PubKeyHash(PubkeyHash::from_slice(&[4, 182, 31, 125, 193, 234, 13, 201, 148, 36, 70, 76, 196, 6, 77, 197, 100, 217, 30, 137]).unwrap()))
+					.fallback(Fallback::PubKeyHash(PubkeyHash::from_byte_array([4, 182, 31, 125, 193, 234, 13, 201, 148, 36, 70, 76, 196, 6, 77, 197, 100, 217, 30, 137])))
 				.private_route(RouteHint(vec![RouteHintHop {
 					src_node_id: PublicKey::from_slice(&<Vec<u8>>::from_hex(
 							"029e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255"
@@ -189,7 +191,7 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				.sign(|_| {
 					RecoverableSignature::from_compact(
 						&<Vec<u8>>::from_hex("6a6586db4e8f6d40e3a5bb92e4df5110c627e9ce493af237e20a046b4e86ea200178c59564ecf892f33a9558bf041b6ad2cb8292d7a6c351fbb7f2ae2d16b54e").unwrap(),
-						RecoveryId::from_i32(0).unwrap()
+						RecoveryId::Zero
 					)
 				}).unwrap(),
 			false, // Same features as set in InvoiceBuilder
@@ -211,13 +213,13 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				)
 				.unwrap(),
 			))
-				.fallback(Fallback::ScriptHash(ScriptHash::from_slice(&[143, 85, 86, 59, 154, 25, 243, 33, 194, 17, 233, 185, 243, 140, 223, 104, 110, 160, 120, 69]).unwrap()))
+					.fallback(Fallback::ScriptHash(ScriptHash::from_byte_array([143, 85, 86, 59, 154, 25, 243, 33, 194, 17, 233, 185, 243, 140, 223, 104, 110, 160, 120, 69])))
 				.build_raw()
 				.unwrap()
 				.sign(|_| {
 					RecoverableSignature::from_compact(
 						&<Vec<u8>>::from_hex("16810439d1a9bfd5a65acc61340dc92448bb2d456a80b58ce012b73cb5202438020500c9ab7ef5573a4d174c811f669885ae27f895bb3a3be52c243589f87518").unwrap(),
-						RecoveryId::from_i32(1).unwrap()
+						RecoveryId::One
 					)
 				}).unwrap(),
 			false, // Same features as set in InvoiceBuilder
@@ -247,7 +249,7 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				.sign(|_| {
 					RecoverableSignature::from_compact(
 						&<Vec<u8>>::from_hex("5a8bd7b97c1cc9055ee60cf2356621f8752248e037a953886a1782b44a58f5ff2d94e6bc89b7b514541a3603bb33722b6c08aa1a3639d34becc549a99fea6eae").unwrap(),
-						RecoveryId::from_i32(0).unwrap()
+						RecoveryId::Zero
 					)
 				}).unwrap(),
 			false, // Same features as set in InvoiceBuilder
@@ -277,7 +279,7 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				.sign(|_| {
 					RecoverableSignature::from_compact(
 						&<Vec<u8>>::from_hex("2b3ec248f80301a421817369194f012cdd8af8df1c279981420f9e901e20fa3309d791e11355e609b59ce4a220852a0cd55ab862b1785a83b206c90fa74d01c8").unwrap(),
-						RecoveryId::from_i32(1).unwrap()
+						RecoveryId::One
 					)
 				}).unwrap(),
 			false, // Same features as set in InvoiceBuilder
@@ -315,7 +317,7 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				.sign(|_| {
 					RecoverableSignature::from_compact(
 						&<Vec<u8>>::from_hex("1b1160cf6186b55722c1ac7ea502086baaccaabdc76b326e666b7f309d972b15069bfca11cd365304b36f48230cc12f3f13a017aab65f7c165a169df32282a58").unwrap(),
-						RecoveryId::from_i32(1).unwrap()
+						RecoveryId::One
 					)
 				}).unwrap(),
 			false, // Same features as set in InvoiceBuilder
@@ -342,7 +344,7 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				.sign(|_| {
 					RecoverableSignature::from_compact(
 						&<Vec<u8>>::from_hex("5755469bf4b8e6b6ae7a1308d5f9bad5c82812e0855cd24fac242aa323fa820c5c551ede4faeabcb7fb6d5a464ad0e35c86f615589ee0e0c250c216a662198c1").unwrap(),
-						RecoveryId::from_i32(1).unwrap()
+						RecoveryId::One
 					)
 				}).unwrap(),
 			true, // Different features than set in InvoiceBuilder
@@ -369,7 +371,7 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				.sign(|_| {
 					RecoverableSignature::from_compact(
 						&<Vec<u8>>::from_hex("5755469bf4b8e6b6ae7a1308d5f9bad5c82812e0855cd24fac242aa323fa820c5c551ede4faeabcb7fb6d5a464ad0e35c86f615589ee0e0c250c216a662198c1").unwrap(),
-						RecoveryId::from_i32(1).unwrap()
+						RecoveryId::One
 					)
 				}).unwrap(),
 			true, // Different features than set in InvoiceBuilder
@@ -396,7 +398,7 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				.sign(|_| {
 					RecoverableSignature::from_compact(
 						&<Vec<u8>>::from_hex("150a5252308f25bc2641a186de87470189bb003774326beee33b9a2a720d1584386631c5dda6fc3195f97464bfc93d2574868eadd767d6da1078329c4349c837").unwrap(),
-						RecoveryId::from_i32(0).unwrap()
+						RecoveryId::Zero
 					)
 				}).unwrap(),
 			true, // Different features than set in InvoiceBuilder
@@ -428,7 +430,7 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				.sign(|_| {
 					RecoverableSignature::from_compact(
 						&<Vec<u8>>::from_hex("2150ed137ddb54f9736c6a0290ded709d22bddb7261d1d6518dffb467c6b1eef02afc182491bdacd00b65c83554c914a1c53c61b0a4ef04eccccdfb4365ed259").unwrap(),
-						RecoveryId::from_i32(1).unwrap()
+						RecoveryId::One
 					)
 				}).unwrap(),
 			false, // Different features than set in InvoiceBuilder
@@ -457,7 +459,7 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				.sign(|_| {
 					RecoverableSignature::from_compact(
 						&<Vec<u8>>::from_hex("f5d27be7d9c27d3aa521bc35d77cabd6bda18f1f61716445b19e27e4e17a887508ea8de5a8e1d94f561248f65434e61a221160dac1f1991b9c0f1057b269d898").unwrap(),
-						RecoveryId::from_i32(1).unwrap()
+						RecoveryId::One
 					)
 				}).unwrap(),
 			false, // Different features than set in InvoiceBuilder
@@ -483,7 +485,7 @@ fn get_test_tuples() -> Vec<(String, SignedRawBolt11Invoice, bool, bool)> {
 				.sign(|_| {
 					RecoverableSignature::from_compact(
 						&<Vec<u8>>::from_hex("8d3ce9e28357337f62da0162d9454df827f83cfe499aeb1c1db349d4d8112742a1bcb35d66d6bf93dc445e51753935cc32a3a411efd8a7c7bd85b25815a01b50").unwrap(),
-						RecoveryId::from_i32(1).unwrap()
+						RecoveryId::One
 					)
 				}).unwrap(),
 			false, // Different features than set in InvoiceBuilder

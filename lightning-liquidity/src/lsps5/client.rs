@@ -434,7 +434,7 @@ mod tests {
 
 	use super::*;
 	use crate::{lsps0::ser::LSPSRequestId, lsps5::msgs::SetWebhookResponse};
-	use bitcoin::{key::Secp256k1, secp256k1::SecretKey};
+	use bitcoin::secp256k1::{Secp256k1, SecretKey};
 	use core::sync::atomic::{AtomicU64, Ordering};
 	use lightning::util::persist::KVStoreSyncWrapper;
 	use lightning::util::test_utils::TestStore;
@@ -475,10 +475,10 @@ mod tests {
 		);
 
 		let secp = Secp256k1::new();
-		let secret_key_1 = SecretKey::from_slice(&[42u8; 32]).unwrap();
-		let secret_key_2 = SecretKey::from_slice(&[43u8; 32]).unwrap();
-		let peer_1 = PublicKey::from_secret_key(&secp, &secret_key_1);
-		let peer_2 = PublicKey::from_secret_key(&secp, &secret_key_2);
+		let secret_key_1 = SecretKey::from_secret_bytes([42u8; 32]).unwrap();
+		let secret_key_2 = SecretKey::from_secret_bytes([43u8; 32]).unwrap();
+		let peer_1 = PublicKey::from_secret_key(&secret_key_1);
+		let peer_2 = PublicKey::from_secret_key(&secret_key_2);
 
 		(client, message_queue, event_queue, peer_1, peer_2)
 	}

@@ -10,6 +10,7 @@
 //! Tests that test the channel open process.
 
 use crate::chain::chaininterface::LowerBoundedFeeEstimator;
+use crate::prelude::*;
 use crate::chain::channelmonitor::{self, ChannelMonitorUpdateStep};
 use crate::chain::transaction::OutPoint;
 use crate::chain::{self, ChannelMonitorUpdateStatus};
@@ -38,7 +39,7 @@ use bitcoin::constants::ChainHash;
 use bitcoin::hashes::Hash;
 use bitcoin::locktime::absolute::LockTime;
 use bitcoin::network::Network;
-use bitcoin::script::ScriptBuf;
+use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::transaction::Version;
 use bitcoin::OutPoint as BitcoinOutPoint;
@@ -110,8 +111,7 @@ fn test_0conf_limiting() {
 	// First, get us up to MAX_UNFUNDED_CHANNEL_PEERS so we can test at the edge
 	for _ in 0..MAX_UNFUNDED_CHANNEL_PEERS {
 		let random_pk = PublicKey::from_secret_key(
-			&nodes[0].node.secp_ctx,
-			&SecretKey::from_slice(&nodes[1].keys_manager.get_secure_random_bytes()).unwrap(),
+			&crate::prelude::secret_key_from_slice(&nodes[1].keys_manager.get_secure_random_bytes()).unwrap(),
 		);
 		nodes[1].node.peer_connected(random_pk, init_msg, true).unwrap();
 
@@ -123,8 +123,7 @@ fn test_0conf_limiting() {
 
 	// If we try to accept a channel from another peer non-0conf it will fail.
 	let last_random_pk = PublicKey::from_secret_key(
-		&nodes[0].node.secp_ctx,
-		&SecretKey::from_slice(&nodes[1].keys_manager.get_secure_random_bytes()).unwrap(),
+		&crate::prelude::secret_key_from_slice(&nodes[1].keys_manager.get_secure_random_bytes()).unwrap(),
 	);
 	nodes[1].node.peer_connected(last_random_pk, init_msg, true).unwrap();
 	nodes[1].node.handle_open_channel(last_random_pk, &open_channel_msg);
@@ -863,7 +862,7 @@ pub fn bolt2_open_channel_sending_node_checks_part2() {
 	assert!(node0_to_1_send_open_channel.common_fields.to_self_delay == BREAKDOWN_TIMEOUT);
 
 	// BOLT #2 spec: Sending node must ensure the chain_hash value identifies the chain it wishes to open the channel within.
-	let chain_hash = ChainHash::using_genesis_block(Network::Testnet);
+	let chain_hash = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 	assert_eq!(node0_to_1_send_open_channel.common_fields.chain_hash, chain_hash);
 }
 
@@ -1615,9 +1614,9 @@ pub fn test_invalid_funding_tx() {
 	let mut wit_program: Vec<u8> =
 		channelmonitor::deliberately_bogus_accepted_htlc_witness_program();
 	let wit_program_script: ScriptBuf = wit_program.into();
-	for output in tx.output.iter_mut() {
+	for output in tx.outputs.iter_mut() {
 		// Make the confirmed funding transaction have a bogus script_pubkey
-		output.script_pubkey = ScriptBuf::new_p2wsh(&wit_program_script.wscript_hash());
+		output.script_pubkey = ScriptBuf::new_p2wsh(wit_program_script.wscript_hash());
 	}
 
 	nodes[0]
@@ -1675,20 +1674,20 @@ pub fn test_invalid_funding_tx() {
 	let mut spend_tx = Transaction {
 		version: Version::TWO,
 		lock_time: LockTime::ZERO,
-		input: tx
-			.output
+		inputs: tx
+			.outputs
 			.iter()
 			.enumerate()
 			.map(|(idx, _)| TxIn {
 				previous_output: BitcoinOutPoint { txid: tx.compute_txid(), vout: idx as u32 },
-				script_sig: ScriptBuf::new(),
+				script_sig: bitcoin::ScriptSigBuf::new(),
 				sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
 				witness: Witness::from_slice(
 					&channelmonitor::deliberately_bogus_accepted_htlc_witness(),
 				),
 			})
 			.collect(),
-		output: vec![TxOut { value: Amount::from_sat(1000), script_pubkey: ScriptBuf::new() }],
+		outputs: vec![TxOut { amount: amount_from_sat(1000), script_pubkey: ScriptBuf::new() }],
 	};
 	check_spends!(spend_tx, tx);
 	mine_transaction(&nodes[1], &spend_tx);
@@ -1786,7 +1785,7 @@ pub fn test_non_final_funding_tx() {
 	let events = nodes[0].node.get_and_clear_pending_events();
 	let input = TxIn {
 		previous_output: BitcoinOutPoint::null(),
-		script_sig: bitcoin::ScriptBuf::new(),
+		script_sig: bitcoin::ScriptSigBuf::new(),
 		sequence: Sequence(1),
 		witness: Witness::from_slice(&[&[1]]),
 	};
@@ -1795,11 +1794,11 @@ pub fn test_non_final_funding_tx() {
 		Event::FundingGenerationReady { ref channel_value_satoshis, ref output_script, .. } => {
 			// Timelock the transaction _beyond_ the best client height + 1.
 			Transaction {
-				version: Version(chan_id as i32),
+				version: Version::maybe_non_standard(chan_id as u32),
 				lock_time: LockTime::from_height(best_height + 2).unwrap(),
-				input: vec![input],
-				output: vec![TxOut {
-					value: Amount::from_sat(*channel_value_satoshis),
+				inputs: vec![input],
+				outputs: vec![TxOut {
+					amount: amount_from_sat(*channel_value_satoshis),
 					script_pubkey: output_script.clone(),
 				}],
 			}
@@ -1845,7 +1844,7 @@ pub fn test_non_final_funding_tx_within_headroom() {
 	let events = nodes[0].node.get_and_clear_pending_events();
 	let input = TxIn {
 		previous_output: BitcoinOutPoint::null(),
-		script_sig: bitcoin::ScriptBuf::new(),
+		script_sig: bitcoin::ScriptSigBuf::new(),
 		sequence: Sequence(1),
 		witness: Witness::from_slice(&[[1]]),
 	};
@@ -1854,11 +1853,11 @@ pub fn test_non_final_funding_tx_within_headroom() {
 		Event::FundingGenerationReady { ref channel_value_satoshis, ref output_script, .. } => {
 			// Timelock the transaction within a +1 headroom from the best block.
 			Transaction {
-				version: Version(chan_id as i32),
+				version: Version::maybe_non_standard(chan_id as u32),
 				lock_time: LockTime::from_consensus(best_height + 1),
-				input: vec![input],
-				output: vec![TxOut {
-					value: Amount::from_sat(*channel_value_satoshis),
+				inputs: vec![input],
+				outputs: vec![TxOut {
+					amount: amount_from_sat(*channel_value_satoshis),
 					script_pubkey: output_script.clone(),
 				}],
 			}
@@ -2468,10 +2467,10 @@ fn test_fund_pending_channel() {
 	let open_msg = get_event_msg!(nodes[0], MessageSendEvent::SendOpenChannel, node_b_id);
 
 	let tx = Transaction {
-		version: Version(2),
+		version: Version::maybe_non_standard(2),
 		lock_time: LockTime::ZERO,
-		input: vec![],
-		output: vec![],
+		inputs: vec![],
+		outputs: vec![],
 	};
 	let pending_chan = [(&open_msg.common_fields.temporary_channel_id, &node_b_id)];
 	let res = nodes[0].node.batch_funding_transaction_generated(&pending_chan, tx);

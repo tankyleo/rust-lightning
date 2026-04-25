@@ -11,8 +11,8 @@
 
 use core::borrow::Borrow;
 
-use bitcoin::hashes::{sha256::Hash as Sha256, Hash as _};
-use bitcoin::hex::display::impl_fmt_traits;
+use bitcoin::hashes::sha256::Hash as Sha256;
+use hex_conservative::impl_fmt_traits;
 
 /// The payment hash is the hash of the [`PaymentPreimage`] which is the value used to lock funds
 /// in HTLCs while they transit the lightning network.

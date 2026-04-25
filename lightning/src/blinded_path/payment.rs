@@ -172,7 +172,7 @@ impl BlindedPaymentPath {
 		);
 		let blinding_secret_bytes = entropy_source.get_secure_random_bytes();
 		let blinding_secret =
-			SecretKey::from_slice(&blinding_secret_bytes[..]).expect("RNG is busted");
+			SecretKey::from_byte_array(blinding_secret_bytes).expect("RNG is busted");
 
 		let blinded_payinfo = compute_payinfo(
 			intermediate_nodes,
@@ -184,7 +184,7 @@ impl BlindedPaymentPath {
 		Ok(Self {
 			inner_path: BlindedPath {
 				introduction_node,
-				blinding_point: PublicKey::from_secret_key(secp_ctx, &blinding_secret),
+				blinding_point: PublicKey::from_secret_key(&blinding_secret),
 				blinded_hops: blinded_hops(
 					secp_ctx,
 					intermediate_nodes,

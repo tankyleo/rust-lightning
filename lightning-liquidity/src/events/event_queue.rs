@@ -326,7 +326,7 @@ mod tests {
 
 		let secp_ctx = Secp256k1::new();
 		let counterparty_node_id =
-			PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+			PublicKey::from_secret_key(&SecretKey::from_secret_bytes([42; 32]).unwrap());
 		let expected_event = LiquidityEvent::LSPS0Client(LSPS0ClientEvent::ListProtocolsResponse {
 			counterparty_node_id,
 			protocols: Vec::new(),

@@ -294,13 +294,13 @@ impl Base32Iterable for RawTaggedField {
 
 impl Base32Iterable for Sha256 {
 	fn fe_iter<'s>(&'s self) -> impl Iterator<Item = Fe32> + 's {
-		self.0[..].fe_iter()
+		self.0.as_byte_array()[..].fe_iter()
 	}
 }
 
 impl Base32Len for Sha256 {
 	fn base32_len(&self) -> usize {
-		self.0[..].base32_len()
+		self.0.as_byte_array()[..].base32_len()
 	}
 }
 
@@ -359,14 +359,14 @@ impl Base32Iterable for Fallback {
 				let v = Fe32::try_from(v.to_num()).expect("valid version");
 				core::iter::once(v).chain(p[..].fe_iter())
 			},
-			Fallback::PubKeyHash(ref hash) => {
-				// 17 '3'
-				core::iter::once(Fe32::_3).chain(hash[..].fe_iter())
-			},
-			Fallback::ScriptHash(ref hash) => {
-				// 18 'J'
-				core::iter::once(Fe32::J).chain(hash[..].fe_iter())
-			},
+				Fallback::PubKeyHash(ref hash) => {
+					// 17 '3'
+					core::iter::once(Fe32::_3).chain(hash.as_byte_array()[..].fe_iter())
+				},
+				Fallback::ScriptHash(ref hash) => {
+					// 18 'J'
+					core::iter::once(Fe32::J).chain(hash.as_byte_array()[..].fe_iter())
+				},
 		}
 	}
 }
@@ -477,7 +477,7 @@ impl Base32Iterable for TaggedField {
 impl Base32Iterable for Bolt11InvoiceSignature {
 	fn fe_iter<'s>(&'s self) -> impl Iterator<Item = Fe32> + 's {
 		let (recovery_id, signature) = self.0.serialize_compact();
-		signature.into_iter().chain(core::iter::once(recovery_id.to_i32() as u8)).bytes_to_fes()
+		signature.into_iter().chain(core::iter::once(recovery_id.to_u8())).bytes_to_fes()
 	}
 }
 

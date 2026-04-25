@@ -39,7 +39,7 @@
 //! let payment_paths = create_payment_paths();
 //! let payment_hash = create_payment_hash();
 //! let secp_ctx = Secp256k1::new();
-//! let keys = Keypair::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32])?);
+//! let keys = Keypair::from_secret_key(&secret_key_from_slice(&[42; 32])?);
 //! let pubkey = PublicKey::from(keys);
 //! let wpubkey_hash = bitcoin::key::PublicKey::new(pubkey).wpubkey_hash().unwrap();
 //! let mut buffer = Vec::new();
@@ -65,7 +65,7 @@
 //!     .fallback_v0_p2wpkh(&wpubkey_hash)
 //!     .build()?
 //!     .sign(|message: &UnsignedBolt12Invoice|
-//!         Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+//!         Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 //!     )
 //!     .expect("failed verifying signature")
 //!     .write(&mut buffer)
@@ -77,7 +77,7 @@
 //! # let payment_paths = create_payment_paths();
 //! # let payment_hash = create_payment_hash();
 //! # let secp_ctx = Secp256k1::new();
-//! # let keys = Keypair::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32])?);
+//! # let keys = Keypair::from_secret_key(&secret_key_from_slice(&[42; 32])?);
 //! # let pubkey = PublicKey::from(keys);
 //! # let wpubkey_hash = bitcoin::key::PublicKey::new(pubkey).wpubkey_hash().unwrap();
 //! # let mut buffer = Vec::new();
@@ -104,7 +104,7 @@
 //!     .fallback_v0_p2wpkh(&wpubkey_hash)
 //!     .build()?
 //!     .sign(|message: &UnsignedBolt12Invoice|
-//!         Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+//!         Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 //!     )
 //!     .expect("failed verifying signature")
 //!     .write(&mut buffer)
@@ -156,7 +156,7 @@ use bitcoin::address::Address;
 use bitcoin::constants::ChainHash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{self, Keypair, PublicKey, Secp256k1};
-use bitcoin::{Network, WitnessProgram, WitnessVersion};
+use bitcoin::{Network, TestnetVersion, WitnessProgram, WitnessVersion};
 use core::hash::{Hash, Hasher};
 use core::time::Duration;
 
@@ -381,7 +381,7 @@ macro_rules! invoice_derived_signing_pubkey_builder_methods {
 
 			let invoice = unsigned_invoice
 				.sign(|message: &UnsignedBolt12Invoice| {
-					Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+					Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 				})
 				.unwrap();
 			Ok(invoice)
@@ -986,7 +986,9 @@ impl Bolt12Invoice {
 
 	/// Hash that was used for signing the invoice.
 	pub fn signable_hash(&self) -> [u8; 32] {
-		self.tagged_hash.as_digest().as_ref().clone()
+		let mut bytes = [0; 32];
+		bytes.copy_from_slice(self.tagged_hash.as_digest_bytes());
+		bytes
 	}
 
 	/// Returns the [`OfferId`] if this invoice corresponds to an [`Offer`].
@@ -1379,8 +1381,8 @@ pub(super) fn is_expired(created_at: Duration, relative_expiry: Duration) -> boo
 pub(super) fn filter_fallbacks(chain: ChainHash, fallbacks: &Vec<FallbackAddress>) -> Vec<Address> {
 	let network = if chain == ChainHash::using_genesis_block(Network::Bitcoin) {
 		Network::Bitcoin
-	} else if chain == ChainHash::using_genesis_block(Network::Testnet) {
-		Network::Testnet
+	} else if chain == ChainHash::using_genesis_block(Network::Testnet(TestnetVersion::V3)) {
+		Network::Testnet(TestnetVersion::V3)
 	} else if chain == ChainHash::using_genesis_block(Network::Signet) {
 		Network::Signet
 	} else if chain == ChainHash::using_genesis_block(Network::Regtest) {
@@ -1834,9 +1836,9 @@ mod tests {
 	use bitcoin::hashes::Hash;
 	use bitcoin::key::TweakedPublicKey;
 	use bitcoin::network::Network;
-	use bitcoin::script::ScriptBuf;
-	use bitcoin::secp256k1::{self, Keypair, Message, Secp256k1, SecretKey, XOnlyPublicKey};
-	use bitcoin::{CompressedPublicKey, WitnessProgram, WitnessVersion};
+	use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
+	use bitcoin::secp256k1::{self, Keypair, Secp256k1, SecretKey};
+	use bitcoin::{CompressedPublicKey, WitnessProgram, WitnessVersion, XOnlyPublicKey};
 	use core::time::Duration;
 
 	use crate::blinded_path::message::BlindedMessagePath;
@@ -1993,7 +1995,7 @@ mod tests {
 		let message = TaggedHash::from_valid_tlv_stream_bytes(SIGNATURE_TAG, &invoice.bytes);
 		assert!(merkle::verify_signature(&invoice.signature, &message, recipient_pubkey()).is_ok());
 
-		let digest = Message::from_digest(invoice.signable_hash());
+		let digest = invoice.signable_hash();
 		let pubkey = recipient_pubkey().into();
 		let secp_ctx = Secp256k1::verification_only();
 		assert!(secp_ctx.verify_schnorr(&invoice.signature, &digest, &pubkey).is_ok());
@@ -2493,8 +2495,9 @@ mod tests {
 
 		let script = ScriptBuf::new();
 		let pubkey = bitcoin::key::PublicKey::new(recipient_pubkey());
-		let x_only_pubkey = XOnlyPublicKey::from_keypair(&recipient_keys()).0;
+		let x_only_pubkey = XOnlyPublicKey::from_keypair(&bitcoin::Keypair::from_secp(recipient_keys()));
 		let tweaked_pubkey = TweakedPublicKey::dangerous_assume_tweaked(x_only_pubkey);
+		let witness_script = bitcoin::WitnessScriptBuf::from_bytes(script.as_bytes().to_vec());
 
 		let invoice = OfferBuilder::new(recipient_pubkey())
 			.amount_msats(1000)
@@ -2517,8 +2520,8 @@ mod tests {
 		assert_eq!(
 			invoice.fallbacks(),
 			vec![
-				Address::p2wsh(&script, Network::Bitcoin),
-				Address::p2wpkh(&CompressedPublicKey(pubkey.inner), Network::Bitcoin),
+				Address::p2wsh(witness_script.as_script(), Network::Bitcoin).unwrap(),
+				Address::p2wpkh(CompressedPublicKey::from_secp(pubkey.to_inner()), Network::Bitcoin),
 				Address::p2tr_tweaked(tweaked_pubkey, Network::Bitcoin),
 			],
 		);
@@ -2904,8 +2907,9 @@ mod tests {
 
 		let script = ScriptBuf::new();
 		let pubkey = bitcoin::key::PublicKey::new(recipient_pubkey());
-		let x_only_pubkey = XOnlyPublicKey::from_keypair(&recipient_keys()).0;
+		let x_only_pubkey = XOnlyPublicKey::from_keypair(&bitcoin::Keypair::from_secp(recipient_keys()));
 		let tweaked_pubkey = TweakedPublicKey::dangerous_assume_tweaked(x_only_pubkey);
+		let witness_script = bitcoin::WitnessScriptBuf::from_bytes(script.as_bytes().to_vec());
 
 		let invoice_request = OfferBuilder::new(recipient_pubkey())
 			.amount_msats(1000)
@@ -2951,8 +2955,8 @@ mod tests {
 				assert_eq!(
 					invoice.fallbacks(),
 					vec![
-						Address::p2wsh(&script, Network::Bitcoin),
-						Address::p2wpkh(&CompressedPublicKey(pubkey.inner), Network::Bitcoin),
+						Address::p2wsh(witness_script.as_script(), Network::Bitcoin).unwrap(),
+						Address::p2wpkh(CompressedPublicKey::from_secp(pubkey.to_inner()), Network::Bitcoin),
 						Address::p2tr_tweaked(tweaked_pubkey, Network::Bitcoin),
 						Address::from_witness_program(v1_witness_program, Network::Bitcoin),
 						Address::from_witness_program(v2_witness_program, Network::Bitcoin),
@@ -3051,8 +3055,8 @@ mod tests {
 		let blinded_node_id_sign = |message: &UnsignedBolt12Invoice| {
 			let secp_ctx = Secp256k1::new();
 			let keys =
-				Keypair::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[46; 32]).unwrap());
-			Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+				Keypair::from_secret_key(&crate::prelude::secret_key_from_slice(&[46; 32]).unwrap());
+			Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 		};
 
 		let invoice = OfferBuilder::new(recipient_pubkey())
@@ -3298,7 +3302,7 @@ mod tests {
 		assert!(UNKNOWN_ODD_TYPE % 2 == 1);
 
 		let secp_ctx = Secp256k1::new();
-		let keys = Keypair::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+		let keys = Keypair::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let mut unsigned_invoice = OfferBuilder::new(keys.public_key())
 			.amount_msats(1000)
 			.build()
@@ -3323,7 +3327,7 @@ mod tests {
 
 		let invoice = unsigned_invoice
 			.sign(|message: &UnsignedBolt12Invoice| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 			})
 			.unwrap();
 
@@ -3362,7 +3366,7 @@ mod tests {
 
 		let invoice = unsigned_invoice
 			.sign(|message: &UnsignedBolt12Invoice| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 			})
 			.unwrap();
 
@@ -3383,7 +3387,7 @@ mod tests {
 		let payment_id = PaymentId([1; 32]);
 
 		let secp_ctx = Secp256k1::new();
-		let keys = Keypair::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+		let keys = Keypair::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let invoice = OfferBuilder::new(keys.public_key())
 			.amount_msats(1000)
 			.build()
@@ -3398,7 +3402,7 @@ mod tests {
 			.build()
 			.unwrap()
 			.sign(|message: &UnsignedBolt12Invoice| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 			})
 			.unwrap();
 
@@ -3436,7 +3440,7 @@ mod tests {
 
 		let invoice = unsigned_invoice
 			.sign(|message: &UnsignedBolt12Invoice| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 			})
 			.unwrap();
 
@@ -3477,7 +3481,7 @@ mod tests {
 
 		let invoice = unsigned_invoice
 			.sign(|message: &UnsignedBolt12Invoice| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 			})
 			.unwrap();
 
@@ -3502,7 +3506,7 @@ mod tests {
 			.build()
 			.unwrap()
 			.sign(|message: &UnsignedBolt12Invoice| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest(), &keys))
+				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 			})
 			.unwrap();
 

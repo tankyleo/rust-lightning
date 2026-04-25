@@ -531,7 +531,7 @@ mod tests {
 			.unwrap()
 			.assume_checked(),
 			min_onchain_payment_confirmations: Some(1),
-			min_fee_for_0conf: FeeRate::from_sat_per_vb(253).unwrap(),
+			min_fee_for_0conf: FeeRate::from_sat_per_vb(253),
 			refund_onchain_address: None,
 		}
 	}

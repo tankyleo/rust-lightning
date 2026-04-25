@@ -32,10 +32,10 @@ use crate::util::native_async::{MaybeSend, MaybeSync};
 use bitcoin::amount::Amount;
 use bitcoin::consensus::Encodable;
 use bitcoin::constants::WITNESS_SCALE_FACTOR;
-use bitcoin::key::TweakedPublicKey;
+use bitcoin::key::{PubkeyHash, TweakedPublicKey, WPubkeyHash};
+use bitcoin::script::{ScriptPubKey as Script, ScriptPubKeyBuf as ScriptBuf};
 use bitcoin::{
-	OutPoint, Psbt, PubkeyHash, Script, ScriptBuf, Sequence, Transaction, TxOut, WPubkeyHash,
-	Weight,
+	OutPoint, Psbt, Sequence, Transaction, TxOut, Weight,
 };
 
 /// An input that must be included in a transaction when performing coin selection through
@@ -96,7 +96,7 @@ impl Utxo {
 			33 /* pubkey */;
 		Self {
 			outpoint,
-			output: TxOut { value, script_pubkey: ScriptBuf::new_p2pkh(pubkey_hash) },
+			output: TxOut { amount: value, script_pubkey: ScriptBuf::new_p2pkh(*pubkey_hash) },
 			satisfaction_weight: script_sig_size * WITNESS_SCALE_FACTOR as u64 + 1, /* empty witness */
 			sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
 		}
@@ -111,9 +111,9 @@ impl Utxo {
 		Self {
 			outpoint,
 			output: TxOut {
-				value,
+				amount: value,
 				script_pubkey: ScriptBuf::new_p2sh(
-					&ScriptBuf::new_p2wpkh(pubkey_hash).script_hash(),
+					ScriptBuf::new_p2wpkh(*pubkey_hash).script_hash().expect("P2WPKH script is a valid P2SH redeem script"),
 				),
 			},
 			satisfaction_weight: script_sig_size * WITNESS_SCALE_FACTOR as u64
@@ -126,7 +126,7 @@ impl Utxo {
 	pub fn new_v0_p2wpkh(outpoint: OutPoint, value: Amount, pubkey_hash: &WPubkeyHash) -> Self {
 		Self {
 			outpoint,
-			output: TxOut { value, script_pubkey: ScriptBuf::new_p2wpkh(pubkey_hash) },
+			output: TxOut { amount: value, script_pubkey: ScriptBuf::new_p2wpkh(*pubkey_hash) },
 			satisfaction_weight: EMPTY_SCRIPT_SIG_WEIGHT + P2WPKH_WITNESS_WEIGHT,
 			sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
 		}
@@ -138,7 +138,7 @@ impl Utxo {
 	) -> Self {
 		Self {
 			outpoint,
-			output: TxOut { value, script_pubkey: ScriptBuf::new_p2tr_tweaked(tweaked_public_key) },
+			output: TxOut { amount: value, script_pubkey: ScriptBuf::new_p2tr_tweaked(tweaked_public_key) },
 			satisfaction_weight: EMPTY_SCRIPT_SIG_WEIGHT + P2TR_KEY_PATH_WITNESS_WEIGHT,
 			sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
 		}
@@ -183,14 +183,14 @@ impl_writeable_tlv_based!(ConfirmedUtxo, {
 });
 
 impl ConfirmedUtxo {
-	fn new<F: FnOnce(&bitcoin::Script) -> bool>(
+	fn new<F: FnOnce(&Script) -> bool>(
 		prevtx: Transaction, vout: u32, witness_weight: Weight, script_filter: F,
 	) -> Result<Self, ()> {
 		Ok(ConfirmedUtxo {
 			utxo: Utxo {
 				outpoint: bitcoin::OutPoint { txid: prevtx.compute_txid(), vout },
 				output: prevtx
-					.output
+					.outputs
 					.get(vout as usize)
 					.filter(|output| script_filter(&output.script_pubkey))
 					.ok_or(())?
@@ -336,7 +336,9 @@ impl CoinSelection {
 	}
 
 	pub(crate) fn input_amount(&self) -> Amount {
-		self.confirmed_utxos.iter().map(|ConfirmedUtxo { utxo, .. }| utxo.output.value).sum()
+		self.confirmed_utxos.iter().fold(Amount::ZERO, |total, ConfirmedUtxo { utxo, .. }| {
+			(total + utxo.output.amount).expect("confirmed UTXO total must fit in Amount")
+		})
 	}
 }
 
@@ -544,11 +546,11 @@ where
 					let fee_to_spend_utxo = Amount::from_sat(fee_for_weight(
 						target_feerate_sat_per_1000_weight,
 						BASE_INPUT_WEIGHT + utxo.satisfaction_weight,
-					));
+					)).expect("input satisfaction fee must fit in Amount");
 					let should_spend = if tolerate_high_network_feerates {
-						utxo.output.value > fee_to_spend_utxo
+						utxo.output.amount > fee_to_spend_utxo
 					} else {
-						utxo.output.value >= fee_to_spend_utxo * 2
+						utxo.output.amount >= (fee_to_spend_utxo * 2).expect("doubled fee must fit in Amount")
 					};
 					if should_spend {
 						Some((utxo, fee_to_spend_utxo))
@@ -563,19 +565,19 @@ where
 				})
 				.collect::<Vec<_>>();
 			eligible_utxos.sort_unstable_by_key(|(utxo, fee_to_spend_utxo)| {
-				utxo.output.value - *fee_to_spend_utxo
+				(utxo.output.amount - *fee_to_spend_utxo).expect("eligible UTXO value exceeds spend fee")
 			});
 
 			selected_amount = input_amount_sat;
 			total_fees = Amount::from_sat(fee_for_weight(
 				target_feerate_sat_per_1000_weight,
 				preexisting_tx_weight,
-			));
+			)).expect("preexisting transaction fee must fit in Amount");
 			selected_utxos = VecDeque::new();
 			// Invariant: `selected_utxos_weight` is never greater than `max_coin_selection_weight`
 			let mut selected_utxos_weight = 0;
 			for (utxo, fee_to_spend_utxo) in eligible_utxos {
-				if selected_amount >= target_amount_sat + total_fees {
+				if selected_amount >= (target_amount_sat + total_fees).expect("target amount plus fees must fit in Amount") {
 					break;
 				}
 				// First skip any UTXOs with prohibitive satisfaction weights
@@ -591,17 +593,17 @@ where
 				{
 					let (smallest_value_after_spend_utxo, fee_to_spend_utxo): (Utxo, Amount) =
 						selected_utxos.pop_front().unwrap();
-					selected_amount -= smallest_value_after_spend_utxo.output.value;
-					total_fees -= fee_to_spend_utxo;
+					selected_amount = (selected_amount - smallest_value_after_spend_utxo.output.amount).expect("selected amount covers removed UTXO");
+					total_fees = (total_fees - fee_to_spend_utxo).expect("total fees cover removed UTXO fee");
 					selected_utxos_weight -=
 						BASE_INPUT_WEIGHT + smallest_value_after_spend_utxo.satisfaction_weight;
 				}
-				selected_amount += utxo.output.value;
-				total_fees += fee_to_spend_utxo;
+				selected_amount = (selected_amount + utxo.output.amount).expect("selected amount must fit in Amount");
+				total_fees = (total_fees + fee_to_spend_utxo).expect("total fees must fit in Amount");
 				selected_utxos_weight += BASE_INPUT_WEIGHT + utxo.satisfaction_weight;
 				selected_utxos.push_back((utxo.clone(), fee_to_spend_utxo));
 			}
-			if selected_amount < target_amount_sat + total_fees {
+			if selected_amount < (target_amount_sat + total_fees).expect("target amount plus fees must fit in Amount") {
 				log_debug!(
 					self.logger,
 					"Insufficient funds to meet target feerate {} sat/kW while remaining under {} WU",
@@ -614,20 +616,20 @@ where
 			// we may be able to remove some small-value ones while still covering
 			// `target_amount_sat + total_fees`.
 			while !selected_utxos.is_empty()
-				&& selected_amount - selected_utxos.front().unwrap().0.output.value
-					>= target_amount_sat + total_fees - selected_utxos.front().unwrap().1
+				&& (selected_amount - selected_utxos.front().unwrap().0.output.amount).expect("selected amount covers front UTXO")
+					>= (target_amount_sat + total_fees - selected_utxos.front().unwrap().1).expect("target amount plus fees cover front UTXO fee")
 			{
 				let (smallest_value_after_spend_utxo, fee_to_spend_utxo) =
 					selected_utxos.pop_front().unwrap();
-				selected_amount -= smallest_value_after_spend_utxo.output.value;
-				total_fees -= fee_to_spend_utxo;
+				selected_amount = (selected_amount - smallest_value_after_spend_utxo.output.amount).expect("selected amount covers removed UTXO");
+				total_fees = (total_fees - fee_to_spend_utxo).expect("total fees cover removed UTXO fee");
 			}
 			for (utxo, _) in &selected_utxos {
 				locked_utxos.insert(utxo.outpoint, claim_id);
 			}
 		}
 
-		let remaining_amount = selected_amount - target_amount_sat - total_fees;
+		let remaining_amount = (selected_amount - target_amount_sat - total_fees).expect("selected amount covers target amount and fees");
 		let change_script = self.source.get_change_script().await?;
 		let change_output_fee = fee_for_weight(
 			target_feerate_sat_per_1000_weight,
@@ -635,12 +637,13 @@ where
 				* WITNESS_SCALE_FACTOR as u64,
 		);
 		let change_output_amount =
-			Amount::from_sat(remaining_amount.to_sat().saturating_sub(change_output_fee));
+			Amount::from_sat(remaining_amount.to_sat().saturating_sub(change_output_fee))
+				.expect("change output amount must fit in Amount");
 		let change_output = if change_output_amount < change_script.minimal_non_dust() {
 			log_debug!(self.logger, "Coin selection attempt did not yield change output");
 			None
 		} else {
-			Some(TxOut { script_pubkey: change_script, value: change_output_amount })
+			Some(TxOut { script_pubkey: change_script, amount: change_output_amount })
 		};
 
 		let mut confirmed_utxos = Vec::with_capacity(selected_utxos.len());
@@ -648,7 +651,7 @@ where
 			let prevtx = self.source.get_prevtx(utxo.outpoint).await?;
 			let prevtx_id = prevtx.compute_txid();
 			if prevtx_id != utxo.outpoint.txid
-				|| prevtx.output.get(utxo.outpoint.vout as usize).is_none()
+				|| prevtx.outputs.get(utxo.outpoint.vout as usize).is_none()
 			{
 				log_error!(
 					self.logger,
@@ -692,8 +695,12 @@ where
 			let preexisting_tx_weight = SEGWIT_MARKER_FLAG_WEIGHT
 				+ total_input_weight
 				+ ((BASE_TX_SIZE + total_output_size) * WITNESS_SCALE_FACTOR as u64);
-			let input_amount_sat = must_spend.iter().map(|input| input.previous_utxo.value).sum();
-			let target_amount_sat = must_pay_to.iter().map(|output| output.value).sum();
+			let input_amount_sat = must_spend.iter().fold(Amount::ZERO, |total, input| {
+				(total + input.previous_utxo.amount).expect("required input total must fit in Amount")
+			});
+			let target_amount_sat = must_pay_to.iter().fold(Amount::ZERO, |total, output| {
+				(total + output.amount).expect("target output total must fit in Amount")
+			});
 
 			let configs = [(false, false), (false, true), (true, false), (true, true)];
 			for (force_conflicting_utxo_spend, tolerate_high_network_feerates) in configs {

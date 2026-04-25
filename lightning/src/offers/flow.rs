@@ -201,7 +201,7 @@ impl<MR: MessageRouter, L: Logger> OffersMessageFlow<MR, L> {
 	/// for intermediary blocks.
 	pub fn best_block_updated(&self, header: &Header, _height: u32) {
 		let timestamp = &self.highest_seen_timestamp;
-		let block_time = header.time as usize;
+		let block_time = header.time.to_u32() as usize;
 
 		loop {
 			// Update timestamp to be the max of its current value and the block

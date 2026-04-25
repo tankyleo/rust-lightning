@@ -100,7 +100,7 @@ impl UtxoLookup for FuzzChainSource {
 		}
 		let input_slice = input_slice.unwrap();
 		let txo_res = TxOut {
-			value: Amount::from_sat(if input_slice[0] % 2 == 0 { 1_000_000 } else { 1_000 }),
+			amount: Amount::from_sat(if input_slice[0] % 2 == 0 { 1_000_000 } else { 1_000 }),
 			script_pubkey: Builder::new().push_int(input_slice[1] as i64).into_script().to_p2wsh(),
 		};
 		match input_slice {

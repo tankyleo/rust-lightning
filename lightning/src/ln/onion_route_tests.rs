@@ -44,7 +44,7 @@ use crate::util::test_utils;
 
 use bitcoin::constants::ChainHash;
 use bitcoin::hashes::hmac::{Hmac, HmacEngine};
-use bitcoin::hashes::sha256::Hash as Sha256;
+use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
 use bitcoin::hashes::{Hash, HashEngine};
 
 use bitcoin::secp256k1;
@@ -55,7 +55,7 @@ use crate::io;
 use crate::ln::functional_test_utils::*;
 use crate::ln::onion_utils::{construct_trampoline_onion_keys, construct_trampoline_onion_packet};
 use crate::prelude::*;
-use bitcoin::hex::{DisplayHex, FromHex};
+use hex_conservative::{DisplayHex, FromHex};
 use types::features::{ChannelFeatures, Features, NodeFeatures};
 
 use super::msgs::OnionErrorPacket;
@@ -520,7 +520,7 @@ fn test_onion_failure() {
 		&payment_hash,
 		&payment_secret,
 		|msg| {
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let cur_height = nodes[0].best_block_info().1 + 1;
 			let onion_keys =
 				construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
@@ -562,7 +562,7 @@ fn test_onion_failure() {
 		&payment_hash,
 		&payment_secret,
 		|msg| {
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let cur_height = nodes[0].best_block_info().1 + 1;
 			let onion_keys =
 				construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
@@ -610,7 +610,7 @@ fn test_onion_failure() {
 		},
 		|msg| {
 			// and tamper returning error message
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let onion_keys =
 				construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 			let failure = onion_utils::build_failure_packet(
@@ -644,7 +644,7 @@ fn test_onion_failure() {
 		|_msg| {},
 		|msg| {
 			// and tamper returning error message
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let onion_keys =
 				construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 			let failure = onion_utils::build_failure_packet(
@@ -682,7 +682,7 @@ fn test_onion_failure() {
 			msg.amount_msat -= 1;
 		},
 		|msg| {
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let onion_keys =
 				construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 			let failure = onion_utils::build_failure_packet(
@@ -715,7 +715,7 @@ fn test_onion_failure() {
 		&payment_secret,
 		|_msg| {},
 		|msg| {
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let onion_keys =
 				construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 			let failure = onion_utils::build_failure_packet(
@@ -753,7 +753,7 @@ fn test_onion_failure() {
 			msg.amount_msat -= 1;
 		},
 		|msg| {
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let onion_keys =
 				construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 			let failure = onion_utils::build_failure_packet(
@@ -788,7 +788,7 @@ fn test_onion_failure() {
 		&payment_secret,
 		|_msg| {},
 		|msg| {
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let onion_keys =
 				construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 			let failure = onion_utils::build_failure_packet(
@@ -889,7 +889,7 @@ fn test_onion_failure() {
 			msg.amount_msat -= 1;
 		},
 		|msg| {
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let onion_keys =
 				construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 			let failure = onion_utils::build_failure_packet(
@@ -922,7 +922,7 @@ fn test_onion_failure() {
 			msg.amount_msat -= 1;
 		},
 		|msg| {
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let onion_keys =
 				construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 			let failure = onion_utils::build_failure_packet(
@@ -954,7 +954,7 @@ fn test_onion_failure() {
 			msg.amount_msat -= 1;
 		},
 		|msg| {
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let onion_keys =
 				construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 			let failure = onion_utils::build_failure_packet(
@@ -987,7 +987,7 @@ fn test_onion_failure() {
 			msg.amount_msat -= 1;
 		},
 		|msg| {
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let onion_keys =
 				construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 			let failure = onion_utils::build_failure_packet(
@@ -1278,7 +1278,7 @@ fn test_onion_failure() {
 		&payment_hash,
 		&payment_secret,
 		|msg| {
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let mut route = route.clone();
 			let height = nodes[2].best_block_info().1;
 			route.paths[0].hops[1].cltv_expiry_delta +=
@@ -1321,7 +1321,7 @@ fn test_onion_failure() {
 		|_msg| {},
 		|msg| {
 			// Tamper returning error message
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let onion_keys =
 				construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 			let failure = onion_utils::build_failure_packet(
@@ -1352,7 +1352,7 @@ fn test_onion_failure() {
 		&payment_secret,
 		|_msg| {},
 		|msg| {
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let onion_keys =
 				construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 			let mut decoded_err_packet = msgs::DecodedOnionErrorPacket {
@@ -1361,9 +1361,9 @@ fn test_onion_failure() {
 				hmac: [0; 32],
 			};
 			let um = onion_utils::gen_um_from_shared_secret(&onion_keys[1].shared_secret.as_ref());
-			let mut hmac = HmacEngine::<Sha256>::new(&um);
+			let mut hmac = HmacEngine::<Sha256Engine>::new(&um);
 			hmac.input(&decoded_err_packet.encode()[32..]);
-			decoded_err_packet.hmac = Hmac::from_engine(hmac).to_byte_array();
+			decoded_err_packet.hmac = hmac.finalize().to_byte_array();
 			let mut onion_error = OnionErrorPacket {
 				data: decoded_err_packet.encode(),
 				attribution_data: Some(AttributionData::new()),
@@ -1421,7 +1421,7 @@ fn test_onion_failure() {
 			msg.amount_msat -= 1;
 		},
 		|msg| {
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let onion_keys =
 				construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 			let mut decoded_err_packet = msgs::DecodedOnionErrorPacket {
@@ -1433,9 +1433,9 @@ fn test_onion_failure() {
 				hmac: [0; 32],
 			};
 			let um = onion_utils::gen_um_from_shared_secret(&onion_keys[0].shared_secret.as_ref());
-			let mut hmac = HmacEngine::<Sha256>::new(&um);
+			let mut hmac = HmacEngine::<Sha256Engine>::new(&um);
 			hmac.input(&decoded_err_packet.encode()[32..]);
-			decoded_err_packet.hmac = Hmac::from_engine(hmac).to_byte_array();
+			decoded_err_packet.hmac = hmac.finalize().to_byte_array();
 			let mut onion_error = OnionErrorPacket {
 				data: decoded_err_packet.encode(),
 				attribution_data: Some(AttributionData::new()),
@@ -1471,7 +1471,7 @@ fn test_onion_failure() {
 		&payment_secret,
 		|_msg| {},
 		|msg| {
-			let session_priv = SecretKey::from_slice(&[3; 32]).unwrap();
+			let session_priv = crate::prelude::secret_key_from_slice(&[3; 32]).unwrap();
 			let onion_keys =
 				construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 			let mut decoded_err_packet = msgs::DecodedOnionErrorPacket {
@@ -1483,9 +1483,9 @@ fn test_onion_failure() {
 				hmac: [0; 32],
 			};
 			let um = onion_utils::gen_um_from_shared_secret(&onion_keys[1].shared_secret.as_ref());
-			let mut hmac = HmacEngine::<Sha256>::new(&um);
+			let mut hmac = HmacEngine::<Sha256Engine>::new(&um);
 			hmac.input(&decoded_err_packet.encode()[32..]);
-			decoded_err_packet.hmac = Hmac::from_engine(hmac).to_byte_array();
+			decoded_err_packet.hmac = hmac.finalize().to_byte_array();
 			let mut onion_error = OnionErrorPacket {
 				data: decoded_err_packet.encode(),
 				attribution_data: Some(AttributionData::new()),
@@ -1971,7 +1971,7 @@ fn test_trampoline_onion_payload_assembly_values() {
 	assert_eq!(path.final_cltv_expiry_delta(), None);
 
 	let payment_secret = PaymentSecret(
-		SecretKey::from_slice(&<Vec<u8>>::from_hex(SECRET_HEX).unwrap()).unwrap().secret_bytes(),
+		crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(SECRET_HEX).unwrap()).unwrap().secret_bytes(),
 	);
 	let recipient_onion_fields = RecipientOnionFields::secret_only(payment_secret, amt_msat);
 	let (trampoline_payloads, outer_total_msat) = onion_utils::build_trampoline_onion_payloads(
@@ -2017,7 +2017,7 @@ fn test_trampoline_onion_payload_assembly_values() {
 
 	// all dummy values
 	let secp_ctx = Secp256k1::new();
-	let session_priv = SecretKey::from_slice(&<Vec<u8>>::from_hex(SESSION_HEX).unwrap()).unwrap();
+	let session_priv = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(SESSION_HEX).unwrap()).unwrap();
 	let prng_seed = onion_utils::gen_pad_from_shared_secret(&session_priv.secret_bytes());
 	let payment_hash = PaymentHash(session_priv.secret_bytes());
 
@@ -2122,8 +2122,8 @@ fn test_trampoline_onion_payload_construction_vectors() {
 		vec![trampoline_payload_carol, trampoline_payload_dave, trampoline_payload_eve];
 
 	let trampoline_session_key =
-		SecretKey::from_slice(&<Vec<u8>>::from_hex(SESSION_HEX).unwrap()).unwrap();
-	let associated_data_slice = SecretKey::from_slice(
+		crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(SESSION_HEX).unwrap()).unwrap();
+	let associated_data_slice = crate::prelude::secret_key_from_slice(
 		&<Vec<u8>>::from_hex("e89bc505e84aaca09613833fc58c9069078fb43bfbea0488f34eec9db99b5f82")
 			.unwrap(),
 	)
@@ -2207,7 +2207,7 @@ fn test_trampoline_onion_payload_construction_vectors() {
 			trampoline_packet: trampoline_onion_packet,
 			multipath_trampoline_data: Some(FinalOnionHopData {
 				payment_secret: PaymentSecret(
-					SecretKey::from_slice(&<Vec<u8>>::from_hex(SECRET_HEX).unwrap())
+					crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(SECRET_HEX).unwrap())
 						.unwrap()
 						.secret_bytes(),
 				),
@@ -2248,7 +2248,7 @@ fn test_trampoline_onion_payload_construction_vectors() {
 	let carol_payload = outer_payloads[1].encode().to_lower_hex_string();
 	assert_eq!(carol_payload, "fd0255020408f3272804030c353c08247494b65bc092b48a75465e43e29be807eb2cc535ce8aaba31012b8ff1ceac5da08f3272814fd02200002bc59a9abc893d75a8d4f56a6572f9a3507323a8de22abe0496ea8d37da166a8b4bba0e560f1a9deb602bfd98fe9167141d0b61d669df90c0149096d505b85d3d02806e6c12caeb308b878b6bc7f1b15839c038a6443cd3bec3a94c2293165375555f6d7720862b525930f41fddcc02260d197abd93fb58e60835fd97d9dc14e7979c12f59df08517b02e3e4d50e1817de4271df66d522c4e9675df71c635c4176a8381bc22b342ff4e9031cede87f74cc039fca74aa0a3786bc1db2e158a9a520ecb99667ef9a6bbfaf5f0e06f81c27ca48134ba2103229145937c5dc7b8ecc5201d6aeb592e78faa3c05d3a035df77628f0be9b1af3ef7d386dd5cc87b20778f47ebd40dbfcf12b9071c5d7112ab84c3e0c5c14867e684d09a18bc93ac47d73b7343e3403ef6e3b70366835988920e7d772c3719d3596e53c29c4017cb6938421a557ce81b4bb26701c25bf622d4c69f1359dc85857a375c5c74987a4d3152f66987001c68a50c4bf9e0b1dab4ad1a64b0535319bbf6c4fbe4f9c50cb65f5ef887bfb91b0a57c0f86ba3d91cbeea1607fb0c12c6c75d03bbb0d3a3019c40597027f5eebca23083e50ec79d41b1152131853525bf3fc13fb0be62c2e3ce733f59671eee5c4064863fb92ae74be9ca68b9c716f9519fd268478ee27d91d466b0de51404de3226b74217d28250ead9d2c95411e0230570f547d4cc7c1d589791623131aa73965dccc5aa17ec12b442215ce5d346df664d799190df5dd04a13");
 
-	let outer_session_key = SecretKey::from_slice(
+	let outer_session_key = crate::prelude::secret_key_from_slice(
 		&<Vec<u8>>::from_hex("4f777e8dac16e6dfe333066d9efb014f7a51d11762ff76eca4d3a95ada99ba3e")
 			.unwrap(),
 	)
@@ -2529,7 +2529,7 @@ fn test_phantom_invalid_onion_payload() {
 				}) => {
 					// Construct the onion payloads for the entire route and an invalid amount.
 					let height = nodes[0].best_block_info().1;
-					let session_priv = SecretKey::from_slice(&session_priv).unwrap();
+					let session_priv = crate::prelude::secret_key_from_slice(&session_priv).unwrap();
 					let mut onion_keys =
 						construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 					let recipient_onion_fields =

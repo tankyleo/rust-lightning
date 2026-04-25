@@ -9,8 +9,8 @@
 
 //! Onion message utility methods live here.
 
-use bitcoin::hashes::hmac::{Hmac, HmacEngine};
-use bitcoin::hashes::sha256::Hash as Sha256;
+use bitcoin::hashes::hmac::HmacEngine;
+use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
 use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::secp256k1::ecdh::SharedSecret;
 use bitcoin::secp256k1::{self, PublicKey, Scalar, Secp256k1, SecretKey};
@@ -34,7 +34,7 @@ macro_rules! build_keys_helper {
 	($session_priv: ident, $secp_ctx: ident, $callback: ident) => {
 		let mut msg_blinding_point_priv = $session_priv.clone();
 		let mut msg_blinding_point =
-			PublicKey::from_secret_key($secp_ctx, &msg_blinding_point_priv);
+			PublicKey::from_secret_key(&msg_blinding_point_priv);
 		let mut onion_packet_pubkey_priv = msg_blinding_point_priv.clone();
 		let mut onion_packet_pubkey = msg_blinding_point.clone();
 
@@ -47,11 +47,11 @@ macro_rules! build_keys_helper {
 					pk
 				} else {
 					let hop_pk_blinding_factor = {
-						let mut hmac = HmacEngine::<Sha256>::new(b"blinded_node_id");
+						let mut hmac = HmacEngine::<Sha256Engine>::new(b"blinded_node_id");
 						hmac.input(encrypted_data_ss.as_ref());
-						Hmac::from_engine(hmac).to_byte_array()
+						hmac.finalize().to_byte_array()
 					};
-					pk.mul_tweak($secp_ctx, &Scalar::from_be_bytes(hop_pk_blinding_factor).unwrap())
+					pk.mul_tweak(&Scalar::from_be_bytes(hop_pk_blinding_factor).unwrap())
 						.expect("RNG is busted")
 				};
 				let onion_packet_ss = SharedSecret::new(&blinded_hop_pk, &onion_packet_pubkey_priv);
@@ -86,7 +86,7 @@ macro_rules! build_keys_helper {
 					.mul_tweak(&Scalar::from_be_bytes(msg_blinding_point_blinding_factor).unwrap())
 					.expect("RNG is busted");
 				msg_blinding_point =
-					PublicKey::from_secret_key($secp_ctx, &msg_blinding_point_priv);
+					PublicKey::from_secret_key(&msg_blinding_point_priv);
 
 				let onion_packet_pubkey_blinding_factor = {
 					let mut sha = Sha256::engine();
@@ -98,7 +98,7 @@ macro_rules! build_keys_helper {
 					.mul_tweak(&Scalar::from_be_bytes(onion_packet_pubkey_blinding_factor).unwrap())
 					.expect("RNG is busted");
 				onion_packet_pubkey =
-					PublicKey::from_secret_key($secp_ctx, &onion_packet_pubkey_priv);
+					PublicKey::from_secret_key(&onion_packet_pubkey_priv);
 			};
 		}
 	};

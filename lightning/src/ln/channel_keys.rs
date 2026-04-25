@@ -11,6 +11,7 @@
 //! See: <https://github.com/lightning/bolts/blob/master/03-transactions.md#keys>
 
 use crate::io;
+use crate::prelude::*;
 use crate::ln::msgs::DecodeError;
 use crate::util::ser::Readable;
 use crate::util::ser::Writeable;
@@ -80,7 +81,7 @@ macro_rules! key_impl {
 		doc_comment! {
 			concat!("Build a ", $KeyName, " directly from an already-derived private key"),
 			pub fn from_secret_key<T: secp256k1::Signing>(secp_ctx: &Secp256k1<T>, sk: &SecretKey) -> Self {
-				Self(PublicKey::from_secret_key(&secp_ctx, &sk))
+				Self(PublicKey::from_secret_key(&sk))
 			}
 		}
 
@@ -182,8 +183,7 @@ pub fn add_public_key_tweak<T: secp256k1::Signing>(
 	secp_ctx: &Secp256k1<T>, base_point: &PublicKey, tweak: &Sha256,
 ) -> PublicKey {
 	let hashkey = PublicKey::from_secret_key(
-		&secp_ctx,
-		&SecretKey::from_slice(tweak.as_byte_array())
+		&SecretKey::from_byte_array(*tweak.as_byte_array())
 			.expect("Hashes should always be valid keys unless SHA-256 is broken"),
 	);
 	base_point.combine(&hashkey)
@@ -237,9 +237,9 @@ impl RevocationKey {
 			Sha256::from_engine(sha).to_byte_array()
 		};
 
-		let countersignatory_contrib = countersignatory_basepoint.to_public_key().mul_tweak(&secp_ctx, &Scalar::from_be_bytes(rev_append_commit_hash_key).unwrap())
+		let countersignatory_contrib = countersignatory_basepoint.to_public_key().mul_tweak(&Scalar::from_be_bytes(rev_append_commit_hash_key).unwrap())
 			.expect("Multiplying a valid public key by a hash is expected to never fail per secp256k1 docs");
-		let broadcaster_contrib = (&per_commitment_point).mul_tweak(&secp_ctx, &Scalar::from_be_bytes(commit_append_rev_hash_key).unwrap())
+		let broadcaster_contrib = (&per_commitment_point).mul_tweak(&Scalar::from_be_bytes(commit_append_rev_hash_key).unwrap())
 			.expect("Multiplying a valid public key by a hash is expected to never fail per secp256k1 docs");
 		let pk = countersignatory_contrib.combine(&broadcaster_contrib)
 			.expect("Addition only fails if the tweak is the inverse of the key. This is not possible when the tweak commits to the key.");
@@ -256,7 +256,7 @@ key_read_write!(RevocationKey);
 #[cfg(test)]
 mod test {
 	use super::derive_public_key;
-	use bitcoin::hex::FromHex;
+	use hex_conservative::FromHex;
 	use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 
 	#[test]
@@ -264,14 +264,14 @@ mod test {
 		// Test vectors from BOLT 3 Appendix E:
 		let secp_ctx = Secp256k1::new();
 
-		let base_secret = SecretKey::from_slice(
+		let base_secret = crate::prelude::secret_key_from_slice(
 			&<Vec<u8>>::from_hex(
 				"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
 			)
 			.unwrap()[..],
 		)
 		.unwrap();
-		let per_commitment_secret = SecretKey::from_slice(
+		let per_commitment_secret = crate::prelude::secret_key_from_slice(
 			&<Vec<u8>>::from_hex(
 				"1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100",
 			)
@@ -279,7 +279,7 @@ mod test {
 		)
 		.unwrap();
 
-		let base_point = PublicKey::from_secret_key(&secp_ctx, &base_secret);
+		let base_point = PublicKey::from_secret_key(&base_secret);
 		assert_eq!(
 			base_point.serialize()[..],
 			<Vec<u8>>::from_hex(
@@ -288,7 +288,7 @@ mod test {
 			.unwrap()[..]
 		);
 
-		let per_commitment_point = PublicKey::from_secret_key(&secp_ctx, &per_commitment_secret);
+		let per_commitment_point = PublicKey::from_secret_key(&per_commitment_secret);
 		assert_eq!(
 			per_commitment_point.serialize()[..],
 			<Vec<u8>>::from_hex(

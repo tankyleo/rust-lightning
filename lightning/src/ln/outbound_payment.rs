@@ -2973,15 +2973,15 @@ mod tests {
 		let logger_ref = &logger;
 		let log = WithContext::from(&logger_ref, None, None, Some(PaymentHash([0; 32])));
 		let outbound_payments = OutboundPayments::new(new_hash_map());
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, &logger));
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
 		let router = test_utils::TestRouter::new(network_graph, &logger, &scorer);
 		let secp_ctx = Secp256k1::new();
-		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet);
+		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 
 		let past_expiry_time = std::time::SystemTime::UNIX_EPOCH.elapsed().unwrap().as_secs() - 2;
 		let payment_params = PaymentParameters::from_node_id(
-				PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap()),
+				PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap()),
 				0
 			).with_expiry_time(past_expiry_time);
 		let expired_route_params = RouteParameters::from_payment_params_and_value(payment_params, 0);
@@ -3020,14 +3020,14 @@ mod tests {
 		let logger_ref = &logger;
 		let log = WithContext::from(&logger_ref, None, None, Some(PaymentHash([0; 32])));
 		let outbound_payments = OutboundPayments::new(new_hash_map());
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, &logger));
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
 		let router = test_utils::TestRouter::new(network_graph, &logger, &scorer);
 		let secp_ctx = Secp256k1::new();
-		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet);
+		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 
 		let payment_params = PaymentParameters::from_node_id(
-			PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap()), 0);
+			PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap()), 0);
 		let route_params = RouteParameters::from_payment_params_and_value(payment_params, 0);
 		router.expect_find_route(route_params.clone(), Err(""));
 
@@ -3061,14 +3061,14 @@ mod tests {
 		let logger_ref = &logger;
 		let log = WithContext::from(&logger_ref, None, None, Some(PaymentHash([0; 32])));
 		let outbound_payments = OutboundPayments::new(new_hash_map());
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, &logger));
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
 		let router = test_utils::TestRouter::new(network_graph, &logger, &scorer);
 		let secp_ctx = Secp256k1::new();
-		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet);
+		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 
-		let sender_pk = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
-		let receiver_pk = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[43; 32]).unwrap());
+		let sender_pk = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
+		let receiver_pk = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[43; 32]).unwrap());
 		let payment_params = PaymentParameters::from_node_id(sender_pk, 0);
 		let route_params = RouteParameters::from_payment_params_and_value(payment_params.clone(), 1);
 		let failed_scid = 42;
@@ -3284,11 +3284,11 @@ mod tests {
 		let logger = test_utils::TestLogger::new();
 		let logger_ref = &logger;
 		let log = WithContext::from(&logger_ref, None, None, Some(PaymentHash([0; 32])));
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, &logger));
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
 		let router = test_utils::TestRouter::new(network_graph, &logger, &scorer);
 		let secp_ctx = Secp256k1::new();
-		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet);
+		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let expanded_key = ExpandedKey::new([42; 32]);
 		let nonce = Nonce([0; 16]);
 
@@ -3341,11 +3341,11 @@ mod tests {
 		let logger = test_utils::TestLogger::new();
 		let logger_ref = &logger;
 		let log = WithContext::from(&logger_ref, None, None, Some(PaymentHash([0; 32])));
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, &logger));
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
 		let router = test_utils::TestRouter::new(network_graph, &logger, &scorer);
 		let secp_ctx = Secp256k1::new();
-		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet);
+		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 
 		let pending_events = Mutex::new(VecDeque::new());
 		let outbound_payments = OutboundPayments::new(new_hash_map());
@@ -3406,11 +3406,11 @@ mod tests {
 		let logger = test_utils::TestLogger::new();
 		let logger_ref = &logger;
 		let log = WithContext::from(&logger_ref, None, None, Some(PaymentHash([0; 32])));
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, &logger));
+		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
 		let router = test_utils::TestRouter::new(network_graph, &logger, &scorer);
 		let secp_ctx = Secp256k1::new();
-		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet);
+		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 
 		let pending_events = Mutex::new(VecDeque::new());
 		let outbound_payments = OutboundPayments::new(new_hash_map());

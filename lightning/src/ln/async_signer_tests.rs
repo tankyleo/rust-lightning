@@ -1069,7 +1069,7 @@ fn do_test_async_holder_signatures(keyed_anchors: bool, p2a_anchor: bool, remote
 			txn.remove(0)
 		} else {
 			assert_eq!(txn.len(), 2);
-			if txn[0].input[0].previous_output.txid == funding_tx.compute_txid() {
+			if txn[0].inputs[0].previous_output.txid == funding_tx.compute_txid() {
 				check_spends!(txn[0], funding_tx);
 				check_spends!(txn[1], txn[0]);
 				txn.remove(0)
@@ -1575,7 +1575,7 @@ fn test_async_splice_initial_commit_sig() {
 
 	// Negotiate a splice up until the signature exchange.
 	let outputs = vec![TxOut {
-		value: Amount::from_sat(1_000),
+		amount: amount_from_sat(1_000),
 		script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 	}];
 	let contribution = initiate_splice_out(initiator, acceptor, channel_id, outputs).unwrap();
@@ -1672,7 +1672,7 @@ fn test_async_splice_initial_commit_sig_waits_for_monitor_before_tx_signatures()
 
 	// Negotiate a splice up until the signature exchange.
 	let outputs = vec![TxOut {
-		value: Amount::from_sat(1_000),
+		amount: amount_from_sat(1_000),
 		script_pubkey: nodes[0].wallet_source.get_change_script().unwrap(),
 	}];
 	let contribution = initiate_splice_out(initiator, acceptor, channel_id, outputs).unwrap();

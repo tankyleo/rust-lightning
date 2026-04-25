@@ -17,7 +17,7 @@ use bitcoin::amount::Amount;
 use bitcoin::constants::ChainHash;
 use bitcoin::TxOut;
 
-use bitcoin::hex::DisplayHex;
+use hex_conservative::DisplayHex;
 
 use crate::ln::chan_utils::make_funding_redeemscript_from_slices;
 use crate::ln::msgs::{self, ErrorAction, LightningError, MessageSendEvent};
@@ -370,7 +370,7 @@ impl PendingChecks {
 		full_msg: Option<&msgs::ChannelAnnouncement>,
 	) -> Result<Option<Amount>, msgs::LightningError> {
 		let handle_result = |res| match res {
-			Ok(TxOut { value, script_pubkey }) => {
+			Ok(TxOut { amount: value, script_pubkey }) => {
 				let expected_script = make_funding_redeemscript_from_slices(
 					msg.bitcoin_key_1.as_array(),
 					msg.bitcoin_key_2.as_array(),
@@ -661,8 +661,8 @@ mod tests {
 
 	fn get_network() -> (TestChainSource, NetworkGraph<Box<TestLogger>>) {
 		let logger = Box::new(TestLogger::new());
-		let chain_source = TestChainSource::new(bitcoin::Network::Testnet);
-		let network_graph = NetworkGraph::new(bitcoin::Network::Testnet, logger);
+		let chain_source = TestChainSource::new(bitcoin::Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let network_graph = NetworkGraph::new(bitcoin::Network::Testnet(bitcoin::network::TestnetVersion::V3), logger);
 
 		(chain_source, network_graph)
 	}
@@ -671,7 +671,7 @@ mod tests {
 		msgs::ChannelAnnouncement,
 		TestChainSource,
 		NetworkGraph<Box<TestLogger>>,
-		bitcoin::ScriptBuf,
+		bitcoin::script::ScriptPubKeyBuf,
 		msgs::NodeAnnouncement,
 		msgs::NodeAnnouncement,
 		msgs::ChannelUpdate,
@@ -683,8 +683,8 @@ mod tests {
 		let (chain_source, network_graph) = get_network();
 
 		let good_script = get_channel_script(&secp_ctx);
-		let node_1_privkey = &SecretKey::from_slice(&[42; 32]).unwrap();
-		let node_2_privkey = &SecretKey::from_slice(&[41; 32]).unwrap();
+		let node_1_privkey = &crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+		let node_2_privkey = &crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
 		let valid_announcement =
 			get_signed_channel_announcement(|_| {}, node_1_privkey, node_2_privkey, &secp_ctx);
 
@@ -722,7 +722,7 @@ mod tests {
 		let notifier = Arc::new(Notifier::new());
 		let future = UtxoFuture::new(Arc::clone(&notifier));
 		future
-			.resolve(Ok(TxOut { value: Amount::from_sat(1_000_000), script_pubkey: good_script }));
+			.resolve(Ok(TxOut { amount: Amount::from_sat(1_000_000).expect("amount must fit"), script_pubkey: good_script }));
 		assert!(notifier.notify_pending());
 		network_graph.pending_checks.check_resolved_futures(&network_graph);
 		*chain_source.utxo_ret.lock().unwrap() = UtxoResult::Async(future.clone());
@@ -761,7 +761,7 @@ mod tests {
 		);
 		assert!(network_graph.read_only().channels().get(&scid).is_none());
 
-		future.resolve(Ok(TxOut { value: Amount::ZERO, script_pubkey: good_script }));
+		future.resolve(Ok(TxOut { amount: Amount::ZERO, script_pubkey: good_script }));
 		assert!(notifier.notify_pending());
 		network_graph.pending_checks.check_resolved_futures(&network_graph);
 		network_graph.read_only().channels().get(&scid).unwrap();
@@ -800,8 +800,8 @@ mod tests {
 		);
 		assert!(network_graph.read_only().channels().get(&scid).is_none());
 
-		let value = Amount::from_sat(1_000_000);
-		future.resolve(Ok(TxOut { value, script_pubkey: bitcoin::ScriptBuf::new() }));
+		let value = Amount::from_sat(1_000_000).expect("amount must fit");
+		future.resolve(Ok(TxOut { amount: value, script_pubkey: bitcoin::script::ScriptPubKeyBuf::new() }));
 		assert!(notifier.notify_pending());
 		network_graph.pending_checks.check_resolved_futures(&network_graph);
 		assert!(network_graph.read_only().channels().get(&scid).is_none());
@@ -882,7 +882,7 @@ mod tests {
 
 		assert!(!notifier.notify_pending());
 		future
-			.resolve(Ok(TxOut { value: Amount::from_sat(1_000_000), script_pubkey: good_script }));
+			.resolve(Ok(TxOut { amount: Amount::from_sat(1_000_000).expect("amount must fit"), script_pubkey: good_script }));
 		assert!(notifier.notify_pending());
 		network_graph.pending_checks.check_resolved_futures(&network_graph);
 
@@ -951,7 +951,7 @@ mod tests {
 
 		assert!(!notifier.notify_pending());
 		future
-			.resolve(Ok(TxOut { value: Amount::from_sat(1_000_000), script_pubkey: good_script }));
+			.resolve(Ok(TxOut { amount: Amount::from_sat(1_000_000).expect("amount must fit"), script_pubkey: good_script }));
 		assert!(notifier.notify_pending());
 		network_graph.pending_checks.check_resolved_futures(&network_graph);
 
@@ -1002,8 +1002,8 @@ mod tests {
 		// But if we make a third request with a tweaked message, we should get a second call
 		// against our new future...
 		let secp_ctx = Secp256k1::new();
-		let replacement_pk_1 = &SecretKey::from_slice(&[99; 32]).unwrap();
-		let replacement_pk_2 = &SecretKey::from_slice(&[98; 32]).unwrap();
+		let replacement_pk_1 = &crate::prelude::secret_key_from_slice(&[99; 32]).unwrap();
+		let replacement_pk_2 = &crate::prelude::secret_key_from_slice(&[98; 32]).unwrap();
 		let invalid_announcement =
 			get_signed_channel_announcement(|_| {}, replacement_pk_1, replacement_pk_2, &secp_ctx);
 		assert_eq!(
@@ -1017,7 +1017,7 @@ mod tests {
 
 		// Still, if we resolve the original future, the original channel will be accepted.
 		future
-			.resolve(Ok(TxOut { value: Amount::from_sat(1_000_000), script_pubkey: good_script }));
+			.resolve(Ok(TxOut { amount: Amount::from_sat(1_000_000).expect("amount must fit"), script_pubkey: good_script }));
 		assert!(notifier_a.notify_pending());
 		assert!(!notifier_b.notify_pending());
 		network_graph.pending_checks.check_resolved_futures(&network_graph);
@@ -1040,8 +1040,8 @@ mod tests {
 		let future = UtxoFuture::new(Arc::clone(&notifier));
 		*chain_source.utxo_ret.lock().unwrap() = UtxoResult::Async(future.clone());
 
-		let node_1_privkey = &SecretKey::from_slice(&[42; 32]).unwrap();
-		let node_2_privkey = &SecretKey::from_slice(&[41; 32]).unwrap();
+		let node_1_privkey = &crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+		let node_2_privkey = &crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
 
 		for i in 0..PendingChecks::MAX_PENDING_LOOKUPS {
 			let valid_announcement = get_signed_channel_announcement(
@@ -1081,8 +1081,8 @@ mod tests {
 		let notifier = Arc::new(Notifier::new());
 		*chain_source.utxo_ret.lock().unwrap() = UtxoResult::Async(UtxoFuture::new(notifier));
 
-		let node_1_privkey = &SecretKey::from_slice(&[42; 32]).unwrap();
-		let node_2_privkey = &SecretKey::from_slice(&[41; 32]).unwrap();
+		let node_1_privkey = &crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
+		let node_2_privkey = &crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
 
 		for i in 0..PendingChecks::MAX_PENDING_LOOKUPS {
 			let valid_announcement = get_signed_channel_announcement(

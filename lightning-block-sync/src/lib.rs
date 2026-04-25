@@ -500,7 +500,7 @@ mod spv_client_tests {
 		let mut chain = Blockchain::default().with_height(3).without_headers();
 		let best_tip = chain.at_height(1);
 
-		let poller = poll::ChainPoller::new(&mut chain, Network::Testnet);
+		let poller = poll::ChainPoller::new(&mut chain, Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let cache = HeaderCache::new();
 		let mut listener = NullChainListener {};
 		let mut client = SpvClient::new(best_tip, poller, cache, &mut listener);
@@ -519,7 +519,7 @@ mod spv_client_tests {
 		let mut chain = Blockchain::default().with_height(3);
 		let common_tip = chain.tip();
 
-		let poller = poll::ChainPoller::new(&mut chain, Network::Testnet);
+		let poller = poll::ChainPoller::new(&mut chain, Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let cache = HeaderCache::new();
 		let mut listener = NullChainListener {};
 		let mut client = SpvClient::new(common_tip, poller, cache, &mut listener);
@@ -539,7 +539,7 @@ mod spv_client_tests {
 		let new_tip = chain.tip();
 		let old_tip = chain.at_height(1);
 
-		let poller = poll::ChainPoller::new(&mut chain, Network::Testnet);
+		let poller = poll::ChainPoller::new(&mut chain, Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let cache = HeaderCache::new();
 		let mut listener = NullChainListener {};
 		let mut client = SpvClient::new(old_tip, poller, cache, &mut listener);
@@ -559,7 +559,7 @@ mod spv_client_tests {
 		let new_tip = chain.tip();
 		let old_tip = chain.at_height(1);
 
-		let poller = poll::ChainPoller::new(&mut chain, Network::Testnet);
+		let poller = poll::ChainPoller::new(&mut chain, Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let cache = HeaderCache::new();
 		let mut listener = NullChainListener {};
 		let mut client = SpvClient::new(old_tip, poller, cache, &mut listener);
@@ -579,7 +579,7 @@ mod spv_client_tests {
 		let new_tip = chain.tip();
 		let old_tip = chain.at_height(1);
 
-		let poller = poll::ChainPoller::new(&mut chain, Network::Testnet);
+		let poller = poll::ChainPoller::new(&mut chain, Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let cache = HeaderCache::new();
 		let mut listener = NullChainListener {};
 		let mut client = SpvClient::new(old_tip, poller, cache, &mut listener);
@@ -600,7 +600,7 @@ mod spv_client_tests {
 		chain.disconnect_tip();
 		let worse_tip = chain.tip();
 
-		let poller = poll::ChainPoller::new(&mut chain, Network::Testnet);
+		let poller = poll::ChainPoller::new(&mut chain, Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let cache = HeaderCache::new();
 		let mut listener = NullChainListener {};
 		let mut client = SpvClient::new(best_tip, poller, cache, &mut listener);
@@ -633,7 +633,7 @@ mod chain_notifier_tests {
 			.expect_block_connected(*new_tip);
 		let mut notifier =
 			ChainNotifier { header_cache: &mut chain.header_cache(0..=1), chain_listener };
-		let mut poller = poll::ChainPoller::new(&mut chain, Network::Testnet);
+		let mut poller = poll::ChainPoller::new(&mut chain, Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		match notifier.synchronize_listener(new_tip, &old_tip, &mut poller).await {
 			Err((e, _)) => panic!("Unexpected error: {:?}", e),
 			Ok(_) => {},
@@ -642,7 +642,7 @@ mod chain_notifier_tests {
 
 	#[tokio::test]
 	async fn sync_from_different_chains() {
-		let mut test_chain = Blockchain::with_network(Network::Testnet).with_height(1);
+		let mut test_chain = Blockchain::with_network(Network::Testnet(bitcoin::network::TestnetVersion::V3)).with_height(1);
 		let main_chain = Blockchain::with_network(Network::Bitcoin).with_height(1);
 
 		let new_tip = test_chain.tip();
@@ -650,7 +650,7 @@ mod chain_notifier_tests {
 		let chain_listener = &MockChainListener::new();
 		let mut notifier =
 			ChainNotifier { header_cache: &mut main_chain.header_cache(0..=1), chain_listener };
-		let mut poller = poll::ChainPoller::new(&mut test_chain, Network::Testnet);
+		let mut poller = poll::ChainPoller::new(&mut test_chain, Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		match notifier.synchronize_listener(new_tip, &old_tip, &mut poller).await {
 			Err((e, _)) => {
 				assert_eq!(e.kind(), BlockSourceErrorKind::Persistent);
@@ -672,7 +672,7 @@ mod chain_notifier_tests {
 			.expect_block_connected(*new_tip);
 		let mut notifier =
 			ChainNotifier { header_cache: &mut main_chain.header_cache(0..=2), chain_listener };
-		let mut poller = poll::ChainPoller::new(&mut fork_chain, Network::Testnet);
+		let mut poller = poll::ChainPoller::new(&mut fork_chain, Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		match notifier.synchronize_listener(new_tip, &old_tip, &mut poller).await {
 			Err((e, _)) => panic!("Unexpected error: {:?}", e),
 			Ok(_) => {},
@@ -692,7 +692,7 @@ mod chain_notifier_tests {
 			.expect_block_connected(*new_tip);
 		let mut notifier =
 			ChainNotifier { header_cache: &mut main_chain.header_cache(0..=3), chain_listener };
-		let mut poller = poll::ChainPoller::new(&mut fork_chain, Network::Testnet);
+		let mut poller = poll::ChainPoller::new(&mut fork_chain, Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		match notifier.synchronize_listener(new_tip, &old_tip, &mut poller).await {
 			Err((e, _)) => panic!("Unexpected error: {:?}", e),
 			Ok(_) => {},
@@ -713,7 +713,7 @@ mod chain_notifier_tests {
 			.expect_block_connected(*new_tip);
 		let mut notifier =
 			ChainNotifier { header_cache: &mut main_chain.header_cache(0..=2), chain_listener };
-		let mut poller = poll::ChainPoller::new(&mut fork_chain, Network::Testnet);
+		let mut poller = poll::ChainPoller::new(&mut fork_chain, Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		match notifier.synchronize_listener(new_tip, &old_tip, &mut poller).await {
 			Err((e, _)) => panic!("Unexpected error: {:?}", e),
 			Ok(_) => {},
@@ -729,7 +729,7 @@ mod chain_notifier_tests {
 		let chain_listener = &MockChainListener::new();
 		let mut notifier =
 			ChainNotifier { header_cache: &mut chain.header_cache(0..=1), chain_listener };
-		let mut poller = poll::ChainPoller::new(&mut chain, Network::Testnet);
+		let mut poller = poll::ChainPoller::new(&mut chain, Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		match notifier.synchronize_listener(new_tip, &old_tip, &mut poller).await {
 			Err((_, tip)) => assert_eq!(tip, None),
 			Ok(_) => panic!("Expected error"),
@@ -745,7 +745,7 @@ mod chain_notifier_tests {
 		let chain_listener = &MockChainListener::new();
 		let mut notifier =
 			ChainNotifier { header_cache: &mut chain.header_cache(0..=3), chain_listener };
-		let mut poller = poll::ChainPoller::new(&mut chain, Network::Testnet);
+		let mut poller = poll::ChainPoller::new(&mut chain, Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		match notifier.synchronize_listener(new_tip, &old_tip, &mut poller).await {
 			Err((_, tip)) => assert_eq!(tip, Some(old_tip)),
 			Ok(_) => panic!("Expected error"),
@@ -761,7 +761,7 @@ mod chain_notifier_tests {
 		let chain_listener = &MockChainListener::new().expect_block_connected(*chain.at_height(2));
 		let mut notifier =
 			ChainNotifier { header_cache: &mut chain.header_cache(0..=3), chain_listener };
-		let mut poller = poll::ChainPoller::new(&mut chain, Network::Testnet);
+		let mut poller = poll::ChainPoller::new(&mut chain, Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		match notifier.synchronize_listener(new_tip, &old_tip, &mut poller).await {
 			Err((_, tip)) => assert_eq!(tip, Some(chain.at_height(2))),
 			Ok(_) => panic!("Expected error"),
@@ -779,7 +779,7 @@ mod chain_notifier_tests {
 			.expect_filtered_block_connected(*new_tip);
 		let mut notifier =
 			ChainNotifier { header_cache: &mut chain.header_cache(0..=1), chain_listener };
-		let mut poller = poll::ChainPoller::new(&mut chain, Network::Testnet);
+		let mut poller = poll::ChainPoller::new(&mut chain, Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		match notifier.synchronize_listener(new_tip, &old_tip, &mut poller).await {
 			Err((e, _)) => panic!("Unexpected error: {:?}", e),
 			Ok(_) => {},

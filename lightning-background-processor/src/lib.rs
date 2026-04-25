@@ -1929,10 +1929,11 @@ mod tests {
 	use bitcoin::hashes::Hash;
 	use bitcoin::locktime::absolute::LockTime;
 	use bitcoin::network::Network;
+	use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
 	use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 	use bitcoin::transaction::Version;
 	use bitcoin::transaction::{Transaction, TxOut};
-	use bitcoin::{Amount, ScriptBuf, Txid};
+	use bitcoin::{Amount, Txid};
 	use core::sync::atomic::{AtomicBool, Ordering};
 	use lightning::chain::chainmonitor;
 	use lightning::chain::channelmonitor::ANTI_REORG_DELAY;
@@ -2453,7 +2454,7 @@ mod tests {
 			let genesis_block = genesis_block(network);
 			let network_graph = Arc::new(NetworkGraph::new(network, Arc::clone(&logger)));
 			let scorer = Arc::new(LockingWrapper::new(TestScorer::new()));
-			let now = Duration::from_secs(genesis_block.header.time as u64);
+			let now = Duration::from_secs(genesis_block.header().time.to_u32() as u64);
 			let seed = [i as u8; 32];
 			let keys_manager =
 				Arc::new(KeysManager::new(&seed, now.as_secs(), now.subsec_nanos(), true));
@@ -2471,7 +2472,7 @@ mod tests {
 			let chain_source = Arc::new(test_utils::TestChainSource::new(Network::Bitcoin));
 			let kv_store =
 				Arc::new(Persister::new(format!("{}_persister_{}", &persist_dir, i).into()));
-			let now = Duration::from_secs(genesis_block.header.time as u64);
+			let now = Duration::from_secs(genesis_block.header().time.to_u32() as u64);
 			let keys_manager =
 				Arc::new(KeysManager::new(&seed, now.as_secs(), now.subsec_nanos(), true));
 			let chain_monitor = Arc::new(chainmonitor::ChainMonitor::new(
@@ -2500,7 +2501,7 @@ mod tests {
 				Arc::clone(&keys_manager),
 				config,
 				params,
-				genesis_block.header.time,
+				genesis_block.header().time.to_u32(),
 			));
 			let messenger = Arc::new(OnionMessenger::new(
 				Arc::clone(&keys_manager),
@@ -2533,7 +2534,7 @@ mod tests {
 				Arc::new(RapidGossipSync::new(Arc::clone(&network_graph), Arc::clone(&logger)));
 			let msg_handler = MessageHandler {
 				chan_handler: Arc::new(test_utils::TestChannelMessageHandler::new(
-					ChainHash::using_genesis_block(Network::Testnet),
+					ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 				)),
 				route_handler: Arc::new(test_utils::TestRoutingMessageHandler::new()),
 				onion_message_handler: Arc::clone(&messenger),
@@ -2707,9 +2708,10 @@ mod tests {
 					let tx = Transaction {
 						version: Version::ONE,
 						lock_time: LockTime::ZERO,
-						input: Vec::new(),
-						output: vec![TxOut {
-							value: Amount::from_sat(channel_value_satoshis),
+						inputs: Vec::new(),
+						outputs: vec![TxOut {
+							amount: Amount::from_sat(channel_value_satoshis)
+								.expect("channel value must fit"),
 							script_pubkey: output_script.clone(),
 						}],
 					};
@@ -2737,7 +2739,7 @@ mod tests {
 					// We need the TestBroadcaster to know about the new height so that it doesn't think
 					// we're violating the time lock requirements of transactions broadcasted at that
 					// point.
-					let block = (genesis_block(Network::Bitcoin), height);
+					let block = (create_dummy_block(prev_blockhash, height, Vec::new()), height);
 					node.tx_broadcaster.blocks.lock().unwrap().push(block);
 					node.node.best_block_updated(&header, height);
 					node.chain_monitor.best_block_updated(&header, height);
@@ -2758,7 +2760,7 @@ mod tests {
 				// We need the TestBroadcaster to know about the new height so that it doesn't think
 				// we're violating the time lock requirements of transactions broadcasted at that
 				// point.
-				let block = (genesis_block(Network::Bitcoin), height);
+				let block = (create_dummy_block(prev_blockhash, height, Vec::new()), height);
 				node.tx_broadcaster.blocks.lock().unwrap().push(block);
 				node.node.best_block_updated(&header, height);
 				node.chain_monitor.best_block_updated(&header, height);
@@ -3302,7 +3304,7 @@ mod tests {
 		// Check we still see the transaction as confirmed if we unconfirm any untracked
 		// transaction. (We previously had a bug that would mark tracked transactions as
 		// unconfirmed if any transaction at an unknown block height would be unconfirmed.)
-		let unconf_txid = Txid::from_slice(&[0; 32]).unwrap();
+		let unconf_txid = Txid::from_byte_array([0; 32]);
 		nodes[0].sweeper.transaction_unconfirmed(&unconf_txid);
 
 		assert_eq!(nodes[0].sweeper.tracked_spendable_outputs().len(), 1);
@@ -3582,8 +3584,8 @@ mod tests {
 			// running background processor.
 			let scored_scid = 4242;
 			let secp_ctx = Secp256k1::new();
-			let node_1_privkey = SecretKey::from_slice(&[42; 32]).unwrap();
-			let node_1_id = PublicKey::from_secret_key(&secp_ctx, &node_1_privkey);
+			let node_1_privkey = SecretKey::from_secret_bytes([42; 32]).unwrap();
+			let node_1_id = PublicKey::from_secret_key(&node_1_privkey);
 
 			let path = Path { hops: vec![RouteHop {
 				pubkey: node_1_id,

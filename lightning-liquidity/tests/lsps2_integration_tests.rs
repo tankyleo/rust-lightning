@@ -659,8 +659,8 @@ fn max_total_requests_buy_rejected() {
 	let secp = Secp256k1::new();
 
 	let special_sk_bytes = [99u8; 32];
-	let special_sk = SecretKey::from_slice(&special_sk_bytes).unwrap();
-	let special_node_id = PublicKey::from_secret_key(&secp, &special_sk);
+	let special_sk = SecretKey::from_secret_bytes(special_sk_bytes).unwrap();
+	let special_node_id = PublicKey::from_secret_key(&special_sk);
 
 	let _ = client_handler.request_opening_params(service_node_id, None);
 	let get_info_request = get_lsps_message!(client_node, service_node_id);
@@ -711,8 +711,8 @@ fn max_total_requests_buy_rejected() {
 
 	while filled < MAX_TOTAL_PENDING_REQUESTS {
 		let sk_bytes = [peer_idx as u8 + 1; 32];
-		let sk = SecretKey::from_slice(&sk_bytes).unwrap();
-		let peer_node_id = PublicKey::from_secret_key(&secp, &sk);
+		let sk = SecretKey::from_secret_bytes(sk_bytes).unwrap();
+		let peer_node_id = PublicKey::from_secret_key(&sk);
 
 		// Skip if this is our special node
 		if peer_node_id == special_node_id {
@@ -1070,7 +1070,7 @@ fn lsps2_service_handler_persistence_across_restarts() {
 		let nodes_restart = create_network(2, &node_cfgs, &node_chanmgrs_restart);
 
 		// Create a new LiquidityManager with the same configuration and KV store to simulate restart
-		let transaction_broadcaster = Arc::new(TestBroadcaster::new(Network::Testnet));
+		let transaction_broadcaster = Arc::new(TestBroadcaster::new(Network::Testnet(bitcoin::network::TestnetVersion::V3)));
 
 		let restarted_service_lm = LiquidityManagerSync::new_with_custom_time_provider(
 			nodes_restart[0].keys_manager,

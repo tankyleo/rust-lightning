@@ -20,7 +20,7 @@ use crate::util::ser::Writeable;
 use bitcoin::constants::ChainHash;
 use bitcoin::hashes::sha256d::Hash as Sha256dHash;
 use bitcoin::hashes::Hash;
-use bitcoin::hex::FromHex;
+use hex_conservative::FromHex;
 use bitcoin::network::Network;
 use bitcoin::secp256k1::{PublicKey,SecretKey};
 use bitcoin::secp256k1::{Secp256k1, All};
@@ -36,12 +36,12 @@ pub(crate) fn channel_announcement(
 	node_1_privkey: &SecretKey, node_2_privkey: &SecretKey, features: ChannelFeatures,
 	short_channel_id: u64, secp_ctx: &Secp256k1<All>,
 ) -> ChannelAnnouncement {
-	let node_id_1 = NodeId::from_pubkey(&PublicKey::from_secret_key(&secp_ctx, node_1_privkey));
-	let node_id_2 = NodeId::from_pubkey(&PublicKey::from_secret_key(&secp_ctx, node_2_privkey));
+	let node_id_1 = NodeId::from_pubkey(&PublicKey::from_secret_key(node_1_privkey));
+	let node_id_2 = NodeId::from_pubkey(&PublicKey::from_secret_key(node_2_privkey));
 
 	let unsigned_announcement = UnsignedChannelAnnouncement {
 		features,
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id,
 		node_id_1,
 		node_id_2,
@@ -50,12 +50,12 @@ pub(crate) fn channel_announcement(
 		excess_data: Vec::new(),
 	};
 
-	let msghash = hash_to_message!(&Sha256dHash::hash(&unsigned_announcement.encode()[..])[..]);
+	let msghash = hash_to_message!(Sha256dHash::hash(&unsigned_announcement.encode()[..]).as_byte_array());
 	ChannelAnnouncement {
-		node_signature_1: secp_ctx.sign_ecdsa(&msghash, node_1_privkey),
-		node_signature_2: secp_ctx.sign_ecdsa(&msghash, node_2_privkey),
-		bitcoin_signature_1: secp_ctx.sign_ecdsa(&msghash, node_1_privkey),
-		bitcoin_signature_2: secp_ctx.sign_ecdsa(&msghash, node_2_privkey),
+		node_signature_1: secp_ctx.sign_ecdsa(msghash, node_1_privkey),
+		node_signature_2: secp_ctx.sign_ecdsa(msghash, node_2_privkey),
+		bitcoin_signature_1: secp_ctx.sign_ecdsa(msghash, node_1_privkey),
+		bitcoin_signature_2: secp_ctx.sign_ecdsa(msghash, node_2_privkey),
 		contents: unsigned_announcement.clone(),
 	}
 }
@@ -68,7 +68,7 @@ pub(crate) fn add_channel_skipping_utxo_update(
 	let valid_announcement =
 		channel_announcement(node_1_privkey, node_2_privkey, features, short_channel_id, secp_ctx);
 
-	let node_1_pubkey = PublicKey::from_secret_key(&secp_ctx, &node_1_privkey);
+	let node_1_pubkey = PublicKey::from_secret_key(&node_1_privkey);
 	match gossip_sync.handle_channel_announcement(Some(node_1_pubkey), &valid_announcement) {
 		Ok(res) => assert!(res),
 		Err(e) => panic!("{:?}", e),
@@ -80,11 +80,11 @@ pub(crate) fn add_channel(
 	secp_ctx: &Secp256k1<All>, node_1_privkey: &SecretKey, node_2_privkey: &SecretKey, features: ChannelFeatures, short_channel_id: u64,
 ) {
 	gossip_sync.utxo_lookup.as_ref().map(|checker| {
-		let node_1_pubkey = PublicKey::from_secret_key(&secp_ctx, &node_1_privkey);
-		let node_2_pubkey = PublicKey::from_secret_key(&secp_ctx, &node_2_privkey);
+		let node_1_pubkey = PublicKey::from_secret_key(&node_1_privkey);
+		let node_2_pubkey = PublicKey::from_secret_key(&node_2_privkey);
 		let script_pubkey = make_funding_redeemscript(&node_1_pubkey, &node_2_pubkey).to_p2wsh();
 		*checker.utxo_ret.lock().unwrap() =
-			UtxoResult::Sync(Ok(TxOut { value: Amount::from_sat(21_000_000_0000_0000), script_pubkey }));
+			UtxoResult::Sync(Ok(TxOut { amount: Amount::from_sat(21_000_000_0000_0000).expect("amount must fit"), script_pubkey }));
 	});
 	add_channel_skipping_utxo_update(gossip_sync, secp_ctx, node_1_privkey, node_2_privkey, features, short_channel_id);
 }
@@ -93,7 +93,7 @@ pub(crate) fn add_or_update_node(
 	gossip_sync: &P2PGossipSync<Arc<NetworkGraph<Arc<test_utils::TestLogger>>>, Arc<test_utils::TestChainSource>, Arc<test_utils::TestLogger>>,
 	secp_ctx: &Secp256k1<All>, node_privkey: &SecretKey, features: NodeFeatures, timestamp: u32
 ) {
-	let node_pubkey = PublicKey::from_secret_key(&secp_ctx, node_privkey);
+	let node_pubkey = PublicKey::from_secret_key(node_privkey);
 	let node_id = NodeId::from_pubkey(&node_pubkey);
 	let unsigned_announcement = UnsignedNodeAnnouncement {
 		features,
@@ -105,9 +105,9 @@ pub(crate) fn add_or_update_node(
 		excess_address_data: Vec::new(),
 		excess_data: Vec::new(),
 	};
-	let msghash = hash_to_message!(&Sha256dHash::hash(&unsigned_announcement.encode()[..])[..]);
+	let msghash = hash_to_message!(Sha256dHash::hash(&unsigned_announcement.encode()[..]).as_byte_array());
 	let valid_announcement = NodeAnnouncement {
-		signature: secp_ctx.sign_ecdsa(&msghash, node_privkey),
+		signature: secp_ctx.sign_ecdsa(msghash, node_privkey),
 		contents: unsigned_announcement.clone()
 	};
 
@@ -121,10 +121,10 @@ pub(crate) fn update_channel(
 	gossip_sync: &P2PGossipSync<Arc<NetworkGraph<Arc<test_utils::TestLogger>>>, Arc<test_utils::TestChainSource>, Arc<test_utils::TestLogger>>,
 	secp_ctx: &Secp256k1<All>, node_privkey: &SecretKey, update: UnsignedChannelUpdate
 ) {
-	let node_pubkey = PublicKey::from_secret_key(&secp_ctx, node_privkey);
-	let msghash = hash_to_message!(&Sha256dHash::hash(&update.encode()[..])[..]);
+	let node_pubkey = PublicKey::from_secret_key(node_privkey);
+	let msghash = hash_to_message!(Sha256dHash::hash(&update.encode()[..]).as_byte_array());
 	let valid_channel_update = ChannelUpdate {
-		signature: secp_ctx.sign_ecdsa(&msghash, node_privkey),
+		signature: secp_ctx.sign_ecdsa(msghash, node_privkey),
 		contents: update.clone()
 	};
 
@@ -136,13 +136,13 @@ pub(crate) fn update_channel(
 
 pub(super) fn get_nodes(secp_ctx: &Secp256k1<All>) -> (SecretKey, PublicKey, Vec<SecretKey>, Vec<PublicKey>) {
 	let privkeys: Vec<SecretKey> = (2..22).map(|i| {
-		SecretKey::from_slice(&[i; 32]).unwrap()
+		crate::prelude::secret_key_from_slice(&[i; 32]).unwrap()
 	}).collect();
 
-	let pubkeys = privkeys.iter().map(|secret| PublicKey::from_secret_key(&secp_ctx, secret)).collect();
+	let pubkeys = privkeys.iter().map(|secret| PublicKey::from_secret_key(secret)).collect();
 
-	let our_privkey = SecretKey::from_slice(&<Vec<u8>>::from_hex(&"01".repeat(32)).unwrap()[..]).unwrap();
-	let our_id = PublicKey::from_secret_key(&secp_ctx, &our_privkey);
+	let our_privkey = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(&"01".repeat(32)).unwrap()[..]).unwrap();
+	let our_id = PublicKey::from_secret_key(&our_privkey);
 
 	(our_privkey, our_id, privkeys, pubkeys)
 }
@@ -169,8 +169,8 @@ pub(super) fn build_line_graph() -> (
 ) {
 	let secp_ctx = Secp256k1::new();
 	let logger = Arc::new(test_utils::TestLogger::new());
-	let chain_monitor = Arc::new(test_utils::TestChainSource::new(Network::Testnet));
-	let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
+	let chain_monitor = Arc::new(test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3)));
+	let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), Arc::clone(&logger)));
 	let gossip_sync = P2PGossipSync::new(Arc::clone(&network_graph), None, Arc::clone(&logger));
 
 	// Build network from our_id to node 19:
@@ -183,7 +183,7 @@ pub(super) fn build_line_graph() -> (
 			add_channel(&gossip_sync, &secp_ctx, &cur_privkey, &next_privkey,
 				ChannelFeatures::from_le_bytes(id_to_feature_flags(1)), cur_short_channel_id);
 			update_channel(&gossip_sync, &secp_ctx, &cur_privkey, UnsignedChannelUpdate {
-				chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+				chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 				short_channel_id: cur_short_channel_id,
 				timestamp: idx as u32,
 				message_flags: 1, // Only must_be_one
@@ -196,7 +196,7 @@ pub(super) fn build_line_graph() -> (
 				excess_data: Vec::new()
 			});
 			update_channel(&gossip_sync, &secp_ctx, &next_privkey, UnsignedChannelUpdate {
-				chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+				chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 				short_channel_id: cur_short_channel_id,
 				timestamp: (idx as u32)+1,
 				message_flags: 1, // Only must_be_one
@@ -244,8 +244,8 @@ fn do_build_graph(with_validation: bool) -> (
 ) {
 	let secp_ctx = Secp256k1::new();
 	let logger = Arc::new(test_utils::TestLogger::new());
-	let chain_monitor = Arc::new(test_utils::TestChainSource::new(Network::Testnet));
-	let network_graph = Arc::new(NetworkGraph::new(Network::Testnet, Arc::clone(&logger)));
+	let chain_monitor = Arc::new(test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3)));
+	let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), Arc::clone(&logger)));
 	let checker = if with_validation {
 		Some(Arc::clone(&chain_monitor))
 	} else {
@@ -315,7 +315,7 @@ fn do_build_graph(with_validation: bool) -> (
 
 	add_channel(&gossip_sync, &secp_ctx, &our_privkey, &privkeys[0], ChannelFeatures::from_le_bytes(id_to_feature_flags(1)), 1);
 	update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 1,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one
@@ -332,7 +332,7 @@ fn do_build_graph(with_validation: bool) -> (
 
 	add_channel(&gossip_sync, &secp_ctx, &our_privkey, &privkeys[1], ChannelFeatures::from_le_bytes(id_to_feature_flags(2)), 2);
 	update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 2,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one
@@ -345,7 +345,7 @@ fn do_build_graph(with_validation: bool) -> (
 		excess_data: Vec::new()
 	});
 	update_channel(&gossip_sync, &secp_ctx, &privkeys[1], UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 2,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one
@@ -362,7 +362,7 @@ fn do_build_graph(with_validation: bool) -> (
 
 	add_channel(&gossip_sync, &secp_ctx, &our_privkey, &privkeys[7], ChannelFeatures::from_le_bytes(id_to_feature_flags(12)), 12);
 	update_channel(&gossip_sync, &secp_ctx, &our_privkey, UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 12,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one
@@ -375,7 +375,7 @@ fn do_build_graph(with_validation: bool) -> (
 		excess_data: Vec::new()
 	});
 	update_channel(&gossip_sync, &secp_ctx, &privkeys[7], UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 12,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one
@@ -392,7 +392,7 @@ fn do_build_graph(with_validation: bool) -> (
 
 	add_channel(&gossip_sync, &secp_ctx, &privkeys[0], &privkeys[2], ChannelFeatures::from_le_bytes(id_to_feature_flags(3)), 3);
 	update_channel(&gossip_sync, &secp_ctx, &privkeys[0], UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 3,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one
@@ -405,7 +405,7 @@ fn do_build_graph(with_validation: bool) -> (
 		excess_data: Vec::new()
 	});
 	update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 3,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one
@@ -420,7 +420,7 @@ fn do_build_graph(with_validation: bool) -> (
 
 	add_channel(&gossip_sync, &secp_ctx, &privkeys[1], &privkeys[2], ChannelFeatures::from_le_bytes(id_to_feature_flags(4)), 4);
 	update_channel(&gossip_sync, &secp_ctx, &privkeys[1], UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 4,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one
@@ -433,7 +433,7 @@ fn do_build_graph(with_validation: bool) -> (
 		excess_data: Vec::new()
 	});
 	update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 4,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one
@@ -448,7 +448,7 @@ fn do_build_graph(with_validation: bool) -> (
 
 	add_channel(&gossip_sync, &secp_ctx, &privkeys[7], &privkeys[2], ChannelFeatures::from_le_bytes(id_to_feature_flags(13)), 13);
 	update_channel(&gossip_sync, &secp_ctx, &privkeys[7], UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 13,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one
@@ -461,7 +461,7 @@ fn do_build_graph(with_validation: bool) -> (
 		excess_data: Vec::new()
 	});
 	update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 13,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one
@@ -478,7 +478,7 @@ fn do_build_graph(with_validation: bool) -> (
 
 	add_channel(&gossip_sync, &secp_ctx, &privkeys[2], &privkeys[4], ChannelFeatures::from_le_bytes(id_to_feature_flags(6)), 6);
 	update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 6,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one
@@ -491,7 +491,7 @@ fn do_build_graph(with_validation: bool) -> (
 		excess_data: Vec::new()
 	});
 	update_channel(&gossip_sync, &secp_ctx, &privkeys[4], UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 6,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one
@@ -506,7 +506,7 @@ fn do_build_graph(with_validation: bool) -> (
 
 	add_channel(&gossip_sync, &secp_ctx, &privkeys[4], &privkeys[3], ChannelFeatures::from_le_bytes(id_to_feature_flags(11)), 11);
 	update_channel(&gossip_sync, &secp_ctx, &privkeys[4], UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 11,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one
@@ -519,7 +519,7 @@ fn do_build_graph(with_validation: bool) -> (
 		excess_data: Vec::new()
 	});
 	update_channel(&gossip_sync, &secp_ctx, &privkeys[3], UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 11,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one
@@ -538,7 +538,7 @@ fn do_build_graph(with_validation: bool) -> (
 
 	add_channel(&gossip_sync, &secp_ctx, &privkeys[2], &privkeys[5], ChannelFeatures::from_le_bytes(id_to_feature_flags(7)), 7);
 	update_channel(&gossip_sync, &secp_ctx, &privkeys[2], UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 7,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one
@@ -551,7 +551,7 @@ fn do_build_graph(with_validation: bool) -> (
 		excess_data: Vec::new()
 	});
 	update_channel(&gossip_sync, &secp_ctx, &privkeys[5], UnsignedChannelUpdate {
-		chain_hash: ChainHash::using_genesis_block(Network::Testnet),
+		chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
 		short_channel_id: 7,
 		timestamp: 1,
 		message_flags: 1, // Only must_be_one

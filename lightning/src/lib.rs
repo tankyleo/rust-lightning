@@ -143,6 +143,183 @@ mod prelude {
 	pub use core::default::Default;
 	pub use core::marker::Sized;
 
+	pub use bitcoin::ext::*;
+
+	pub(crate) trait LegacyAllZeros {
+		fn all_zeros() -> Self;
+	}
+
+	impl LegacyAllZeros for bitcoin::BlockHash {
+		fn all_zeros() -> Self {
+			Self::from_byte_array([0; 32])
+		}
+	}
+
+	impl LegacyAllZeros for bitcoin::TxMerkleNode {
+		fn all_zeros() -> Self {
+			Self::from_byte_array([0; 32])
+		}
+	}
+
+	impl LegacyAllZeros for bitcoin::script::WScriptHash {
+		fn all_zeros() -> Self {
+			Self::from_byte_array([0; 32])
+		}
+	}
+
+	impl LegacyAllZeros for bitcoin::key::PubkeyHash {
+		fn all_zeros() -> Self {
+			Self::from_byte_array([0; 20])
+		}
+	}
+
+	impl LegacyAllZeros for bitcoin::key::WPubkeyHash {
+		fn all_zeros() -> Self {
+			Self::from_byte_array([0; 20])
+		}
+	}
+
+	pub(crate) trait LegacySecretKeyExt {
+		fn from_slice(data: &[u8]) -> Result<Self, bitcoin::secp256k1::Error>
+		where
+			Self: Sized;
+	}
+
+	impl LegacySecretKeyExt for bitcoin::secp256k1::SecretKey {
+		fn from_slice(data: &[u8]) -> Result<Self, bitcoin::secp256k1::Error> {
+			let data = <[u8; 32]>::try_from(data).map_err(|_| bitcoin::secp256k1::Error::InvalidSecretKey)?;
+			Self::from_secret_bytes(data)
+		}
+	}
+
+	pub(crate) fn secret_key_from_slice(
+		data: &[u8],
+	) -> Result<bitcoin::secp256k1::SecretKey, bitcoin::secp256k1::Error> {
+		let data = <[u8; 32]>::try_from(data).map_err(|_| bitcoin::secp256k1::Error::InvalidSecretKey)?;
+		bitcoin::secp256k1::SecretKey::from_secret_bytes(data)
+	}
+
+	pub(crate) trait LegacyFromSlice {
+		fn from_slice(data: &[u8]) -> Result<Self, ()>
+		where
+			Self: Sized;
+	}
+
+	impl LegacyFromSlice for bitcoin::Txid {
+		fn from_slice(data: &[u8]) -> Result<Self, ()> {
+			let data = <[u8; 32]>::try_from(data).map_err(|_| ())?;
+			Ok(Self::from_byte_array(data))
+		}
+	}
+
+	impl LegacyFromSlice for bitcoin::BlockHash {
+		fn from_slice(data: &[u8]) -> Result<Self, ()> {
+			let data = <[u8; 32]>::try_from(data).map_err(|_| ())?;
+			Ok(Self::from_byte_array(data))
+		}
+	}
+
+	impl LegacyFromSlice for bitcoin::hashes::sha256::Hash {
+		fn from_slice(data: &[u8]) -> Result<Self, ()> {
+			let data = <[u8; 32]>::try_from(data).map_err(|_| ())?;
+			Ok(Self::from_byte_array(data))
+		}
+	}
+
+	impl LegacyFromSlice for bitcoin::XOnlyPublicKey {
+		fn from_slice(data: &[u8]) -> Result<Self, ()> {
+			let data = <[u8; 32]>::try_from(data).map_err(|_| ())?;
+			Self::from_byte_array(&data).map_err(|_| ())
+		}
+	}
+
+	pub(crate) trait LegacyTxidExt {
+		fn from_raw_hash(hash: bitcoin::hashes::sha256d::Hash) -> Self;
+	}
+
+	impl LegacyTxidExt for bitcoin::Txid {
+		fn from_raw_hash(hash: bitcoin::hashes::sha256d::Hash) -> Self {
+			Self::from_byte_array(hash.to_byte_array())
+		}
+	}
+
+	pub(crate) trait LegacyBlockHashExt {
+		fn hash(data: &[u8]) -> Self;
+	}
+
+	impl LegacyBlockHashExt for bitcoin::BlockHash {
+		fn hash(data: &[u8]) -> Self {
+			let hash = bitcoin::hashes::sha256d::Hash::hash(data);
+			Self::from_byte_array(hash.to_byte_array())
+		}
+	}
+
+	pub(crate) trait LegacyOutPointExt {
+		fn null() -> Self;
+	}
+
+	impl LegacyOutPointExt for bitcoin::OutPoint {
+		fn null() -> Self {
+			Self::COINBASE_PREVOUT
+		}
+	}
+
+	pub(crate) trait LegacyScriptPubKeyBufDustExt {
+		fn minimal_non_dust(&self) -> bitcoin::Amount;
+	}
+
+	impl LegacyScriptPubKeyBufDustExt for bitcoin::ScriptPubKeyBuf {
+		fn minimal_non_dust(&self) -> bitcoin::Amount {
+			bitcoin::script::ScriptPubKeyExt::minimal_non_dust(self.as_script())
+		}
+	}
+
+	pub(crate) trait LegacyScriptBufExt {
+		fn to_p2sh(&self) -> bitcoin::ScriptPubKeyBuf;
+		fn to_p2wsh(&self) -> bitcoin::ScriptPubKeyBuf;
+		fn wscript_hash(&self) -> bitcoin::script::WScriptHash;
+	}
+
+	impl LegacyScriptBufExt for bitcoin::ScriptPubKeyBuf {
+		fn to_p2sh(&self) -> bitcoin::ScriptPubKeyBuf {
+			let redeem_script = bitcoin::RedeemScriptBuf::from_bytes(self.as_bytes().to_vec());
+			bitcoin::script::ScriptExt::to_p2sh(redeem_script.as_script())
+				.expect("LDK redeem scripts fit within the standard redeem script size")
+		}
+
+		fn to_p2wsh(&self) -> bitcoin::ScriptPubKeyBuf {
+			let witness_script = bitcoin::WitnessScriptBuf::from_bytes(self.as_bytes().to_vec());
+			bitcoin::script::WitnessScriptExt::to_p2wsh(witness_script.as_script())
+				.expect("LDK witness scripts fit within the standard witness script size")
+		}
+
+		fn wscript_hash(&self) -> bitcoin::script::WScriptHash {
+			let witness_script = bitcoin::WitnessScriptBuf::from_bytes(self.as_bytes().to_vec());
+			bitcoin::script::WitnessScriptExt::wscript_hash(witness_script.as_script())
+				.expect("LDK witness scripts fit within the standard witness script size")
+		}
+	}
+
+	impl LegacyScriptBufExt for bitcoin::ScriptPubKey {
+		fn to_p2sh(&self) -> bitcoin::ScriptPubKeyBuf {
+			let redeem_script = bitcoin::RedeemScriptBuf::from_bytes(self.as_bytes().to_vec());
+			bitcoin::script::ScriptExt::to_p2sh(redeem_script.as_script())
+				.expect("LDK redeem scripts fit within the standard redeem script size")
+		}
+
+		fn to_p2wsh(&self) -> bitcoin::ScriptPubKeyBuf {
+			let witness_script = bitcoin::WitnessScriptBuf::from_bytes(self.as_bytes().to_vec());
+			bitcoin::script::WitnessScriptExt::to_p2wsh(witness_script.as_script())
+				.expect("LDK witness scripts fit within the standard witness script size")
+		}
+
+		fn wscript_hash(&self) -> bitcoin::script::WScriptHash {
+			let witness_script = bitcoin::WitnessScriptBuf::from_bytes(self.as_bytes().to_vec());
+			bitcoin::script::WitnessScriptExt::wscript_hash(witness_script.as_script())
+				.expect("LDK witness scripts fit within the standard witness script size")
+		}
+	}
+
 	pub(crate) use crate::util::hash_tables::*;
 }
 

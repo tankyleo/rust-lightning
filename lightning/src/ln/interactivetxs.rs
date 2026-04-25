@@ -16,14 +16,15 @@ use bitcoin::amount::Amount;
 use bitcoin::consensus::Encodable;
 use bitcoin::constants::WITNESS_SCALE_FACTOR;
 use bitcoin::ecdsa::Signature as BitcoinSignature;
-use bitcoin::key::Secp256k1;
+use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
 use bitcoin::policy::MAX_STANDARD_TX_WEIGHT;
-use bitcoin::secp256k1::{Message, PublicKey};
+use bitcoin::secp256k1::Secp256k1;
+use bitcoin::secp256k1::{Message, PublicKey, XOnlyPublicKey};
 use bitcoin::sighash::SighashCache;
 use bitcoin::transaction::Version;
 use bitcoin::{
-	sighash, EcdsaSighashType, OutPoint as BitcoinOutPoint, ScriptBuf, Sequence, TapSighashType,
-	Transaction, TxIn, TxOut, Txid, Weight, Witness, XOnlyPublicKey,
+	sighash, EcdsaSighashType, OutPoint as BitcoinOutPoint, Sequence, TapSighashType, Transaction,
+	TxIn, TxOut, Txid, Weight, Witness,
 };
 
 use crate::chain::chaininterface::fee_for_weight;
@@ -319,7 +320,7 @@ impl ConstructedTransaction {
 			holder_is_initiator: context.holder_is_initiator,
 			input_metadata,
 			output_metadata,
-			tx: Transaction { version: Version::TWO, lock_time, input, output },
+			tx: Transaction { version: Version::TWO, lock_time, inputs: input, outputs: output },
 			shared_input_index,
 			shared_output_index,
 		};
@@ -343,8 +344,8 @@ impl ConstructedTransaction {
 
 		// - there are more than 252 inputs
 		// - there are more than 252 outputs
-		if tx.tx.input.len() > MAX_INPUTS_OUTPUTS_COUNT
-			|| tx.tx.output.len() > MAX_INPUTS_OUTPUTS_COUNT
+		if tx.tx.inputs.len() > MAX_INPUTS_OUTPUTS_COUNT
+			|| tx.tx.outputs.len() > MAX_INPUTS_OUTPUTS_COUNT
 		{
 			return Err(AbortReason::ExceededNumberOfInputsOrOutputs);
 		}
@@ -377,7 +378,7 @@ impl ConstructedTransaction {
 
 	fn contributed_inputs(&self) -> impl Iterator<Item = BitcoinOutPoint> + '_ {
 		self.tx
-			.input
+			.inputs
 			.iter()
 			.zip(self.input_metadata.iter())
 			.enumerate()
@@ -392,7 +393,7 @@ impl ConstructedTransaction {
 
 	fn contributed_outputs(&self) -> impl Iterator<Item = &TxOut> + '_ {
 		self.tx
-			.output
+			.outputs
 			.iter()
 			.zip(self.output_metadata.iter())
 			.enumerate()
@@ -408,7 +409,7 @@ impl ConstructedTransaction {
 	fn into_contributed_inputs_and_outputs(self) -> (Vec<BitcoinOutPoint>, Vec<TxOut>) {
 		let contributed_inputs = self
 			.tx
-			.input
+			.inputs
 			.into_iter()
 			.zip(self.input_metadata.iter())
 			.enumerate()
@@ -423,7 +424,7 @@ impl ConstructedTransaction {
 
 		let contributed_outputs = self
 			.tx
-			.output
+			.outputs
 			.into_iter()
 			.zip(self.output_metadata.iter())
 			.enumerate()
@@ -457,8 +458,10 @@ impl ConstructedTransaction {
 		self.input_metadata
 			.iter()
 			.filter(|input| input.is_local(self.holder_is_initiator))
-			.map(|input| input.prev_output.value)
-			.sum()
+			.map(|input| input.prev_output.amount)
+			.fold(Amount::ZERO, |acc, value| {
+				(acc + value).expect("input values must fit in Amount")
+			})
 	}
 
 	/// Returns the total input value from all remote contributions, including the entire shared
@@ -467,8 +470,10 @@ impl ConstructedTransaction {
 		self.input_metadata
 			.iter()
 			.filter(|input| !input.is_local(self.holder_is_initiator))
-			.map(|input| input.prev_output.value)
-			.sum()
+			.map(|input| input.prev_output.amount)
+			.fold(Amount::ZERO, |acc, value| {
+				(acc + value).expect("input values must fit in Amount")
+			})
 	}
 
 	fn finalize(
@@ -501,14 +506,14 @@ impl ConstructedTransaction {
 			let holder_sig = BitcoinSignature::sighash_all(holder_shared_input_sig);
 			let counterparty_sig = BitcoinSignature::sighash_all(counterparty_shared_input_sig);
 			if shared_input_sig.holder_signature_first {
-				witness.push_ecdsa_signature(&holder_sig);
-				witness.push_ecdsa_signature(&counterparty_sig);
+				witness.push_ecdsa_signature(holder_sig);
+				witness.push_ecdsa_signature(counterparty_sig);
 			} else {
-				witness.push_ecdsa_signature(&counterparty_sig);
-				witness.push_ecdsa_signature(&holder_sig);
+				witness.push_ecdsa_signature(counterparty_sig);
+				witness.push_ecdsa_signature(holder_sig);
 			}
 			witness.push(&shared_input_sig.witness_script);
-			tx.input[shared_input_index as usize].witness = witness;
+			tx.inputs[shared_input_index as usize].witness = witness;
 		}
 
 		Some(tx)
@@ -519,7 +524,7 @@ impl ConstructedTransaction {
 	/// Note that it is assumed that the witness count equals the holder input count.
 	fn add_local_witnesses(&self, transaction: &mut Transaction, witnesses: Vec<Witness>) {
 		transaction
-			.input
+			.inputs
 			.iter_mut()
 			.zip(self.input_metadata.iter())
 			.enumerate()
@@ -539,7 +544,7 @@ impl ConstructedTransaction {
 	/// Note that it is assumed that the witness count equals the counterparty input count.
 	fn add_remote_witnesses(&self, transaction: &mut Transaction, witnesses: Vec<Witness>) {
 		transaction
-			.input
+			.inputs
 			.iter_mut()
 			.zip(self.input_metadata.iter())
 			.enumerate()
@@ -814,16 +819,15 @@ impl InteractiveTxSigningSession {
 					.p2wpkh_signature_hash(
 						input_idx,
 						script_pubkey,
-						prev_output.value,
+						prev_output.amount,
 						EcdsaSighashType::All,
 					)
 					.map_err(|_| {
 						debug_assert!(false, "Funding transaction sighash should be calculable");
 						"The transaction sighash could not be calculated".to_string()
 					})?;
-				let msg = Message::from_digest_slice(&sighash[..])
-					.expect("Sighash is a SHA256 which is 32 bytes long");
-				secp_ctx.verify_ecdsa(&msg, &sig.signature, &pubkey).map_err(|_| {
+				let msg = Message::from_digest(*sighash.as_byte_array());
+				secp_ctx.verify_ecdsa(msg, &sig.signature, &pubkey).map_err(|_| {
 					format!("Failed signature verification for input at index {input_idx} for P2WPKH spend")
 				})?;
 
@@ -833,16 +837,19 @@ impl InteractiveTxSigningSession {
 			// P2TR key path spend witness includes signature and optional annex
 			if script_pubkey.is_p2tr() && witness.len() == 1 {
 				let pubkey = match script_pubkey.instructions().nth(1) {
-						Some(Ok(bitcoin::script::Instruction::PushBytes(push_bytes))) => {
-							XOnlyPublicKey::from_slice(push_bytes.as_bytes())
-						},
-						_ => {
-							let err = format!("The scriptPubKey of the previous output for input at index {input_idx} for a P2TR key path spend is invalid");
-							return Err(err)
-						},
-					}.map_err(|_| {
-						format!("The scriptPubKey of the previous output for input at index {input_idx} for a P2TR key path spend has an invalid public key")
-					})?;
+					Some(Ok(bitcoin::script::Instruction::PushBytes(push_bytes))) => {
+						let bytes: &[u8; 32] = push_bytes.as_bytes().try_into().map_err(|_| {
+							format!("The scriptPubKey of the previous output for input at index {input_idx} for a P2TR key path spend has an invalid public key")
+						})?;
+							XOnlyPublicKey::from_byte_array(*bytes).map_err(|_| {
+							format!("The scriptPubKey of the previous output for input at index {input_idx} for a P2TR key path spend has an invalid public key")
+						})?
+					},
+					_ => {
+						let err = format!("The scriptPubKey of the previous output for input at index {input_idx} for a P2TR key path spend is invalid");
+						return Err(err)
+					},
+				};
 
 				let sig = bitcoin::taproot::Signature::from_slice(&witness[0]).map_err(|_| {
 					format!("The witness for input at index {input_idx} for a P2TR key path spend has an invalid signature")
@@ -858,9 +865,7 @@ impl InteractiveTxSigningSession {
 						debug_assert!(false, "Funding transaction sighash should be calculable");
 						"The transaction sighash could not be calculated".to_string()
 					})?;
-				let msg = Message::from_digest_slice(&sighash[..])
-					.expect("Sighash is a SHA256 which is 32 bytes long");
-				secp_ctx.verify_schnorr(&sig.signature, &msg, &pubkey).map_err(|_| {
+				secp_ctx.verify_schnorr(&sig.signature, sighash.as_byte_array(), &pubkey).map_err(|_| {
 					format!("Failed signature verification for input at index {input_idx} for P2TR key path spend")
 				})?;
 
@@ -1136,7 +1141,7 @@ impl NegotiationContext {
 		} else if let Some(prevtx) = &msg.prevtx {
 			let txid = prevtx.compute_txid();
 
-			if let Some(tx_out) = prevtx.output.get(msg.prevtx_out as usize) {
+			if let Some(tx_out) = prevtx.outputs.get(msg.prevtx_out as usize) {
 				if !tx_out.script_pubkey.is_witness_program() {
 					// The receiving node:
 					//  - MUST fail the negotiation if:
@@ -1147,8 +1152,9 @@ impl NegotiationContext {
 				let prev_outpoint = BitcoinOutPoint { txid, vout: msg.prevtx_out };
 				let txin = TxIn {
 					previous_output: prev_outpoint,
+					script_sig: bitcoin::ScriptSigBuf::new(),
 					sequence: Sequence(msg.sequence),
-					..Default::default()
+					witness: Witness::new(),
 				};
 				(
 					InputOwned::Single(SingleOwnedInput {
@@ -1265,7 +1271,10 @@ impl NegotiationContext {
 			return Err(AbortReason::InvalidOutputScript);
 		}
 
-		let txout = TxOut { value: Amount::from_sat(msg.sats), script_pubkey: msg.script.clone() };
+		let txout = TxOut {
+			amount: Amount::from_sat(msg.sats).expect("tx_add_output amount must fit in Amount"),
+			script_pubkey: msg.script.clone(),
+		};
 		let output = if txout == self.shared_funding_output.tx_out {
 			if self.holder_is_initiator {
 				return Err(AbortReason::DuplicateFundingOutput);
@@ -1322,11 +1331,12 @@ impl NegotiationContext {
 		} else if let Some(prevtx) = &msg.prevtx {
 			let prev_txid = prevtx.compute_txid();
 			let prev_outpoint = BitcoinOutPoint { txid: prev_txid, vout: msg.prevtx_out };
-			let prev_output = prevtx.output.get(vout).ok_or(AbortReason::PrevTxOutInvalid)?.clone();
+			let prev_output = prevtx.outputs.get(vout).ok_or(AbortReason::PrevTxOutInvalid)?.clone();
 			let txin = TxIn {
 				previous_output: prev_outpoint,
+				script_sig: bitcoin::ScriptSigBuf::new(),
 				sequence: Sequence(msg.sequence),
-				..Default::default()
+				witness: Witness::new(),
 			};
 			let single_input = SingleOwnedInput {
 				input: txin,
@@ -1349,7 +1359,10 @@ impl NegotiationContext {
 	}
 
 	fn sent_tx_add_output(&mut self, msg: &msgs::TxAddOutput) -> Result<(), AbortReason> {
-		let txout = TxOut { value: Amount::from_sat(msg.sats), script_pubkey: msg.script.clone() };
+		let txout = TxOut {
+			amount: Amount::from_sat(msg.sats).expect("tx_add_output amount must fit in Amount"),
+			script_pubkey: msg.script.clone(),
+		};
 		let output = if txout == self.shared_funding_output.tx_out {
 			OutputOwned::Shared(self.shared_funding_output.clone())
 		} else {
@@ -1696,7 +1709,7 @@ impl SharedOwnedInput {
 		input: TxIn, prev_output: TxOut, local_owned: u64, holder_sig_first: bool,
 		witness_script: ScriptBuf,
 	) -> Self {
-		let value = prev_output.value.to_sat();
+		let value = prev_output.amount.to_sat();
 		debug_assert!(
 			local_owned <= value,
 			"SharedOwnedInput: Inconsistent local_owned value {}, larger than prev out value {}",
@@ -1707,7 +1720,7 @@ impl SharedOwnedInput {
 	}
 
 	fn remote_owned(&self) -> u64 {
-		self.prev_output.value.to_sat().saturating_sub(self.local_owned)
+		self.prev_output.amount.to_sat().saturating_sub(self.local_owned)
 	}
 }
 
@@ -1747,8 +1760,8 @@ impl InputOwned {
 
 	pub fn value(&self) -> u64 {
 		match self {
-			InputOwned::Single(single) => single.prev_output.value.to_sat(),
-			InputOwned::Shared(shared) => shared.prev_output.value.to_sat(),
+			InputOwned::Single(single) => single.prev_output.amount.to_sat(),
+			InputOwned::Shared(shared) => shared.prev_output.amount.to_sat(),
 		}
 	}
 
@@ -1762,7 +1775,7 @@ impl InputOwned {
 	fn local_value(&self, local_role: AddingRole) -> u64 {
 		match self {
 			InputOwned::Single(single) => match local_role {
-				AddingRole::Local => single.prev_output.value.to_sat(),
+				AddingRole::Local => single.prev_output.amount.to_sat(),
 				AddingRole::Remote => 0,
 			},
 			InputOwned::Shared(shared) => shared.local_owned,
@@ -1773,7 +1786,7 @@ impl InputOwned {
 		match self {
 			InputOwned::Single(single) => match local_role {
 				AddingRole::Local => 0,
-				AddingRole::Remote => single.prev_output.value.to_sat(),
+				AddingRole::Remote => single.prev_output.amount.to_sat(),
 			},
 			InputOwned::Shared(shared) => shared.remote_owned(),
 		}
@@ -1826,16 +1839,16 @@ impl_writeable_tlv_based!(SharedOwnedOutput, {
 impl SharedOwnedOutput {
 	pub fn new(tx_out: TxOut, local_owned: u64) -> Self {
 		debug_assert!(
-			local_owned <= tx_out.value.to_sat(),
+			local_owned <= tx_out.amount.to_sat(),
 			"SharedOwnedOutput: Inconsistent local_owned value {}, larger than output value {}",
 			local_owned,
-			tx_out.value.to_sat(),
+			tx_out.amount.to_sat(),
 		);
 		Self { tx_out, local_owned }
 	}
 
 	fn remote_owned(&self) -> u64 {
-		self.tx_out.value.to_sat().saturating_sub(self.local_owned)
+		self.tx_out.amount.to_sat().saturating_sub(self.local_owned)
 	}
 }
 
@@ -1869,7 +1882,7 @@ impl OutputOwned {
 	}
 
 	fn value(&self) -> u64 {
-		self.tx_out().value.to_sat()
+		self.tx_out().amount.to_sat()
 	}
 
 	fn is_shared(&self) -> bool {
@@ -1882,7 +1895,7 @@ impl OutputOwned {
 	fn local_value(&self, local_role: AddingRole) -> u64 {
 		match self {
 			OutputOwned::Single(tx_out) => match local_role {
-				AddingRole::Local => tx_out.value.to_sat(),
+				AddingRole::Local => tx_out.amount.to_sat(),
 				AddingRole::Remote => 0,
 			},
 			OutputOwned::Shared(output) => output.local_owned,
@@ -1893,7 +1906,7 @@ impl OutputOwned {
 		match self {
 			OutputOwned::Single(tx_out) => match local_role {
 				AddingRole::Local => 0,
-				AddingRole::Remote => tx_out.value.to_sat(),
+				AddingRole::Remote => tx_out.amount.to_sat(),
 			},
 			OutputOwned::Shared(output) => output.remote_owned(),
 		}
@@ -1917,7 +1930,7 @@ impl InteractiveTxOutput {
 	}
 
 	pub fn value(&self) -> u64 {
-		self.tx_out().value.to_sat()
+		self.tx_out().amount.to_sat()
 	}
 
 	pub fn local_value(&self) -> u64 {
@@ -2087,8 +2100,9 @@ impl InteractiveTxConstructor {
 				let serial_id = generate_holder_serial_id(entropy_source, is_initiator);
 				let txin = TxIn {
 					previous_output: utxo.outpoint,
+					script_sig: bitcoin::ScriptSigBuf::new(),
 					sequence: utxo.sequence,
-					..Default::default()
+					witness: Witness::new(),
 				};
 				let prev_output = utxo.output;
 				let input = InputOwned::Single(SingleOwnedInput {
@@ -2246,7 +2260,7 @@ impl InteractiveTxConstructor {
 			let msg = msgs::TxAddOutput {
 				channel_id,
 				serial_id: *serial_id,
-				sats: output.tx_out().value.to_sat(),
+				sats: output.tx_out().amount.to_sat(),
 				script: output.tx_out().script_pubkey.clone(),
 			};
 			do_state_transition!(self, sent_tx_add_output, &msg)?;
@@ -2367,19 +2381,23 @@ mod tests {
 		MAX_RECEIVED_TX_ADD_OUTPUT_COUNT,
 	};
 	use crate::ln::types::ChannelId;
+	use crate::prelude::*;
 	use crate::sign::EntropySource;
 	use crate::util::atomic_counter::AtomicCounter;
 	use bitcoin::absolute::LockTime as AbsoluteLockTime;
 	use bitcoin::amount::Amount;
 	use bitcoin::hashes::Hash;
-	use bitcoin::hex::FromHex;
+	use hex_conservative::FromHex;
 	use bitcoin::key::{TweakedPublicKey, UntweakedPublicKey};
 	use bitcoin::script::Builder;
-	use bitcoin::secp256k1::{Keypair, PublicKey, Secp256k1, SecretKey};
+	use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 	use bitcoin::transaction::Version;
-	use bitcoin::{opcodes, WScriptHash, Weight, XOnlyPublicKey};
+	use bitcoin::script::WScriptHash;
+	use bitcoin::{opcodes, Keypair, Weight, XOnlyPublicKey};
+	use bitcoin::key::{PubkeyHash, WPubkeyHash};
+	use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
 	use bitcoin::{
-		OutPoint, PubkeyHash, ScriptBuf, Sequence, Transaction, TxIn, TxOut, WPubkeyHash,
+		OutPoint, Sequence, Transaction, TxIn, TxOut,
 	};
 
 	use super::{
@@ -2461,14 +2479,10 @@ mod tests {
 	) {
 		let channel_id = ChannelId(entropy_source.get_secure_random_bytes());
 		let funding_tx_locktime = AbsoluteLockTime::from_height(1337).unwrap();
-		let holder_node_id = PublicKey::from_secret_key(
-			&Secp256k1::signing_only(),
-			&SecretKey::from_slice(&[42; 32]).unwrap(),
-		);
-		let counterparty_node_id = PublicKey::from_secret_key(
-			&Secp256k1::signing_only(),
-			&SecretKey::from_slice(&[43; 32]).unwrap(),
-		);
+		let holder_node_id =
+			PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
+		let counterparty_node_id =
+			PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[43; 32]).unwrap());
 
 		let (constructor_a, mut message_send_a) =
 			InteractiveTxConstructor::new_for_outbound(InteractiveTxConstructorArgs {
@@ -2484,7 +2498,7 @@ mod tests {
 						TxIn {
 							previous_output: op,
 							sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-							..Default::default()
+							..TxIn::EMPTY_COINBASE
 						},
 						prev_output,
 						lo,
@@ -2513,7 +2527,7 @@ mod tests {
 						TxIn {
 							previous_output: op,
 							sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-							..Default::default()
+							..TxIn::EMPTY_COINBASE
 						},
 						prev_output,
 						lo,
@@ -2654,28 +2668,28 @@ mod tests {
 			TestOutput::P2TR(value) => (
 				*value,
 				ScriptBuf::new_p2tr(
-					&secp_ctx,
 					UntweakedPublicKey::from_keypair(
-						&Keypair::from_seckey_slice(&secp_ctx, &[3; 32]).unwrap(),
-					)
-					.0,
+						&Keypair::from_secret_key(
+							&SecretKey::from_secret_bytes([3; 32]).unwrap(),
+						),
+					),
 					None,
 				),
 			),
 			TestOutput::P2PKH(value) => {
-				(*value, ScriptBuf::new_p2pkh(&PubkeyHash::from_slice(&[4; 20]).unwrap()))
+				(*value, ScriptBuf::new_p2pkh(PubkeyHash::from_byte_array([4; 20])))
 			},
 		};
 
-		TxOut { value: Amount::from_sat(value), script_pubkey }
+		TxOut { amount: Amount::from_sat(value).expect("test amount must fit"), script_pubkey }
 	}
 
 	fn generate_tx_with_locktime(outputs: &[TestOutput], locktime: u32) -> Transaction {
 		Transaction {
 			version: Version::TWO,
 			lock_time: AbsoluteLockTime::from_height(locktime).unwrap(),
-			input: vec![TxIn { ..Default::default() }],
-			output: outputs.iter().map(generate_txout).collect(),
+			inputs: vec![TxIn::EMPTY_COINBASE],
+			outputs: outputs.iter().map(generate_txout).collect(),
 		}
 	}
 
@@ -2703,8 +2717,8 @@ mod tests {
 		prev_funding_tx: &Transaction, vout: u32, local_owned: u64,
 	) -> (OutPoint, TxOut, u64) {
 		let txid = prev_funding_tx.compute_txid();
-		let prev_output = prev_funding_tx.output.get(vout as usize).unwrap();
-		let value = prev_output.value.to_sat();
+		let prev_output = prev_funding_tx.outputs.get(vout as usize).unwrap();
+		let value = prev_output.amount.to_sat();
 		assert!(
 			local_owned <= value,
 			"local owned > value for shared input, {} {}",
@@ -2715,15 +2729,15 @@ mod tests {
 	}
 
 	fn generate_p2wsh_script_pubkey() -> ScriptBuf {
-		Builder::new().push_opcode(opcodes::OP_TRUE).into_script().to_p2wsh()
+		Builder::new().push_opcode(opcodes::all::OP_TRUE).into_script().to_p2wsh()
 	}
 
 	fn generate_p2wpkh_script_pubkey() -> ScriptBuf {
-		ScriptBuf::new_p2wpkh(&WPubkeyHash::from_slice(&[1; 20]).unwrap())
+		ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array([1; 20]))
 	}
 
 	fn generate_funding_script_pubkey() -> ScriptBuf {
-		Builder::new().push_int(33).into_script().to_p2wsh()
+		Builder::new().push_int(33).unwrap().into_script().to_p2wsh()
 	}
 
 	fn generate_output_nonfunding_one(output: &TestOutput) -> TxOut {
@@ -2776,20 +2790,23 @@ mod tests {
 	}
 
 	fn generate_p2sh_script_pubkey() -> ScriptBuf {
-		Builder::new().push_opcode(opcodes::OP_TRUE).into_script().to_p2sh()
+		Builder::new().push_opcode(opcodes::all::OP_TRUE).into_script().to_p2sh()
 	}
 
 	fn generate_non_witness_output(value: u64) -> TxOut {
-		TxOut { value: Amount::from_sat(value), script_pubkey: generate_p2sh_script_pubkey() }
+		TxOut {
+			amount: Amount::from_sat(value).expect("test amount must fit"),
+			script_pubkey: generate_p2sh_script_pubkey(),
+		}
 	}
 
 	#[test]
 	fn test_interactive_tx_constructor() {
 		// A transaction that can be used as a previous funding transaction
 		let prev_funding_tx_1 = Transaction {
-			input: Vec::new(),
-			output: vec![TxOut {
-				value: Amount::from_sat(60_000),
+			inputs: Vec::new(),
+			outputs: vec![TxOut {
+				amount: Amount::from_sat(60_000).expect("test amount must fit"),
 				script_pubkey: ScriptBuf::new(),
 			}],
 			lock_time: AbsoluteLockTime::ZERO,
@@ -3357,7 +3374,7 @@ mod tests {
 		.verify_interactive_tx_signatures(
 			&secp_ctx,
 			&transaction
-				.input
+				.inputs
 				.into_iter()
 				.enumerate()
 				.filter(|(idx, _)| idx % 2 == 0) // we only want initiator inputs (corresponds to even serial_id)
@@ -3374,7 +3391,7 @@ mod tests {
 			vec![
 				// Added by holder
 				TxOut {
-					value: Amount::from_sat(17414236),
+					amount: Amount::from_sat(17414236).expect("test amount must fit"),
 					script_pubkey: ScriptBuf::new_p2tr_tweaked(
 						TweakedPublicKey::dangerous_assume_tweaked(XOnlyPublicKey::from_slice(
 							&<[u8; 32]>::from_hex(
@@ -3386,15 +3403,15 @@ mod tests {
 				},
 				// Added by remote (corresponding input should not be checked)
 				TxOut {
-					value: Amount::from_sat(227321),
-					script_pubkey: ScriptBuf::new_p2wpkh(&WPubkeyHash::from_byte_array(
+					amount: Amount::from_sat(227321).expect("test amount must fit"),
+					script_pubkey: ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array(
 						<[u8; 20]>::from_hex("92b8c3a56fac121ddcdffbc85b02fb9ef681038a").unwrap(),
 					)),
 				},
 				// Added by holder
 				TxOut {
-					value: Amount::from_sat(330),
-					script_pubkey: ScriptBuf::new_p2wsh(&WScriptHash::from_byte_array(
+					amount: Amount::from_sat(330).expect("test amount must fit"),
+					script_pubkey: ScriptBuf::new_p2wsh(WScriptHash::from_byte_array(
 						<[u8; 32]>::from_hex(
 							"97a4f4b73947411e18486b7182063f160f9b3a238664b91ff70a56eaffca8b9d",
 						)
@@ -3403,8 +3420,8 @@ mod tests {
 				},
 				// Added by remote (corresponding input should not be checked)
 				TxOut {
-					value: Amount::from_sat(330),
-					script_pubkey: ScriptBuf::new_p2wsh(&WScriptHash::from_byte_array(
+					amount: Amount::from_sat(330).expect("test amount must fit"),
+					script_pubkey: ScriptBuf::new_p2wsh(WScriptHash::from_byte_array(
 						<[u8; 32]>::from_hex(
 							"0d0f49839e6bbf78271ea31d979895758ed66312b4fbab215da8a68a951f36ee",
 						)
@@ -3413,8 +3430,8 @@ mod tests {
 				},
 				// Added by holder
 				TxOut {
-					value: Amount::from_sat(330),
-					script_pubkey: ScriptBuf::new_p2wsh(&WScriptHash::from_byte_array(
+					amount: Amount::from_sat(330).expect("test amount must fit"),
+					script_pubkey: ScriptBuf::new_p2wsh(WScriptHash::from_byte_array(
 						<[u8; 32]>::from_hex(
 							"f2c42991382f63a20308c35ce67133cd8564ede8f8615062d814ec69112ddd46",
 						)
@@ -3434,8 +3451,8 @@ mod tests {
 		let prev_outputs = vec![
 			// Added by holder
 			TxOut {
-				value: Amount::from_sat(228980),
-				script_pubkey: ScriptBuf::new_p2wpkh(&WPubkeyHash::from_byte_array(
+				amount: Amount::from_sat(228980).expect("test amount must fit"),
+				script_pubkey: ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array(
 					<[u8; 20]>::from_hex("cc054f448ca15a5aa1b21f2adb6607fec4410b6d").unwrap(),
 				)),
 			},
@@ -3460,8 +3477,8 @@ mod tests {
 		let prev_outputs = vec![
 			// Added by holder
 			TxOut {
-				value: Amount::from_sat(787976283),
-				script_pubkey: ScriptBuf::new_p2wsh(&WScriptHash::from_byte_array(
+				amount: Amount::from_sat(787976283).expect("test amount must fit"),
+				script_pubkey: ScriptBuf::new_p2wsh(WScriptHash::from_byte_array(
 					<[u8; 32]>::from_hex(
 						"54313a8b88c0b1f408f8e4ba2a7c71909ebb35ec3e5cc81518c5a797afb48e9d",
 					)
@@ -3490,7 +3507,7 @@ mod tests {
 			vec![
 			// Added by holder (SIGHASH_ALL | ACP)
 			TxOut {
-				value: Amount::from_sat(546),
+				amount: Amount::from_sat(546).expect("test amount must fit"),
 				script_pubkey: ScriptBuf::new_p2tr_tweaked(
 					TweakedPublicKey::dangerous_assume_tweaked(XOnlyPublicKey::from_slice(
 						&<[u8; 32]>::from_hex(
@@ -3502,7 +3519,7 @@ mod tests {
 			},
 			// Added by remote (corresponding input should not be checked)
 			TxOut {
-				value: Amount::from_sat(250148),
+				amount: Amount::from_sat(250148).expect("test amount must fit"),
 				script_pubkey: ScriptBuf::new_p2tr_tweaked(
 					TweakedPublicKey::dangerous_assume_tweaked(XOnlyPublicKey::from_slice(
 						&<[u8; 32]>::from_hex(
@@ -3533,8 +3550,8 @@ mod tests {
 		let prev_outputs = vec![
 			// Added by holder
 			TxOut {
-				value: Amount::from_sat(221691),
-				script_pubkey: ScriptBuf::new_p2wsh(&WScriptHash::from_byte_array(
+				amount: Amount::from_sat(221691).expect("test amount must fit"),
+				script_pubkey: ScriptBuf::new_p2wsh(WScriptHash::from_byte_array(
 					<[u8; 32]>::from_hex(
 						"dca8b773bb8a3beb76dff2c2998642449ec989d158ce049ec94a1af29b69b008",
 					)
@@ -3554,15 +3571,15 @@ mod tests {
 		let prev_outputs = vec![
 			// Added by holder
 			TxOut {
-				value: Amount::from_sat(104127),
-				script_pubkey: ScriptBuf::new_p2wpkh(&WPubkeyHash::from_byte_array(
+				amount: Amount::from_sat(104127).expect("test amount must fit"),
+				script_pubkey: ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array(
 					<[u8; 20]>::from_hex("0b29de1e14f8ebc26b65d307b66d521ceb8d40b0").unwrap(),
 				)),
 			},
 			// Added by remote (corresponding input should not be checked)
 			TxOut {
-				value: Amount::from_sat(48509),
-				script_pubkey: ScriptBuf::new_p2wpkh(&WPubkeyHash::from_byte_array(
+				amount: Amount::from_sat(48509).expect("test amount must fit"),
+				script_pubkey: ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array(
 					<[u8; 20]>::from_hex("0b29de1e14f8ebc26b65d307b66d521ceb8d40b0").unwrap(),
 				)),
 			},
@@ -3580,7 +3597,7 @@ mod tests {
 			vec![
 			// Added by holder
 			TxOut {
-				value: Amount::from_sat(25841),
+				amount: Amount::from_sat(25841).expect("test amount must fit"),
 				script_pubkey: ScriptBuf::new_p2tr_tweaked(
 					TweakedPublicKey::dangerous_assume_tweaked(XOnlyPublicKey::from_slice(
 						&<[u8; 32]>::from_hex(
@@ -3592,8 +3609,8 @@ mod tests {
 			},
 			// Added by remote (corresponding input should not be checked)
 			TxOut {
-				value: Amount::from_sat(126239),
-				script_pubkey: ScriptBuf::new_p2wsh(&WScriptHash::from_byte_array(
+				amount: Amount::from_sat(126239).expect("test amount must fit"),
+				script_pubkey: ScriptBuf::new_p2wsh(WScriptHash::from_byte_array(
 					<[u8; 32]>::from_hex(
 						"c9b4e860479f930f054949e5a0be58d25958204e819cc1c62f89c48216eaab27",
 					)
@@ -3614,7 +3631,7 @@ mod tests {
 			vec![
 			// Added by holder
 			TxOut {
-				value: Amount::from_sat(7500),
+				amount: Amount::from_sat(7500).expect("test amount must fit"),
 				script_pubkey: ScriptBuf::new_p2tr_tweaked(
 					TweakedPublicKey::dangerous_assume_tweaked(XOnlyPublicKey::from_slice(
 						&<[u8; 32]>::from_hex(

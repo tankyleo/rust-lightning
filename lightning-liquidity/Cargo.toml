@@ -27,7 +27,7 @@ lightning-types = { version = "0.4.0", path = "../lightning-types", default-feat
 lightning-invoice = { version = "0.35.0", path = "../lightning-invoice", default-features = false, features = ["serde"] }
 lightning-macros = { version = "0.2", path = "../lightning-macros" }
 
-bitcoin = { version = "0.32.2", default-features = false, features = ["serde"] }
+bitcoin = { version = "0.33.0-beta", default-features = false, features = ["serde"] }
 
 chrono = { version = "0.4", default-features = false, features = ["serde", "alloc"] }
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }

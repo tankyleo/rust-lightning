@@ -1,11 +1,14 @@
 //! Abstractions for scripts used in the Lightning Network.
 
 use bitcoin::blockdata::script::Instruction;
+use bitcoin::hashes::hash160::Hash as Hash160;
 use bitcoin::hashes::Hash;
 use bitcoin::opcodes::all::{OP_PUSHBYTES_0 as SEGWIT_V0, OP_RETURN};
-use bitcoin::script::{PushBytes, Script, ScriptBuf};
+use bitcoin::script::{PushBytes, ScriptPubKey as Script, ScriptPubKeyBuf as ScriptBuf};
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::{WPubkeyHash, WScriptHash, WitnessProgram};
+use bitcoin::key::WPubkeyHash;
+use bitcoin::script::WScriptHash;
+use bitcoin::WitnessProgram;
 
 use crate::ln::channelmanager;
 use crate::ln::msgs::DecodeError;
@@ -69,12 +72,12 @@ impl ShutdownScript {
 
 	/// Generates a P2WPKH script pubkey from the given [`WPubkeyHash`].
 	pub fn new_p2wpkh(pubkey_hash: &WPubkeyHash) -> Self {
-		Self(ShutdownScriptImpl::Bolt2(ScriptBuf::new_p2wpkh(pubkey_hash)))
+		Self(ShutdownScriptImpl::Bolt2(ScriptBuf::new_p2wpkh(*pubkey_hash)))
 	}
 
 	/// Generates a P2WSH script pubkey from the given [`WScriptHash`].
 	pub fn new_p2wsh(script_hash: &WScriptHash) -> Self {
-		Self(ShutdownScriptImpl::Bolt2(ScriptBuf::new_p2wsh(script_hash)))
+		Self(ShutdownScriptImpl::Bolt2(ScriptBuf::new_p2wsh(*script_hash)))
 	}
 
 	/// Generates an `OP_RETURN` script pubkey from the given `data` bytes.
@@ -208,7 +211,7 @@ impl From<ShutdownScript> for ScriptBuf {
 	fn from(value: ShutdownScript) -> Self {
 		match value.0 {
 			ShutdownScriptImpl::Legacy(pubkey) => {
-				ScriptBuf::new_p2wpkh(&WPubkeyHash::hash(&pubkey.serialize()))
+				ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array(Hash160::hash(&pubkey.serialize()).to_byte_array()))
 			},
 			ShutdownScriptImpl::Bolt2(script_pubkey) => script_pubkey,
 		}
@@ -229,7 +232,7 @@ mod shutdown_script_tests {
 	use super::ShutdownScript;
 
 	use bitcoin::opcodes;
-	use bitcoin::script::{Builder, PushBytes, ScriptBuf};
+	use bitcoin::script::{Builder, PushBytes, ScriptPubKeyBuf as ScriptBuf};
 	use bitcoin::secp256k1::Secp256k1;
 	use bitcoin::secp256k1::{PublicKey, SecretKey};
 	use bitcoin::{WitnessProgram, WitnessVersion};
@@ -239,20 +242,20 @@ mod shutdown_script_tests {
 
 	fn pubkey() -> bitcoin::key::PublicKey {
 		let secp_ctx = Secp256k1::signing_only();
-		let secret_key = SecretKey::from_slice(&[
+		let secret_key = crate::prelude::secret_key_from_slice(&[
 			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 			0, 0, 1,
 		])
 		.unwrap();
-		bitcoin::key::PublicKey::new(PublicKey::from_secret_key(&secp_ctx, &secret_key))
+		bitcoin::key::PublicKey::new(PublicKey::from_secret_key(&secret_key))
 	}
 
 	fn redeem_script() -> ScriptBuf {
 		let pubkey = pubkey();
 		Builder::new()
 			.push_opcode(opcodes::all::OP_PUSHNUM_2)
-			.push_key(&pubkey)
-			.push_key(&pubkey)
+			.push_key(pubkey)
+			.push_key(pubkey)
 			.push_opcode(opcodes::all::OP_PUSHNUM_2)
 			.push_opcode(opcodes::all::OP_CHECKMULTISIG)
 			.into_script()
@@ -275,9 +278,9 @@ mod shutdown_script_tests {
 	fn generates_p2wpkh_from_pubkey() {
 		let pubkey = pubkey();
 		let pubkey_hash = pubkey.wpubkey_hash().unwrap();
-		let p2wpkh_script = ScriptBuf::new_p2wpkh(&pubkey_hash);
+		let p2wpkh_script = ScriptBuf::new_p2wpkh(pubkey_hash);
 
-		let shutdown_script = ShutdownScript::new_p2wpkh_from_pubkey(pubkey.inner);
+		let shutdown_script = ShutdownScript::new_p2wpkh_from_pubkey(pubkey.to_inner());
 		assert!(shutdown_script.is_compatible(&any_segwit_features()));
 		assert!(shutdown_script.is_compatible(&InitFeatures::empty()));
 		assert_eq!(shutdown_script.into_inner(), p2wpkh_script);
@@ -286,7 +289,7 @@ mod shutdown_script_tests {
 	#[test]
 	fn generates_p2wpkh_from_pubkey_hash() {
 		let pubkey_hash = pubkey().wpubkey_hash().unwrap();
-		let p2wpkh_script = ScriptBuf::new_p2wpkh(&pubkey_hash);
+		let p2wpkh_script = ScriptBuf::new_p2wpkh(pubkey_hash);
 
 		let shutdown_script = ShutdownScript::new_p2wpkh(&pubkey_hash);
 		assert!(shutdown_script.is_compatible(&any_segwit_features()));
@@ -298,7 +301,7 @@ mod shutdown_script_tests {
 	#[test]
 	fn generates_p2wsh_from_script_hash() {
 		let script_hash = redeem_script().wscript_hash();
-		let p2wsh_script = ScriptBuf::new_p2wsh(&script_hash);
+		let p2wsh_script = ScriptBuf::new_p2wsh(script_hash);
 
 		let shutdown_script = ShutdownScript::new_p2wsh(&script_hash);
 		assert!(shutdown_script.is_compatible(&any_segwit_features()));
@@ -319,7 +322,7 @@ mod shutdown_script_tests {
 		assert!(ShutdownScript::try_from(op_return_script).is_ok());
 
 		let assert_pushdata_script_compat = |len| {
-			let mut pushdata_vec = Builder::new()
+			let mut pushdata_vec = Builder::<bitcoin::script::ScriptPubKeyTag>::new()
 				.push_opcode(opcodes::all::OP_RETURN)
 				.push_opcode(opcodes::all::OP_PUSHDATA1)
 				.into_bytes();
@@ -363,7 +366,7 @@ mod shutdown_script_tests {
 		assert!(ShutdownScript::try_from(op_return).is_err());
 
 		// - The OP_RETURN data will fail if it's longer than 80 bytes.
-		let mut pushdata_vec = Builder::new()
+		let mut pushdata_vec = Builder::<bitcoin::script::ScriptPubKeyTag>::new()
 			.push_opcode(opcodes::all::OP_RETURN)
 			.push_opcode(opcodes::all::OP_PUSHDATA1)
 			.into_bytes();

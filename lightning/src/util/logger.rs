@@ -444,7 +444,7 @@ mod tests {
 	fn test_logging_with_context() {
 		let logger = &TestLogger::new();
 		let secp_ctx = Secp256k1::new();
-		let pk = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+		let pk = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let payment_hash = PaymentHash([0; 32]);
 		let context_logger =
 			WithContext::from(&logger, Some(pk), Some(ChannelId([0; 32])), Some(payment_hash));
@@ -466,7 +466,7 @@ mod tests {
 	fn test_logging_with_multiple_wrapped_context() {
 		let logger = &TestLogger::new();
 		let secp_ctx = Secp256k1::new();
-		let pk = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+		let pk = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let payment_hash = PaymentHash([0; 32]);
 		let context_logger =
 			&WithContext::from(&logger, None, Some(ChannelId([0; 32])), Some(payment_hash));

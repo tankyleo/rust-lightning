@@ -11,7 +11,7 @@ use bitcoin::absolute::LockTime;
 use bitcoin::amount::{Amount, SignedAmount};
 use bitcoin::consensus::encode;
 use bitcoin::constants::ChainHash;
-use bitcoin::script::{Builder, Script, ScriptBuf};
+use bitcoin::script::{Builder, ScriptPubKey as Script, ScriptPubKeyBuf as ScriptBuf};
 use bitcoin::sighash::EcdsaSighashType;
 use bitcoin::transaction::{Transaction, TxOut};
 use bitcoin::Witness;
@@ -1001,6 +1001,18 @@ pub const MIN_CHAN_DUST_LIMIT_SATOSHIS: u64 = 354;
 
 // Just a reasonable implementation-specific safe lower bound, higher than the dust limit.
 pub const MIN_THEIR_CHAN_RESERVE_SATOSHIS: u64 = 1000;
+
+fn amount_from_sat(sats: u64) -> Amount {
+	Amount::from_sat(sats).expect("satoshi amount must fit in Amount")
+}
+
+fn signed_amount_from_sat(sats: i64) -> SignedAmount {
+	SignedAmount::from_sat(sats).expect("satoshi amount must fit in SignedAmount")
+}
+
+fn witness_script_from_script(script: &Script) -> bitcoin::WitnessScriptBuf {
+	bitcoin::WitnessScriptBuf::from_bytes(script.as_bytes().to_vec())
+}
 
 /// Used to return a simple Error back to ChannelManager. Will get converted to a
 /// msgs::ErrorAction::SendErrorMessage or msgs::ErrorAction::IgnoreError as appropriate with our
@@ -2681,12 +2693,12 @@ impl FundingScope {
 	/// was spent by the splice transaction) until the splice transaction reaches sufficient
 	/// confirmations to be locked (and we exchange `splice_locked` messages with our peer).
 	pub fn get_funding_output(&self) -> Option<TxOut> {
-		self.channel_transaction_parameters.make_funding_redeemscript_opt().map(|redeem_script| {
-			TxOut {
-				value: Amount::from_sat(self.get_value_satoshis()),
-				script_pubkey: redeem_script.to_p2wsh(),
-			}
-		})
+			self.channel_transaction_parameters.make_funding_redeemscript_opt().map(|redeem_script| {
+				TxOut {
+					amount: amount_from_sat(self.get_value_satoshis()),
+					script_pubkey: redeem_script.to_p2wsh(),
+				}
+			})
 	}
 
 	fn get_funding_txid(&self) -> Option<Txid> {
@@ -2874,15 +2886,15 @@ impl FundingScope {
 		let funding_txo = self.get_funding_txo().expect("funding_txo should be set");
 		let input = TxIn {
 			previous_output: funding_txo.into_bitcoin_outpoint(),
-			script_sig: ScriptBuf::new(),
+			script_sig: bitcoin::ScriptSigBuf::new(),
 			sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
 			witness: Witness::new(),
 		};
 
-		let prev_output = TxOut {
-			value: Amount::from_sat(self.get_value_satoshis()),
-			script_pubkey: self.get_funding_redeemscript().to_p2wsh(),
-		};
+			let prev_output = TxOut {
+				amount: amount_from_sat(self.get_value_satoshis()),
+				script_pubkey: self.get_funding_redeemscript().to_p2wsh(),
+			};
 
 		let local_owned = self.value_to_self_msat / 1000;
 		let holder_sig_first = self.holder_funding_pubkey().serialize()[..]
@@ -3556,7 +3568,7 @@ trait InitialRemoteCommitmentReceiver<SP: SignerProvider> {
 			self.received_msg(), log_bytes!(sig.serialize_compact()[..]), log_bytes!(self.funding().counterparty_funding_pubkey().serialize()),
 			encode::serialize_hex(&initial_commitment_bitcoin_tx.transaction), log_bytes!(sighash[..]),
 			encode::serialize_hex(&funding_script), &self.context().channel_id());
-		secp_check!(self.context().secp_ctx.verify_ecdsa(&sighash, sig, self.funding().counterparty_funding_pubkey()), format!("Invalid {} signature from peer", self.received_msg()));
+		secp_check!(self.context().secp_ctx.verify_ecdsa(sighash, sig, self.funding().counterparty_funding_pubkey()), format!("Invalid {} signature from peer", self.received_msg()));
 
 		Ok(initial_commitment_tx)
 	}
@@ -5594,7 +5606,7 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 		let commitment_txid = {
 			let trusted_tx = commitment_data.tx.trust();
 			let bitcoin_tx = trusted_tx.built_transaction();
-			if bitcoin_tx.transaction.output.is_empty() {
+			if bitcoin_tx.transaction.outputs.is_empty() {
 				return Err(ChannelError::close(
 					"Commitment tx from peer has 0 outputs".to_owned(),
 				));
@@ -5609,11 +5621,11 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 				log_bytes!(sighash[..]), encode::serialize_hex(&funding_script),
 				&self.channel_id(),
 			);
-			if let Err(_) = self.secp_ctx.verify_ecdsa(
-				&sighash,
-				&msg.signature,
-				&funding.counterparty_funding_pubkey(),
-			) {
+				if let Err(_) = self.secp_ctx.verify_ecdsa(
+					sighash,
+					&msg.signature,
+					&funding.counterparty_funding_pubkey(),
+				) {
 				return Err(ChannelError::close(
 					"Invalid commitment tx signature from peer".to_owned(),
 				));
@@ -5664,14 +5676,15 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 			};
 			let htlc_sighash = hash_to_message!(
 				&sighash::SighashCache::new(&htlc_tx)
-					.p2wsh_signature_hash(
-						0,
-						&htlc_redeemscript,
-						htlc.to_bitcoin_amount(),
-						htlc_sighashtype
-					)
-					.unwrap()[..]
-			);
+						.p2wsh_signature_hash(
+							0,
+							witness_script_from_script(&htlc_redeemscript).as_script(),
+							htlc.to_bitcoin_amount(),
+							htlc_sighashtype
+						)
+						.unwrap()
+						.as_byte_array()[..]
+				);
 			log_trace!(logger, "Checking HTLC tx signature {} by key {} against tx {} (sighash {}) with redeemscript {} in channel {}.",
 				log_bytes!(counterparty_sig.serialize_compact()[..]),
 				log_bytes!(holder_keys.countersignatory_htlc_key.to_public_key().serialize()),
@@ -5680,11 +5693,11 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 				encode::serialize_hex(&htlc_redeemscript),
 				&self.channel_id(),
 			);
-			if let Err(_) = self.secp_ctx.verify_ecdsa(
-				&htlc_sighash,
-				&counterparty_sig,
-				&holder_keys.countersignatory_htlc_key.to_public_key(),
-			) {
+				if let Err(_) = self.secp_ctx.verify_ecdsa(
+					htlc_sighash,
+					&counterparty_sig,
+					&holder_keys.countersignatory_htlc_key.to_public_key(),
+				) {
 				return Err(ChannelError::close("Invalid HTLC tx signature from peer".to_owned()));
 			}
 		}
@@ -6639,10 +6652,10 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 		// check that it pays the right amount to the right script.
 		if funding.funding_tx_confirmation_height == 0 {
 			if tx.txid() == funding_txo.txid {
-				let tx = tx.tx();
-				let txo_idx = funding_txo.index as usize;
-				if txo_idx >= tx.output.len() || tx.output[txo_idx].script_pubkey != funding.get_funding_redeemscript().to_p2wsh() ||
-						tx.output[txo_idx].value.to_sat() != funding.get_value_satoshis() {
+					let tx = tx.tx();
+					let txo_idx = funding_txo.index as usize;
+					if txo_idx >= tx.outputs.len() || tx.outputs[txo_idx].script_pubkey != funding.get_funding_redeemscript().to_p2wsh() ||
+							tx.outputs[txo_idx].amount.to_sat() != funding.get_value_satoshis() {
 					if funding.is_outbound() {
 						// If we generated the funding transaction and it doesn't match what it
 						// should, the client is really broken and we should just panic and
@@ -6658,7 +6671,7 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 				} else {
 					if funding.is_outbound() {
 						if !tx.is_coinbase() {
-							for input in tx.input.iter() {
+							for input in tx.inputs.iter() {
 								if input.witness.is_empty() {
 									// We generated a malleable funding transaction, implying we've
 									// just exposed ourselves to funds loss to our counterparty.
@@ -6784,7 +6797,7 @@ fn get_v2_channel_reserve_satoshis(
 fn min_rbf_feerate(prev_feerate: u32) -> FeeRate {
 	let flat_increment = (prev_feerate as u64).saturating_add(25);
 	let spec_increment = ((prev_feerate as u64) * 25).div_ceil(24);
-	FeeRate::from_sat_per_kwu(cmp::max(flat_increment, spec_increment))
+	FeeRate::from_sat_per_kwu(cmp::max(flat_increment.try_into().unwrap(), spec_increment.try_into().unwrap()))
 }
 
 /// Context for negotiating channels (dual-funded V2 open, splicing)
@@ -6829,10 +6842,10 @@ impl FundingNegotiationContext {
 			debug_assert!(matches!(context.channel_state, ChannelState::NegotiatingFunding(_)));
 		}
 
-		let shared_funding_output = TxOut {
-			value: Amount::from_sat(funding.get_value_satoshis()),
-			script_pubkey: funding.get_funding_redeemscript().to_p2wsh(),
-		};
+			let shared_funding_output = TxOut {
+				amount: amount_from_sat(funding.get_value_satoshis()),
+				script_pubkey: funding.get_funding_redeemscript().to_p2wsh(),
+			};
 
 		let constructor_args = InteractiveTxConstructorArgs {
 			entropy_source,
@@ -7293,7 +7306,7 @@ where
 			if let Some(last) = pending_splice.contributions.last() {
 				let was_negotiated = pending_splice
 					.last_funding_feerate_sat_per_1000_weight
-					.is_some_and(|f| last.feerate() == FeeRate::from_sat_per_kwu(f as u64));
+					.is_some_and(|f| last.feerate() == FeeRate::from_sat_per_kwu((f as u64).try_into().unwrap()));
 				if !was_negotiated {
 					pending_splice.contributions.pop();
 				}
@@ -7502,7 +7515,7 @@ where
 				set_closee_output_only = true;
 				// The closer's entire balance goes to fees (no closer output).
 				total_fee_satoshis = closer_balance_msat / 1000;
-				let value_to_closee = Amount::from_sat(closee_balance_msat / 1000);
+				let value_to_closee = amount_from_sat(closee_balance_msat / 1000);
 				let to_closee_script =
 					self.context.counterparty_shutdown_scriptpubkey.clone().unwrap();
 				outputs = ClosingTransactionV2Outputs::CloseeOutputOnly {
@@ -7516,7 +7529,7 @@ where
 					set_closee_output_only = true;
 					// The closer's entire balance goes to fees (no closer output).
 					total_fee_satoshis = closer_balance_msat / 1000;
-					let value_to_closee = Amount::from_sat(closee_balance_msat / 1000);
+					let value_to_closee = amount_from_sat(closee_balance_msat / 1000);
 					let to_closee_script =
 						self.context.counterparty_shutdown_scriptpubkey.clone().unwrap();
 					outputs = ClosingTransactionV2Outputs::CloseeOutputOnly {
@@ -7530,10 +7543,10 @@ where
 					if tmp_value_to_closer_sat < 0 {
 						total_fee_satoshis += (-tmp_value_to_closer_sat) as u64;
 					}
-					let value_to_closer = Amount::from_sat(tmp_value_to_closer_sat as u64);
+					let value_to_closer = amount_from_sat(tmp_value_to_closer_sat as u64);
 					let to_closer_script = self.get_closing_scriptpubkey();
 
-					let value_to_closee = Amount::from_sat(closee_balance_msat / 1000);
+					let value_to_closee = amount_from_sat(closee_balance_msat / 1000);
 					let to_closee_script =
 						self.context.counterparty_shutdown_scriptpubkey.clone().unwrap();
 					outputs = ClosingTransactionV2Outputs::CloserAndCloseeOutputs {
@@ -7558,7 +7571,7 @@ where
 					(Amount::ZERO, to_closer_script)
 				} else {
 					let value_to_closer =
-						Amount::from_sat(closer_balance_msat / 1000 - total_fee_satoshis);
+						amount_from_sat(closer_balance_msat / 1000 - total_fee_satoshis);
 					debug_assert!(value_to_closer > Amount::ZERO);
 					let to_closer_script = self.get_closing_scriptpubkey();
 					(value_to_closer, to_closer_script)
@@ -7578,7 +7591,7 @@ where
 				//     - MUST set both `closer_output_only` and `closer_and_closee_outputs`.
 				set_closer_output_only = true;
 				set_closer_and_closee_outputs = true;
-				let value_to_closee = Amount::from_sat(closee_balance_msat / 1000);
+				let value_to_closee = amount_from_sat(closee_balance_msat / 1000);
 				let to_closee_script =
 					self.context.counterparty_shutdown_scriptpubkey.clone().unwrap();
 				outputs = ClosingTransactionV2Outputs::CloserAndCloseeOutputs {
@@ -8035,8 +8048,8 @@ where
 				} else {
 					// If they have sent updated points, channel_ready is always supposed to match
 					// their "first" point, which we re-derive here.
-					Some(PublicKey::from_secret_key(&self.context.secp_ctx, &SecretKey::from_slice(
-							&self.context.commitment_secrets.get_secret(INITIAL_COMMITMENT_NUMBER - 1).expect("We should have all prev secrets available")
+					Some(PublicKey::from_secret_key(&SecretKey::from_byte_array(
+							self.context.commitment_secrets.get_secret(INITIAL_COMMITMENT_NUMBER - 1).expect("We should have all prev secrets available")
 						).expect("We already advanced, so previous secret keys should have been validated already")))
 				};
 			if expected_point != Some(msg.next_per_commitment_point) {
@@ -9069,15 +9082,15 @@ where
 			));
 		}
 
-		let secret = secp_check!(
-			SecretKey::from_slice(&msg.per_commitment_secret),
-			"Peer provided an invalid per_commitment_secret".to_owned()
-		);
+			let secret = secp_check!(
+				SecretKey::from_byte_array(msg.per_commitment_secret),
+				"Peer provided an invalid per_commitment_secret".to_owned()
+			);
 
 		if let Some(counterparty_current_commitment_point) =
 			self.context.counterparty_current_commitment_point
 		{
-			if PublicKey::from_secret_key(&self.context.secp_ctx, &secret)
+			if PublicKey::from_secret_key(&secret)
 				!= counterparty_current_commitment_point
 			{
 				return Err(ChannelError::close("Got a revoke commitment secret which didn't correspond to their current pubkey".to_owned()));
@@ -10007,7 +10020,7 @@ where
 				.get_per_commitment_point(commitment_number, &self.context.secp_ctx)
 			{
 				self.context.signer_pending_stale_state_verification.take();
-				if expected_point != PublicKey::from_secret_key(&self.context.secp_ctx, &commitment_secret) {
+				if expected_point != PublicKey::from_secret_key(&commitment_secret) {
 					return Err(ChannelError::close("Peer sent a channel_reestablish indicating we're stale with an invalid commitment secret".to_owned()));
 				}
 				Self::panic_on_stale_state(logger);
@@ -10108,7 +10121,7 @@ where
 							(closing_signed.as_ref(), self.context.last_received_closing_sig) {
 							let funding_redeemscript = self.funding.get_funding_redeemscript();
 							let sighash = closing_tx.trust().get_sighash_all(&funding_redeemscript, self.funding.get_value_satoshis());
-							debug_assert!(self.context.secp_ctx.verify_ecdsa(&sighash, &counterparty_sig,
+							debug_assert!(self.context.secp_ctx.verify_ecdsa(sighash, &counterparty_sig,
 																			 &self.funding.get_counterparty_pubkeys().funding_pubkey).is_ok());
 							Some(self.build_signed_closing_transaction(&closing_tx, &counterparty_sig, signature))
 						} else { None };
@@ -10369,7 +10382,7 @@ where
 
 		let our_commitment_transaction = INITIAL_COMMITMENT_NUMBER - self.holder_commitment_point.current_transaction_number();
 		if msg.next_remote_commitment_number > 0 {
-			let given_secret = SecretKey::from_slice(&msg.your_last_per_commitment_secret)
+			let given_secret = SecretKey::from_byte_array(msg.your_last_per_commitment_secret)
 				.map_err(|_| ChannelError::close("Peer sent a garbage channel_reestablish with unparseable secret key".to_owned()))?;
 			if msg.next_remote_commitment_number > our_commitment_transaction {
 				let given_commitment_number = INITIAL_COMMITMENT_NUMBER - msg.next_remote_commitment_number + 1;
@@ -10381,20 +10394,20 @@ where
 					log_info!(logger, "Waiting on async signer to verify stale state proof");
 					return Err(ChannelError::WarnAndDisconnect("Channel is not ready to be reestablished yet".to_owned()));
 				}
-				if expected_point != Some(PublicKey::from_secret_key(&self.context.secp_ctx, &given_secret)) {
+				if expected_point != Some(PublicKey::from_secret_key(&given_secret)) {
 					return Err(ChannelError::close("Peer sent a channel_reestablish indicating we're stale with an invalid commitment secret".to_owned()));
 				}
 				Self::panic_on_stale_state(logger);
 			} else if msg.next_remote_commitment_number == our_commitment_transaction {
 				let expected_point = self.holder_commitment_point.last_revoked_point()
 					.expect("The last revoked commitment point must exist when the state has advanced");
-				if expected_point != PublicKey::from_secret_key(&self.context.secp_ctx, &given_secret) {
+				if expected_point != PublicKey::from_secret_key(&given_secret) {
 					return Err(ChannelError::close("Peer sent a garbage channel_reestablish with secret key not matching the commitment height provided".to_owned()));
 				}
 			} else if msg.next_remote_commitment_number + 1 == our_commitment_transaction {
 				let expected_point = self.holder_commitment_point.previous_revoked_point()
 					.expect("The previous revoked commitment point must exist when they are one state behind");
-				if expected_point != PublicKey::from_secret_key(&self.context.secp_ctx, &given_secret) {
+				if expected_point != PublicKey::from_secret_key(&given_secret) {
 					return Err(ChannelError::close("Peer sent a garbage channel_reestablish with secret key not matching the commitment height provided".to_owned()));
 				}
 			}
@@ -11220,7 +11233,7 @@ where
 	) -> Transaction {
 		let mut tx = closing_tx.trust().built_transaction().clone();
 
-		tx.input[0].witness.push(Vec::new()); // First is the multisig dummy
+		tx.inputs[0].witness.push(Vec::new()); // First is the multisig dummy
 
 		let funding_key = self.funding.get_holder_pubkeys().funding_pubkey.serialize();
 		let counterparty_funding_key = self.funding.counterparty_funding_pubkey().serialize();
@@ -11229,14 +11242,14 @@ where
 		let mut cp_sig = counterparty_sig.serialize_der().to_vec();
 		cp_sig.push(EcdsaSighashType::All as u8);
 		if funding_key[..] < counterparty_funding_key[..] {
-			tx.input[0].witness.push(holder_sig);
-			tx.input[0].witness.push(cp_sig);
+			tx.inputs[0].witness.push(holder_sig);
+			tx.inputs[0].witness.push(cp_sig);
 		} else {
-			tx.input[0].witness.push(cp_sig);
-			tx.input[0].witness.push(holder_sig);
+			tx.inputs[0].witness.push(cp_sig);
+			tx.inputs[0].witness.push(holder_sig);
 		}
 
-		tx.input[0].witness.push(self.funding.get_funding_redeemscript().into_bytes());
+		tx.inputs[0].witness.push(self.funding.get_funding_redeemscript().into_bytes());
 		tx
 	}
 
@@ -11354,11 +11367,11 @@ where
 			.trust()
 			.get_sighash_all(&funding_redeemscript, self.funding.get_value_satoshis());
 
-		match self.context.secp_ctx.verify_ecdsa(
-			&sighash,
-			&msg.signature,
-			&self.funding.get_counterparty_pubkeys().funding_pubkey,
-		) {
+			match self.context.secp_ctx.verify_ecdsa(
+				sighash,
+				&msg.signature,
+				&self.funding.get_counterparty_pubkeys().funding_pubkey,
+			) {
 			Ok(_) => {},
 			Err(_e) => {
 				// The remote end may have decided to revoke their output due to inconsistent dust
@@ -11369,19 +11382,19 @@ where
 				let sighash = closing_tx
 					.trust()
 					.get_sighash_all(&funding_redeemscript, self.funding.get_value_satoshis());
-				let res = self.context.secp_ctx.verify_ecdsa(
-					&sighash,
-					&msg.signature,
-					self.funding.counterparty_funding_pubkey(),
-				);
+					let res = self.context.secp_ctx.verify_ecdsa(
+						sighash,
+						&msg.signature,
+						self.funding.counterparty_funding_pubkey(),
+					);
 				secp_check!(res, "Invalid closing tx signature from peer".to_owned());
 			},
 		};
 
-		for outp in closing_tx.trust().built_transaction().output.iter() {
-			if !outp.script_pubkey.is_witness_program()
-				&& outp.value < Amount::from_sat(MAX_STD_OUTPUT_DUST_LIMIT_SATOSHIS)
-			{
+			for outp in closing_tx.trust().built_transaction().outputs.iter() {
+				if !outp.script_pubkey.is_witness_program()
+					&& outp.amount < amount_from_sat(MAX_STD_OUTPUT_DUST_LIMIT_SATOSHIS)
+				{
 				return Err(ChannelError::close("Remote sent us a closing_signed with a dust output. Always use segwit closing scripts!".to_owned()));
 			}
 		}
@@ -11561,9 +11574,9 @@ where
 		let value_to_closer = if closer_is_op_return {
 			Amount::ZERO
 		} else {
-			Amount::from_sat(closer_balance_msat / 1000 - msg.fee_satoshis)
+			amount_from_sat(closer_balance_msat / 1000 - msg.fee_satoshis)
 		};
-		let value_to_closee = Amount::from_sat(closee_balance_msat / 1000);
+		let value_to_closee = amount_from_sat(closee_balance_msat / 1000);
 		let lock_time = LockTime::from_consensus(msg.locktime);
 
 		// Select which signature field to validate per spec.
@@ -11631,11 +11644,11 @@ where
 			.trust()
 			.get_sighash_all(&funding_redeemscript, self.funding.get_value_satoshis());
 		secp_check!(
-			self.context.secp_ctx.verify_ecdsa(
-				&sighash,
-				&counterparty_sig,
-				self.funding.counterparty_funding_pubkey(),
-			),
+				self.context.secp_ctx.verify_ecdsa(
+					sighash,
+					&counterparty_sig,
+					self.funding.counterparty_funding_pubkey(),
+				),
 			"Invalid closing_complete signature from peer".to_owned()
 		);
 
@@ -11825,9 +11838,9 @@ where
 		let value_to_closer = if closer_is_op_return {
 			Amount::ZERO
 		} else {
-			Amount::from_sat(closer_balance_msat / 1000 - msg.fee_satoshis)
+			amount_from_sat(closer_balance_msat / 1000 - msg.fee_satoshis)
 		};
-		let value_to_closee = Amount::from_sat(closee_balance_msat / 1000);
+		let value_to_closee = amount_from_sat(closee_balance_msat / 1000);
 		let lock_time = LockTime::from_consensus(msg.locktime);
 
 		let funding_outpoint = self.funding_outpoint().into_bitcoin_outpoint();
@@ -11857,11 +11870,11 @@ where
 			.trust()
 			.get_sighash_all(&funding_redeemscript, self.funding.get_value_satoshis());
 		secp_check!(
-			self.context.secp_ctx.verify_ecdsa(
-				&sighash,
-				&counterparty_sig,
-				self.funding.counterparty_funding_pubkey(),
-			),
+				self.context.secp_ctx.verify_ecdsa(
+					sighash,
+					&counterparty_sig,
+					self.funding.counterparty_funding_pubkey(),
+				),
 			"Invalid closing_sig signature from peer".to_owned()
 		);
 
@@ -12804,14 +12817,14 @@ where
 	) -> Result<msgs::ChannelAnnouncement, ChannelError> {
 		let announcement = self.get_channel_announcement(node_signer, chain_hash, user_config)?;
 
-		let msghash = hash_to_message!(&Sha256d::hash(&announcement.encode()[..])[..]);
+			let msghash = hash_to_message!(Sha256d::hash(&announcement.encode()[..]).as_byte_array());
 
-		if self.context.secp_ctx.verify_ecdsa(&msghash, &msg.node_signature, &self.context.get_counterparty_node_id()).is_err() {
+		if self.context.secp_ctx.verify_ecdsa(msghash, &msg.node_signature, &self.context.get_counterparty_node_id()).is_err() {
 			return Err(ChannelError::close(format!(
 				"Bad announcement_signatures. Failed to verify node_signature. UnsignedChannelAnnouncement used for verification is {:?}. their_node_key is {:?}",
 				 &announcement, self.context.get_counterparty_node_id())));
 		}
-		if self.context.secp_ctx.verify_ecdsa(&msghash, &msg.bitcoin_signature, self.funding.counterparty_funding_pubkey()).is_err() {
+		if self.context.secp_ctx.verify_ecdsa(msghash, &msg.bitcoin_signature, self.funding.counterparty_funding_pubkey()).is_err() {
 			return Err(ChannelError::close(format!(
 				"Bad announcement_signatures. Failed to verify bitcoin_signature. UnsignedChannelAnnouncement used for verification is {:?}. their_bitcoin_key is ({:?})",
 				&announcement, self.funding.counterparty_funding_pubkey())));
@@ -13142,12 +13155,12 @@ where
 		if let Err(e) =
 			contribution.net_value_for_initiator_at_feerate(min_rbf_feerate, holder_balance)
 		{
-			log_info!(
-				logger,
-				"Cannot adjust to minimum RBF feerate {}: {}; will proceed as fresh splice after lock",
-				min_rbf_feerate,
-				e,
-			);
+				log_info!(
+					logger,
+					"Cannot adjust to minimum RBF feerate {}: {}; will proceed as fresh splice after lock",
+					min_rbf_feerate.to_sat_per_kwu_floor(),
+					e,
+				);
 			// Note: try_send_stfu prevents sending stfu until the contribution's
 			// feerate meets the minimum RBF feerate, effectively waiting for the
 			// prior splice to lock before proceeding.
@@ -13155,11 +13168,11 @@ where
 		}
 
 		log_info!(
-			logger,
-			"Adjusting contribution feerate from {} to minimum RBF feerate {}",
-			contribution.feerate(),
-			min_rbf_feerate,
-		);
+				logger,
+				"Adjusting contribution feerate from {} to minimum RBF feerate {}",
+				contribution.feerate().to_sat_per_kwu_floor(),
+				min_rbf_feerate.to_sat_per_kwu_floor(),
+			);
 		contribution
 			.for_initiator_at_feerate(min_rbf_feerate, holder_balance)
 			.expect("feerate compatibility already checked")
@@ -13244,15 +13257,15 @@ where
 
 		if let Some(pending_splice) = self.pending_splice.as_ref() {
 			if !pending_splice.is_rbf_feerate_sufficient(
-				contribution.feerate().to_sat_per_kwu() as u32,
+				contribution.feerate().to_sat_per_kwu_floor() as u32,
 				fee_estimator,
 			) {
-				log_error!(
-					logger,
-					"Channel {} RBF feerate {} below fee estimator minimum",
-					self.context.channel_id(),
-					contribution.feerate(),
-				);
+					log_error!(
+						logger,
+						"Channel {} RBF feerate {} below fee estimator minimum",
+						self.context.channel_id(),
+						contribution.feerate().to_sat_per_kwu_floor(),
+					);
 				return Err(QuiescentError::FailSplice(
 					self.splice_funding_failed_for(contribution),
 				));
@@ -13416,7 +13429,7 @@ where
 			));
 		}
 
-		let their_funding_contribution = SignedAmount::from_sat(msg.funding_contribution_satoshis);
+		let their_funding_contribution = signed_amount_from_sat(msg.funding_contribution_satoshis);
 		if their_funding_contribution == SignedAmount::ZERO {
 			return Err(ChannelError::WarnAndDisconnect(format!(
 				"Channel {} cannot be spliced; they are the initiator, and their contribution is zero",
@@ -13481,7 +13494,7 @@ where
 			their_funding_contribution.to_sat(),
 		);
 		let counterparty_selected_channel_reserve =
-			Amount::from_sat(get_v2_channel_reserve_satoshis(
+			amount_from_sat(get_v2_channel_reserve_satoshis(
 				post_channel_value,
 				MIN_CHAN_DUST_LIMIT_SATOSHIS,
 				self.funding
@@ -13489,7 +13502,7 @@ where
 					.expect("counterparty reserve is set")
 					== 0,
 			));
-		let holder_selected_channel_reserve = Amount::from_sat(get_v2_channel_reserve_satoshis(
+		let holder_selected_channel_reserve = amount_from_sat(get_v2_channel_reserve_satoshis(
 			post_channel_value,
 			self.context.counterparty_dust_limit_satoshis,
 			self.funding.holder_selected_channel_reserve_satoshis == 0,
@@ -13498,7 +13511,7 @@ where
 		// We allow parties to draw from their previous reserve, as long as they satisfy their v2 reserve
 
 		if our_funding_contribution != SignedAmount::ZERO {
-			let post_splice_holder_balance = Amount::from_sat(
+			let post_splice_holder_balance = amount_from_sat(
 				holder_balance_remaining.to_sat()
 				.checked_add_signed(our_funding_contribution.to_sat())
 				.ok_or(format!(
@@ -13509,10 +13522,10 @@ where
 				))?,
 			);
 
-			post_splice_holder_balance.checked_sub(counterparty_selected_channel_reserve)
-				.ok_or(format!(
-						"Channel {} cannot be {}; our post-splice channel balance {} is smaller than their selected v2 reserve {}",
-						self.context.channel_id(),
+				post_splice_holder_balance.checked_sub(counterparty_selected_channel_reserve)
+					.ok_or(format!(
+							"Channel {} cannot be {}; our post-splice channel balance {} is smaller than their selected v2 reserve {}",
+							self.context.channel_id(),
 						if our_funding_contribution.is_positive() { "spliced in" } else { "spliced out" },
 						post_splice_holder_balance,
 						counterparty_selected_channel_reserve,
@@ -13520,7 +13533,7 @@ where
 		}
 
 		if their_funding_contribution != SignedAmount::ZERO {
-			let post_splice_counterparty_balance = Amount::from_sat(
+			let post_splice_counterparty_balance = amount_from_sat(
 				counterparty_balance_remaining.to_sat()
 				.checked_add_signed(their_funding_contribution.to_sat())
 				.ok_or(format!(
@@ -13531,10 +13544,10 @@ where
 				))?,
 			);
 
-			post_splice_counterparty_balance.checked_sub(holder_selected_channel_reserve)
-				.ok_or(format!(
-						"Channel {} cannot be {}; their post-splice channel balance {} is smaller than our selected v2 reserve {}",
-						self.context.channel_id(),
+				post_splice_counterparty_balance.checked_sub(holder_selected_channel_reserve)
+					.ok_or(format!(
+							"Channel {} cannot be {}; their post-splice channel balance {} is smaller than our selected v2 reserve {}",
+							self.context.channel_id(),
 						if their_funding_contribution.is_positive() { "spliced in" } else { "spliced out" },
 						post_splice_counterparty_balance,
 						holder_selected_channel_reserve,
@@ -13571,11 +13584,11 @@ where
 					Err(e) => {
 						log_info!(
 							logger,
-							"Cannot accommodate initiator's feerate ({}) for channel {}: {}",
-							feerate,
-							self.context.channel_id(),
-							e,
-						);
+					"Cannot accommodate initiator's feerate ({}) for channel {}: {}",
+					feerate.to_sat_per_kwu_floor(),
+					self.context.channel_id(),
+					e,
+				);
 						None
 					},
 				}
@@ -13590,7 +13603,7 @@ where
 		&mut self, msg: &msgs::SpliceInit, entropy_source: &ES, holder_node_id: &PublicKey,
 		logger: &L,
 	) -> Result<msgs::SpliceAck, ChannelError> {
-		let feerate = FeeRate::from_sat_per_kwu(msg.funding_feerate_per_kw as u64);
+		let feerate = FeeRate::from_sat_per_kwu((msg.funding_feerate_per_kw as u64).try_into().unwrap());
 		let (our_funding_contribution, holder_balance) =
 			self.resolve_queued_contribution(feerate, logger)?;
 
@@ -13722,7 +13735,7 @@ where
 		}
 
 		let their_funding_contribution = match msg.funding_output_contribution {
-			Some(value) => SignedAmount::from_sat(value),
+			Some(value) => signed_amount_from_sat(value),
 			None => SignedAmount::ZERO,
 		};
 
@@ -13748,7 +13761,7 @@ where
 		&mut self, msg: &msgs::TxInitRbf, entropy_source: &ES, holder_node_id: &PublicKey,
 		fee_estimator: &LowerBoundedFeeEstimator<F>, logger: &L,
 	) -> Result<msgs::TxAckRbf, ChannelError> {
-		let feerate = FeeRate::from_sat_per_kwu(msg.feerate_sat_per_1000_weight as u64);
+		let feerate = FeeRate::from_sat_per_kwu((msg.feerate_sat_per_1000_weight as u64).try_into().unwrap());
 		let (queued_net_value, holder_balance) =
 			self.resolve_queued_contribution(feerate, logger)?;
 
@@ -13861,7 +13874,7 @@ where
 
 		let our_funding_contribution = funding_negotiation_context.our_funding_contribution;
 		let their_funding_contribution = match msg.funding_output_contribution {
-			Some(value) => SignedAmount::from_sat(value),
+			Some(value) => signed_amount_from_sat(value),
 			None => SignedAmount::ZERO,
 		};
 		self.validate_splice_contributions(our_funding_contribution, their_funding_contribution)
@@ -13964,7 +13977,7 @@ where
 			pending_splice.awaiting_ack_context("splice_ack")?;
 
 		let our_funding_contribution = funding_negotiation_context.our_funding_contribution;
-		let their_funding_contribution = SignedAmount::from_sat(msg.funding_contribution_satoshis);
+		let their_funding_contribution = signed_amount_from_sat(msg.funding_contribution_satoshis);
 		self.validate_splice_contributions(our_funding_contribution, their_funding_contribution)
 			.map_err(|e| ChannelError::WarnAndDisconnect(e))?;
 
@@ -14024,13 +14037,13 @@ where
 			)
 			.map_err(|()| "Balance exhausted on remote commitment")?;
 
-		let holder_balance_floor = Amount::from_sat(
+		let holder_balance_floor = amount_from_sat(
 			cmp::min(
 				local_stats.commitment_stats.holder_balance_msat,
 				remote_stats.commitment_stats.holder_balance_msat,
 			) / 1000,
 		);
-		let counterparty_balance_floor = Amount::from_sat(
+		let counterparty_balance_floor = amount_from_sat(
 			cmp::min(
 				local_stats.commitment_stats.counterparty_balance_msat,
 				remote_stats.commitment_stats.counterparty_balance_msat,
@@ -14820,7 +14833,7 @@ where
 					let prior_contribution = contribution.clone();
 					let prev_funding_input = self.funding.to_splice_funding_input();
 					let our_funding_contribution = contribution.net_value();
-					let funding_feerate_per_kw = contribution.feerate().to_sat_per_kwu() as u32;
+					let funding_feerate_per_kw = contribution.feerate().to_sat_per_kwu_floor() as u32;
 					let (our_funding_inputs, our_funding_outputs) = contribution.into_tx_parts();
 
 					let context = FundingNegotiationContext {
@@ -14895,13 +14908,13 @@ where
 							return None;
 						},
 						Ok(min_rbf_feerate) if contribution.feerate() < min_rbf_feerate => {
-							log_given_level!(
-								logger,
-								logger_level,
-								"Waiting for splice to lock: feerate {} below minimum RBF feerate {}",
-								contribution.feerate(),
-								min_rbf_feerate,
-							);
+								log_given_level!(
+									logger,
+									logger_level,
+									"Waiting for splice to lock: feerate {} below minimum RBF feerate {}",
+									contribution.feerate().to_sat_per_kwu_floor(),
+									min_rbf_feerate.to_sat_per_kwu_floor(),
+								);
 							return None;
 						},
 						_ => {},
@@ -15697,7 +15710,7 @@ impl<SP: SignerProvider> PendingV2Channel<SP> {
 		};
 		let funding_negotiation_context = FundingNegotiationContext {
 			is_initiator: true,
-			our_funding_contribution: SignedAmount::from_sat(funding_satoshis as i64),
+			our_funding_contribution: signed_amount_from_sat(funding_satoshis as i64),
 			funding_tx_locktime,
 			funding_feerate_sat_per_1000_weight,
 			shared_funding_input: None,
@@ -15852,7 +15865,7 @@ impl<SP: SignerProvider> PendingV2Channel<SP> {
 			our_funding_outputs: Vec::new(),
 		};
 		let shared_funding_output = TxOut {
-			value: Amount::from_sat(funding.get_value_satoshis()),
+			amount: amount_from_sat(funding.get_value_satoshis()),
 			script_pubkey: funding.get_funding_redeemscript().to_p2wsh(),
 		};
 
@@ -17469,6 +17482,7 @@ pub(crate) fn hold_time_since(send_timestamp: Option<Duration>) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
+	use super::amount_from_sat;
 	use crate::chain::chaininterface::LowerBoundedFeeEstimator;
 	use crate::chain::transaction::OutPoint;
 	use crate::chain::BestBlock;
@@ -17503,9 +17517,9 @@ mod tests {
 	};
 	use bitcoin::amount::Amount;
 	use bitcoin::constants::ChainHash;
-	use bitcoin::hashes::sha256::Hash as Sha256;
+	use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
 	use bitcoin::hashes::Hash;
-	use bitcoin::hex::FromHex;
+	use hex_conservative::FromHex;
 	use bitcoin::locktime::absolute::LockTime;
 	use bitcoin::network::Network;
 	use bitcoin::script::Builder;
@@ -17560,13 +17574,13 @@ mod tests {
 
 		fn get_destination_script(
 			&self, _channel_keys_id: [u8; 32],
-		) -> Result<bitcoin::script::ScriptBuf, ()> {
+		) -> Result<bitcoin::script::ScriptPubKeyBuf, ()> {
 			let secp_ctx = Secp256k1::signing_only();
 			let hex = "0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 			let channel_monitor_claim_key =
-				SecretKey::from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
-			let channel_monitor_claim_key_hash = bitcoin::WPubkeyHash::hash(
-				&PublicKey::from_secret_key(&secp_ctx, &channel_monitor_claim_key).serialize(),
+				crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
+			let channel_monitor_claim_key_hash = bitcoin::key::WPubkeyHash::hash(
+				&PublicKey::from_secret_key(&channel_monitor_claim_key).serialize(),
 			);
 			Ok(Builder::new()
 				.push_opcode(bitcoin::opcodes::all::OP_PUSHBYTES_0)
@@ -17578,7 +17592,7 @@ mod tests {
 			let secp_ctx = Secp256k1::signing_only();
 			let hex = "0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 			let channel_close_key =
-				SecretKey::from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
+				crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
 			Ok(ShutdownScript::new_p2wpkh_from_pubkey(PublicKey::from_secret_key(
 				&secp_ctx,
 				&channel_close_key,
@@ -17596,7 +17610,7 @@ mod tests {
 		.unwrap();
 
 		let seed = [42; 32];
-		let network = Network::Testnet;
+		let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 		let keys_provider = TestKeysInterface::new(&seed, network);
 		keys_provider
 			.expect(OnGetShutdownScriptpubkey { returns: non_v0_segwit_shutdown_script.clone() });
@@ -17606,7 +17620,7 @@ mod tests {
 
 		let secp_ctx = Secp256k1::new();
 		let node_id =
-			PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+			PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let config = UserConfig::default();
 		let res = OutboundV1Channel::new(
 			&bounded_fee_estimator,
@@ -17643,11 +17657,11 @@ mod tests {
 		let bounded_fee_estimator = LowerBoundedFeeEstimator::new(&fee_est);
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
-		let network = Network::Testnet;
+		let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 		let keys_provider = TestKeysInterface::new(&seed, network);
 		let logger = TestLogger::new();
 
-		let node_a_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+		let node_a_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let config = UserConfig::default();
 		let mut node_a_chan = OutboundV1Channel::<&TestKeysInterface>::new(&bounded_fee_estimator, &&keys_provider, &&keys_provider, node_a_node_id, &channelmanager::provided_init_features(&config), 10000000, 100000, 42, &config, 0, 42, None, &logger, None).unwrap();
 
@@ -17667,7 +17681,7 @@ mod tests {
 		let feeest = LowerBoundedFeeEstimator::new(&test_est);
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
-		let network = Network::Testnet;
+		let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 		let keys_provider = TestKeysInterface::new(&seed, network);
 		let logger = TestLogger::new();
 		let best_block = BestBlock::from_network(network);
@@ -17676,7 +17690,7 @@ mod tests {
 		// they have different dust limits.
 
 		// Create Node A's channel pointing to Node B's pubkey
-		let node_b_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+		let node_b_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let mut config = UserConfig::default();
 		config.channel_handshake_config.negotiate_anchors_zero_fee_htlc_tx = false;
 		let mut node_a_chan = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_init_features(&config), 10_000_000, 100_000_000, 42, &config, 0, 42, None, &logger, None).unwrap();
@@ -17684,7 +17698,7 @@ mod tests {
 		// Create Node B's channel by receiving Node A's open_channel message
 		// Make sure A's dust limit is as we expect.
 		let open_channel_msg = node_a_chan.get_open_channel(ChainHash::using_genesis_block(network), &&logger).unwrap();
-		let node_b_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[7; 32]).unwrap());
+		let node_b_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[7; 32]).unwrap());
 		let mut node_b_chan = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_channel_type_features(&config), &channelmanager::provided_init_features(&config), &open_channel_msg, 7, &config, 0, &&logger, None).unwrap();
 
 		// Node B --> Node A: accept channel, explicitly setting B's dust limit.
@@ -17695,8 +17709,8 @@ mod tests {
 
 		// Node A --> Node B: funding created
 		let output_script = node_a_chan.funding.get_funding_redeemscript();
-		let tx = Transaction { version: Version::ONE, lock_time: LockTime::ZERO, input: Vec::new(), output: vec![TxOut {
-			value: Amount::from_sat(10000000), script_pubkey: output_script.clone(),
+		let tx = Transaction { version: Version::ONE, lock_time: LockTime::ZERO, inputs: Vec::new(), outputs: vec![TxOut {
+			amount: amount_from_sat(10000000), script_pubkey: output_script.clone(),
 		}]};
 		let funding_outpoint = OutPoint{ txid: tx.compute_txid(), index: 0 };
 		let funding_created_msg = node_a_chan.get_funding_created(tx.clone(), funding_outpoint, false, &&logger).map_err(|_| ()).unwrap();
@@ -17724,7 +17738,7 @@ mod tests {
 			state: OutboundHTLCState::Committed,
 			source: HTLCSource::OutboundRoute {
 				path: Path { hops: Vec::new(), blinded_tail: None },
-				session_priv: SecretKey::from_slice(&<Vec<u8>>::from_hex("0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").unwrap()[..]).unwrap(),
+				session_priv: crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex("0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").unwrap()[..]).unwrap(),
 				first_hop_htlc_msat: 548,
 				payment_id: PaymentId([42; 32]),
 				bolt12_invoice: None,
@@ -17763,11 +17777,11 @@ mod tests {
 		let fee_est = LowerBoundedFeeEstimator::new(&test_est);
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
-		let network = Network::Testnet;
+		let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 		let keys_provider = TestKeysInterface::new(&seed, network);
 		let logger = TestLogger::new();
 
-		let node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+		let node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let mut config = UserConfig::default();
 		config.channel_handshake_config.negotiate_anchors_zero_fee_htlc_tx = false;
 		let mut chan = OutboundV1Channel::<&TestKeysInterface>::new(&fee_est, &&keys_provider, &&keys_provider, node_id, &channelmanager::provided_init_features(&config), 10_000_000, 100_000_000, 42, &config, 0, 42, None, &logger, None).unwrap();
@@ -17815,7 +17829,7 @@ mod tests {
 		let logger = TestLogger::new();
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
-		let network = Network::Testnet;
+		let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 		let best_block = BestBlock::from_network(network);
 		let chain_hash = ChainHash::using_genesis_block(network);
 		let keys_provider = TestKeysInterface::new(&seed, network);
@@ -17823,13 +17837,13 @@ mod tests {
 		// Go through the flow of opening a channel between two nodes.
 
 		// Create Node A's channel pointing to Node B's pubkey
-		let node_b_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+		let node_b_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let config = UserConfig::default();
 		let mut node_a_chan = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_init_features(&config), 10000000, 100000, 42, &config, 0, 42, None, &logger, None).unwrap();
 
 		// Create Node B's channel by receiving Node A's open_channel message
 		let open_channel_msg = node_a_chan.get_open_channel(chain_hash, &&logger).unwrap();
-		let node_b_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[7; 32]).unwrap());
+		let node_b_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[7; 32]).unwrap());
 		let mut node_b_chan = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_channel_type_features(&config), &channelmanager::provided_init_features(&config), &open_channel_msg, 7, &config, 0, &&logger, None).unwrap();
 
 		// Node B --> Node A: accept channel
@@ -17838,8 +17852,8 @@ mod tests {
 
 		// Node A --> Node B: funding created
 		let output_script = node_a_chan.funding.get_funding_redeemscript();
-		let tx = Transaction { version: Version::ONE, lock_time: LockTime::ZERO, input: Vec::new(), output: vec![TxOut {
-			value: Amount::from_sat(10000000), script_pubkey: output_script.clone(),
+		let tx = Transaction { version: Version::ONE, lock_time: LockTime::ZERO, inputs: Vec::new(), outputs: vec![TxOut {
+			amount: amount_from_sat(10000000), script_pubkey: output_script.clone(),
 		}]};
 		let funding_outpoint = OutPoint{ txid: tx.compute_txid(), index: 0 };
 		let funding_created_msg = node_a_chan.get_funding_created(tx.clone(), funding_outpoint, false, &&logger).map_err(|_| ()).unwrap();
@@ -17874,10 +17888,10 @@ mod tests {
 		let logger = TestLogger::new();
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
-		let network = Network::Testnet;
+		let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 		let keys_provider = TestKeysInterface::new(&seed, network);
-		let outbound_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
-		let inbound_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[7; 32]).unwrap());
+		let outbound_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
+		let inbound_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[7; 32]).unwrap());
 
 		let mut config_2_percent = UserConfig::default();
 		config_2_percent.channel_handshake_config.max_inbound_htlc_value_in_flight_percent_of_channel = 2;
@@ -17971,10 +17985,10 @@ mod tests {
 		let logger = TestLogger::new();
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
-		let network = Network::Testnet;
+		let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 		let keys_provider = TestKeysInterface::new(&seed, network);
-		let outbound_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
-		let inbound_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[7; 32]).unwrap());
+		let outbound_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
+		let inbound_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[7; 32]).unwrap());
 
 
 		let mut outbound_node_config = UserConfig::default();
@@ -18010,20 +18024,20 @@ mod tests {
 		let logger = TestLogger::new();
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
-		let network = Network::Testnet;
+		let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 		let best_block = BestBlock::from_network(network);
 		let chain_hash = ChainHash::using_genesis_block(network);
 		let keys_provider = TestKeysInterface::new(&seed, network);
 
 		// Create Node A's channel pointing to Node B's pubkey
-		let node_b_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+		let node_b_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let config = UserConfig::default();
 		let mut node_a_chan = OutboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_init_features(&config), 10000000, 100000, 42, &config, 0, 42, None, &logger, None).unwrap();
 
 		// Create Node B's channel by receiving Node A's open_channel message
 		// Make sure A's dust limit is as we expect.
 		let open_channel_msg = node_a_chan.get_open_channel(ChainHash::using_genesis_block(network), &&logger).unwrap();
-		let node_b_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[7; 32]).unwrap());
+		let node_b_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[7; 32]).unwrap());
 		let mut node_b_chan = InboundV1Channel::<&TestKeysInterface>::new(&feeest, &&keys_provider, &&keys_provider, node_b_node_id, &channelmanager::provided_channel_type_features(&config), &channelmanager::provided_init_features(&config), &open_channel_msg, 7, &config, 0, &&logger, None).unwrap();
 
 		// Node B --> Node A: accept channel, explicitly setting B's dust limit.
@@ -18034,8 +18048,8 @@ mod tests {
 
 		// Node A --> Node B: funding created
 		let output_script = node_a_chan.funding.get_funding_redeemscript();
-		let tx = Transaction { version: Version::ONE, lock_time: LockTime::ZERO, input: Vec::new(), output: vec![TxOut {
-			value: Amount::from_sat(10000000), script_pubkey: output_script.clone(),
+		let tx = Transaction { version: Version::ONE, lock_time: LockTime::ZERO, inputs: Vec::new(), outputs: vec![TxOut {
+			amount: amount_from_sat(10000000), script_pubkey: output_script.clone(),
 		}]};
 		let funding_outpoint = OutPoint{ txid: tx.compute_txid(), index: 0 };
 		let funding_created_msg = node_a_chan.get_funding_created(tx.clone(), funding_outpoint, false, &&logger).map_err(|_| ()).unwrap();
@@ -18088,12 +18102,12 @@ mod tests {
 		let feeest = LowerBoundedFeeEstimator::new(&test_est);
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
-		let network = Network::Testnet;
+		let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 		let best_block = BestBlock::from_network(network);
 		let keys_provider = TestKeysInterface::new(&seed, network);
 
 		let node_b_node_id =
-			PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+			PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let config = UserConfig::default();
 		let features = channelmanager::provided_init_features(&config);
 		let mut outbound_chan = OutboundV1Channel::<&TestKeysInterface>::new(
@@ -18141,9 +18155,9 @@ mod tests {
 		let tx = Transaction {
 			version: Version::ONE,
 			lock_time: LockTime::ZERO,
-			input: Vec::new(),
-			output: vec![TxOut {
-				value: Amount::from_sat(10000000),
+			inputs: Vec::new(),
+			outputs: vec![TxOut {
+				amount: amount_from_sat(10000000),
 				script_pubkey: outbound_chan.funding.get_funding_redeemscript(),
 			}],
 		};
@@ -18308,7 +18322,7 @@ mod tests {
 				let counterparty_signature = Signature::from_der(&<Vec<u8>>::from_hex($counterparty_sig_hex).unwrap()[..]).unwrap();
 				let sighash = unsigned_tx.get_sighash_all(&redeemscript, $chan.funding.get_value_satoshis());
 				log_trace!($logger, "unsigned_tx = {}", serialize(&unsigned_tx.transaction).as_hex());
-				assert!($secp_ctx.verify_ecdsa(&sighash, &counterparty_signature, $chan.funding.counterparty_funding_pubkey()).is_ok(), "verify counterparty commitment sig");
+				assert!($secp_ctx.verify_ecdsa(sighash, &counterparty_signature, $chan.funding.counterparty_funding_pubkey()).is_ok(), "verify counterparty commitment sig");
 
 				let mut per_htlc: Vec<(HTLCOutputInCommitment, Option<Signature>)> = Vec::new();
 				per_htlc.clear(); // Don't warn about excess mut for no-HTLC calls
@@ -18357,7 +18371,7 @@ mod tests {
 						&htlc, $channel_type_features, &keys.broadcaster_delayed_payment_key, &keys.revocation_key);
 					let htlc_redeemscript = chan_utils::get_htlc_redeemscript(&htlc, $channel_type_features, &keys);
 					let htlc_sighash = Message::from_digest(sighash::SighashCache::new(&htlc_tx).p2wsh_signature_hash(0, &htlc_redeemscript, htlc.to_bitcoin_amount(), htlc_sighashtype).unwrap().as_raw_hash().to_byte_array());
-					assert!($secp_ctx.verify_ecdsa(&htlc_sighash, &remote_signature, &keys.countersignatory_htlc_key.to_public_key()).is_ok(), "verify counterparty htlc sig");
+					assert!($secp_ctx.verify_ecdsa(htlc_sighash, &remote_signature, &keys.countersignatory_htlc_key.to_public_key()).is_ok(), "verify counterparty htlc sig");
 
 					// Only HTLC success transactions for received htlcs should have a preimage supplied.
 					assert_eq!(htlc.offered, $preimage.is_none(), "htlc is offered: {}, with preimage: {:?}", htlc.offered, $preimage);
@@ -18381,7 +18395,7 @@ mod tests {
 
 					let signature = Signature::from_der(&<Vec<u8>>::from_hex($htlc_sig_hex).unwrap()[..]).unwrap();
 					assert_eq!(signature, htlc_holder_sig, "htlc sig");
-					htlc_tx.input[0].witness = chan_utils::build_htlc_input_witness(
+					htlc_tx.inputs[0].witness = chan_utils::build_htlc_input_witness(
 						&htlc_holder_sig, htlc_counterparty_sig, &$preimage, &htlc_redeemscript,
 						$channel_type_features,
 					);
@@ -18412,8 +18426,8 @@ mod tests {
 		};
 		use bitcoin::consensus::encode::serialize;
 		use bitcoin::hash_types::Txid;
-		use bitcoin::hex::DisplayHex;
-		use bitcoin::hex::FromHex;
+		use hex_conservative::DisplayHex;
+		use hex_conservative::FromHex;
 		use bitcoin::secp256k1::Message;
 		use bitcoin::sighash;
 		use bitcoin::sighash::EcdsaSighashType;
@@ -18450,7 +18464,7 @@ mod tests {
 		let keys_provider = Keys { signer: signer.clone() };
 
 		let counterparty_node_id =
-			PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+			PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let mut config = UserConfig::default();
 		config.channel_handshake_config.announce_for_forwarding = false;
 		let mut chan = OutboundV1Channel::<&Keys>::new(
@@ -18526,7 +18540,7 @@ mod tests {
 		// build_commitment_transaction.
 		let per_commitment_secret =
 			secret_from_hex("1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100");
-		let per_commitment_point = PublicKey::from_secret_key(&secp_ctx, &per_commitment_secret);
+		let per_commitment_point = PublicKey::from_secret_key(&per_commitment_secret);
 
 		macro_rules! test_commitment {
 			( $counterparty_sig_hex: expr, $sig_hex: expr, $tx_hex: expr, $($remain:tt)* ) => {
@@ -19104,7 +19118,7 @@ mod tests {
 		};
 		use bitcoin::consensus::encode::serialize;
 		use bitcoin::hash_types::Txid;
-		use bitcoin::hex::{DisplayHex, FromHex};
+		use hex_conservative::{DisplayHex, FromHex};
 		use bitcoin::secp256k1::{Message, Secp256k1};
 		use bitcoin::sighash;
 		use bitcoin::sighash::EcdsaSighashType;
@@ -19716,23 +19730,23 @@ mod tests {
 		// Test vectors from BOLT 3 Appendix E:
 		let secp_ctx = Secp256k1::new();
 
-		let base_secret = SecretKey::from_slice(&<Vec<u8>>::from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f").unwrap()[..]).unwrap();
-		let per_commitment_secret = SecretKey::from_slice(&<Vec<u8>>::from_hex("1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100").unwrap()[..]).unwrap();
+		let base_secret = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f").unwrap()[..]).unwrap();
+		let per_commitment_secret = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex("1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100").unwrap()[..]).unwrap();
 
-		let base_point = PublicKey::from_secret_key(&secp_ctx, &base_secret);
+		let base_point = PublicKey::from_secret_key(&base_secret);
 		assert_eq!(base_point.serialize()[..], <Vec<u8>>::from_hex("036d6caac248af96f6afa7f904f550253a0f3ef3f5aa2fe6838a95b216691468e2").unwrap()[..]);
 
-		let per_commitment_point = PublicKey::from_secret_key(&secp_ctx, &per_commitment_secret);
+		let per_commitment_point = PublicKey::from_secret_key(&per_commitment_secret);
 		assert_eq!(per_commitment_point.serialize()[..], <Vec<u8>>::from_hex("025f7117a78150fe2ef97db7cfc83bd57b2e2c0d0dd25eaf467a4a1c2a45ce1486").unwrap()[..]);
 
 		assert_eq!(chan_utils::derive_private_key(&secp_ctx, &per_commitment_point, &base_secret),
-				SecretKey::from_slice(&<Vec<u8>>::from_hex("cbced912d3b21bf196a766651e436aff192362621ce317704ea2f75d87e7be0f").unwrap()[..]).unwrap());
+				crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex("cbced912d3b21bf196a766651e436aff192362621ce317704ea2f75d87e7be0f").unwrap()[..]).unwrap());
 
 		assert_eq!(RevocationKey::from_basepoint(&secp_ctx, &RevocationBasepoint::from(base_point), &per_commitment_point).to_public_key().serialize()[..],
 				<Vec<u8>>::from_hex("02916e326636d19c33f13e8c0c3a03dd157f332f3e99c317c141dd865eb01f8ff0").unwrap()[..]);
 
 		assert_eq!(chan_utils::derive_private_revocation_key(&secp_ctx, &per_commitment_secret, &base_secret),
-				SecretKey::from_slice(&<Vec<u8>>::from_hex("d09ffff62ddb2297ab000cc85bcb4283fdeb6aa052affbc9dddcf33b61078110").unwrap()[..]).unwrap());
+				crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex("d09ffff62ddb2297ab000cc85bcb4283fdeb6aa052affbc9dddcf33b61078110").unwrap()[..]).unwrap());
 	}
 
 	#[test]
@@ -19743,7 +19757,7 @@ mod tests {
 		let logger = TestLogger::new();
 		let secp_ctx = Secp256k1::new();
 		let seed = [42; 32];
-		let network = Network::Testnet;
+		let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 		let best_block = BestBlock::from_network(network);
 		let chain_hash = ChainHash::using_genesis_block(network);
 		let keys_provider = TestKeysInterface::new(&seed, network);
@@ -19754,7 +19768,7 @@ mod tests {
 		config.channel_handshake_limits.trust_own_funding_0conf = true;
 
 		// Create a channel from node a to node b that will be part of batch funding.
-		let node_b_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[42; 32]).unwrap());
+		let node_b_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let mut node_a_chan = OutboundV1Channel::<&TestKeysInterface>::new(
 			&feeest,
 			&&keys_provider,
@@ -19773,7 +19787,7 @@ mod tests {
 		).unwrap();
 
 		let open_channel_msg = node_a_chan.get_open_channel(ChainHash::using_genesis_block(network), &&logger).unwrap();
-		let node_b_node_id = PublicKey::from_secret_key(&secp_ctx, &SecretKey::from_slice(&[7; 32]).unwrap());
+		let node_b_node_id = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[7; 32]).unwrap());
 		let mut node_b_chan = InboundV1Channel::<&TestKeysInterface>::new(
 			&feeest,
 			&&keys_provider,
@@ -19802,13 +19816,13 @@ mod tests {
 		let tx = Transaction {
 			version: Version::ONE,
 			lock_time: LockTime::ZERO,
-			input: Vec::new(),
-			output: vec![
+			inputs: Vec::new(),
+			outputs: vec![
 				TxOut {
-					value: Amount::from_sat(10000000), script_pubkey: output_script.clone(),
+					amount: amount_from_sat(10000000), script_pubkey: output_script.clone(),
 				},
 				TxOut {
-					value: Amount::from_sat(10000000), script_pubkey: Builder::new().into_script(),
+					amount: amount_from_sat(10000000), script_pubkey: Builder::new().into_script(),
 				},
 			]};
 		let funding_outpoint = OutPoint{ txid: tx.compute_txid(), index: 0 };

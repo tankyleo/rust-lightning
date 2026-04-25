@@ -24,8 +24,7 @@ use bitcoin::network::Network;
 use bitcoin::transaction::Transaction;
 
 use bitcoin::hash_types::{BlockHash, Txid};
-use bitcoin::hashes::hmac::Hmac;
-use bitcoin::hashes::sha256::Hash as Sha256;
+use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
 use bitcoin::hashes::{Hash, HashEngine, HmacEngine};
 
 use bitcoin::secp256k1::Secp256k1;
@@ -178,7 +177,7 @@ use crate::io;
 use crate::io::Read;
 use crate::prelude::*;
 use crate::sync::{Arc, FairRwLock, LockHeldState, LockTestExt, Mutex, RwLock, RwLockReadGuard};
-use bitcoin::hex::impl_fmt_traits;
+use hex_conservative::impl_fmt_traits;
 
 use crate::ln::script::ShutdownScript;
 use core::borrow::Borrow;
@@ -590,7 +589,7 @@ impl PaymentId {
 		key: &[u8; 32], htlcs: I,
 	) -> PaymentId {
 		let mut prev_pair = None;
-		let mut hasher = HmacEngine::new(key);
+		let mut hasher = HmacEngine::<Sha256Engine>::new(key);
 		for (channel_id, htlc_id) in htlcs {
 			hasher.input(&channel_id.0);
 			hasher.input(&htlc_id.to_le_bytes());
@@ -599,7 +598,7 @@ impl PaymentId {
 			}
 			prev_pair = Some((channel_id, htlc_id));
 		}
-		PaymentId(Hmac::<Sha256>::from_engine(hasher).to_byte_array())
+		PaymentId(hasher.finalize().to_byte_array())
 	}
 }
 
@@ -939,7 +938,7 @@ impl HTLCSource {
 	pub fn dummy() -> Self {
 		HTLCSource::OutboundRoute {
 			path: Path { hops: Vec::new(), blinded_tail: None },
-			session_priv: SecretKey::from_slice(&[1; 32]).unwrap(),
+			session_priv: crate::prelude::secret_key_from_slice(&[1; 32]).unwrap(),
 			first_hop_htlc_msat: 0,
 			payment_id: PaymentId([2; 32]),
 			bolt12_invoice: None,
@@ -1271,8 +1270,8 @@ impl FundingType {
 			FundingType::Unchecked(_) => Transaction {
 				version: bitcoin::transaction::Version::TWO,
 				lock_time: bitcoin::absolute::LockTime::ZERO,
-				input: Vec::new(),
-				output: Vec::new(),
+				inputs: Vec::new(),
+				outputs: Vec::new(),
 			},
 		}
 	}
@@ -2163,7 +2162,7 @@ impl<
 /// [`Event::FundingGenerationReady`].
 ///
 /// ```
-/// # use bitcoin::{ScriptBuf, Transaction};
+/// # use bitcoin::{script::ScriptPubKeyBuf, Transaction};
 /// # use bitcoin::secp256k1::PublicKey;
 /// # use lightning::ln::channelmanager::AChannelManager;
 /// # use lightning::events::{Event, EventsProvider};
@@ -5394,7 +5393,7 @@ impl<
 		// The top-level caller should hold the total_consistency_lock read lock.
 		debug_assert!(self.total_consistency_lock.try_write().is_err());
 		let prng_seed = self.entropy_source.get_secure_random_bytes();
-		let session_priv = SecretKey::from_slice(&session_priv_bytes[..]).expect("RNG is busted");
+		let session_priv = SecretKey::from_byte_array(session_priv_bytes).expect("RNG is busted");
 
 		let logger = WithContext::for_payment(
 			&self.logger,
@@ -6449,7 +6448,7 @@ impl<
 		| FundingType::CheckedManualBroadcast(funding_transaction) = &funding
 		{
 			if !funding_transaction.is_coinbase() {
-				for inp in funding_transaction.input.iter() {
+				for inp in funding_transaction.inputs.iter() {
 					if inp.witness.is_empty() {
 						result = result.and(Err(APIError::APIMisuseError {
 							err:
@@ -6460,7 +6459,7 @@ impl<
 				}
 			}
 
-			if funding_transaction.output.len() > u16::max_value() as usize {
+			if funding_transaction.outputs.len() > u16::max_value() as usize {
 				result = result.and(Err(APIError::APIMisuseError {
 					err: "Transaction had more than 2^16 outputs, which is not supported"
 						.to_owned(),
@@ -6471,7 +6470,7 @@ impl<
 			// lower than the next block height. However, the modules constituting our Lightning
 			// node might not have perfect sync about their blockchain views. Thus, if the wallet
 			// module is ahead of LDK, only allow one more block of headroom.
-			if !funding_transaction.input.iter().all(|input| input.sequence == Sequence::MAX)
+			if !funding_transaction.inputs.iter().all(|input| input.sequence == Sequence::MAX)
 				&& funding_transaction.lock_time.is_block_height()
 				&& funding_transaction.lock_time.to_consensus_u32() > height + 1
 			{
@@ -6509,9 +6508,9 @@ impl<
 						let expected_spk = chan.funding.get_funding_redeemscript().to_p2wsh();
 						let outpoint = match &funding {
 							FundingType::Checked(tx) | FundingType::CheckedManualBroadcast(tx) => {
-								for (idx, outp) in tx.output.iter().enumerate() {
+								for (idx, outp) in tx.outputs.iter().enumerate() {
 									if outp.script_pubkey == expected_spk
-										&& outp.value.to_sat() == chan.funding.get_value_satoshis()
+										&& outp.amount.to_sat() == chan.funding.get_value_satoshis()
 									{
 										if output_index.is_some() {
 											return Err("Multiple outputs matched the expected script and value");
@@ -6865,7 +6864,7 @@ impl<
 				hash_map::Entry::Occupied(mut chan_entry) => {
 					let txid = transaction.compute_txid();
 					let witnesses: Vec<_> = transaction
-						.input
+						.inputs
 						.into_iter()
 						.map(|input| input.witness)
 						.filter(|witness| !witness.is_empty())
@@ -9943,7 +9942,7 @@ This indicates a bug inside LDK. Please report this error at https://github.com/
 				let session_priv = if path.has_trampoline_hops() {
 					let session_priv_hash =
 						Sha256::hash(&session_priv.secret_bytes()).to_byte_array();
-					derived_key = SecretKey::from_slice(&session_priv_hash[..]).unwrap();
+					derived_key = SecretKey::from_byte_array(session_priv_hash).unwrap();
 					&derived_key
 				} else {
 					session_priv
@@ -14335,7 +14334,7 @@ This indicates a bug inside LDK. Please report this error at https://github.com/
 		} = params;
 
 		let currency =
-			Network::from_chain_hash(self.chain_hash).map(Into::into).unwrap_or(Currency::Bitcoin);
+			Network::try_from(self.chain_hash).map(Into::into).unwrap_or(Currency::Bitcoin);
 
 		#[cfg(feature = "std")]
 		let duration_since_epoch = {
@@ -16175,7 +16174,7 @@ impl<
 
 			channel.best_block_updated(
 				height,
-				Some(header.time),
+				Some(header.time.to_u32()),
 				self.chain_hash,
 				&self.node_signer,
 				&self.config.read().unwrap(),
@@ -16192,8 +16191,8 @@ impl<
 					// Just in case we end up in a race, we loop until we either successfully
 					// update $timestamp or decide we don't need to.
 					let old_serial = $timestamp.load(Ordering::Acquire);
-					if old_serial >= header.time as usize { break; }
-					if $timestamp.compare_exchange(old_serial, header.time as usize, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
+					if old_serial >= header.time.to_u32() as usize { break; }
+					if $timestamp.compare_exchange(old_serial, header.time.to_u32() as usize, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
 						break;
 					}
 				}
@@ -21540,7 +21539,7 @@ mod tests {
 
 		// Dummy values
 		let channel_id = ChannelId::from_bytes([4; 32]);
-		let unkown_public_key = PublicKey::from_secret_key(&Secp256k1::signing_only(), &SecretKey::from_slice(&[42; 32]).unwrap());
+		let unkown_public_key = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let intercept_id = InterceptId([0; 32]);
 		let error_message = "Channel force-closed";
 
@@ -21639,15 +21638,15 @@ mod tests {
 		// limit.
 		let mut peer_pks = Vec::with_capacity(super::MAX_NO_CHANNEL_PEERS);
 		for _ in 1..super::MAX_NO_CHANNEL_PEERS {
-			let random_pk = PublicKey::from_secret_key(&nodes[0].node.secp_ctx,
-				&SecretKey::from_slice(&nodes[1].keys_manager.get_secure_random_bytes()).unwrap());
+			let random_pk = PublicKey::from_secret_key(
+				&crate::prelude::secret_key_from_slice(&nodes[1].keys_manager.get_secure_random_bytes()).unwrap());
 			peer_pks.push(random_pk);
 			nodes[1].node.peer_connected(random_pk, &msgs::Init {
 				features: nodes[0].node.init_features(), networks: None, remote_network_address: None
 			}, true).unwrap();
 		}
-		let last_random_pk = PublicKey::from_secret_key(&nodes[0].node.secp_ctx,
-			&SecretKey::from_slice(&nodes[1].keys_manager.get_secure_random_bytes()).unwrap());
+		let last_random_pk = PublicKey::from_secret_key(
+			&crate::prelude::secret_key_from_slice(&nodes[1].keys_manager.get_secure_random_bytes()).unwrap());
 		nodes[1].node.peer_connected(last_random_pk, &msgs::Init {
 			features: nodes[0].node.init_features(), networks: None, remote_network_address: None
 		}, true).unwrap_err();
@@ -21975,7 +21974,7 @@ pub mod bench {
 	use crate::util::test_utils;
 
 	use bitcoin::amount::Amount;
-	use bitcoin::hashes::sha256::Hash as Sha256;
+	use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
 	use bitcoin::hashes::Hash;
 	use bitcoin::locktime::absolute::LockTime;
 	use bitcoin::transaction::Version;
@@ -22030,7 +22029,7 @@ pub mod bench {
 		// Do a simple benchmark of sending a payment back and forth between two nodes.
 		// Note that this is unrealistic as each payment send will require at least two fsync
 		// calls per node.
-		let network = bitcoin::Network::Testnet;
+		let network = bitcoin::Network::Testnet(bitcoin::network::TestnetVersion::V3);
 		let genesis_block = bitcoin::constants::genesis_block(network);
 
 		let tx_broadcaster = test_utils::TestBroadcaster::new(network);
@@ -22087,7 +22086,7 @@ pub mod bench {
 		let tx;
 		if let Event::FundingGenerationReady { temporary_channel_id, output_script, .. } = get_event!(node_a_holder, Event::FundingGenerationReady) {
 			tx = Transaction { version: Version::TWO, lock_time: LockTime::ZERO, input: Vec::new(), output: vec![TxOut {
-				value: Amount::from_sat(8_000_000), script_pubkey: output_script,
+				amount: Amount::from_sat(8_000_000), script_pubkey: output_script,
 			}]};
 			node_a.funding_transaction_generated(temporary_channel_id, node_b.get_our_node_id(), tx.clone()).unwrap();
 		} else { panic!(); }
