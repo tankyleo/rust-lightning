@@ -38,7 +38,7 @@ use crate::blinded_path::payment::{BlindedTrampolineTlvs, TrampolineForwardTlvs}
 use crate::ln::onion_utils;
 use crate::ln::types::ChannelId;
 use crate::offers::invoice_request::InvoiceRequest;
-use crate::onion_message;
+use crate::{impl_readable_for_vec, impl_writeable_for_vec, onion_message};
 use crate::sign::{NodeSigner, Recipient};
 use crate::types::features::{ChannelFeatures, ChannelTypeFeatures, InitFeatures, NodeFeatures};
 use crate::types::payment::{PaymentHash, PaymentPreimage, PaymentSecret};
@@ -48,6 +48,7 @@ use crate::prelude::*;
 
 use crate::io::{self, Cursor, Read};
 use crate::io_extras::read_to_end;
+use core::cmp;
 use core::fmt;
 use core::fmt::Debug;
 use core::fmt::Display;
@@ -83,6 +84,9 @@ impl Readable for PublicNonce {
 		Ok(nonce)
 	}
 }
+
+impl_readable_for_vec!(PublicNonce);
+impl_writeable_for_vec!(PublicNonce);
 
 /// A partial signature with the corresponding nonce
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -971,6 +975,8 @@ pub struct RevokeAndACK {
 	///
 	/// [`HeldHtlcAvailable`]: crate::onion_message::async_payments::HeldHtlcAvailable
 	pub release_htlc_message_paths: Vec<(u64, BlindedMessagePath)>,
+	/// next_local_nonces
+	pub next_local_nonces: Vec<PublicNonce>,
 }
 
 /// An [`update_fee`] message to be sent to or received from a peer
@@ -1021,6 +1027,9 @@ pub struct ChannelReestablish {
 	///
 	/// Also contains a bitfield indicating which messages should be retransmitted.
 	pub my_current_funding_locked: Option<FundingLocked>,
+
+	/// next_local_nonces
+	pub next_local_nonces: Vec<PublicNonce>,
 }
 
 /// Information exchanged during channel reestablishment about the next funding from interactive
@@ -3224,6 +3233,7 @@ impl_writeable_msg!(ChannelReestablish, {
 	next_remote_commitment_number,
 	your_last_per_commitment_secret,
 	my_current_per_commitment_point,
+	next_local_nonces,
 }, {
 	(1, next_funding, option),
 	(5, my_current_funding_locked, option),
@@ -3533,7 +3543,8 @@ impl LengthReadable for OpenChannelV2 {
 impl_writeable_msg!(RevokeAndACK, {
 	channel_id,
 	per_commitment_secret,
-	next_per_commitment_point
+	next_per_commitment_point,
+	next_local_nonces,
 }, {
 	(75537, release_htlc_message_paths, optional_vec)
 });
@@ -4707,6 +4718,8 @@ mod tests {
 			)
 		};
 
+		let public_nonce = PublicNonce::from_byte_array(&PUBLIC_NONCE).unwrap();
+
 		let cr = msgs::ChannelReestablish {
 			channel_id: ChannelId::from_bytes([
 				4, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0,
@@ -4718,6 +4731,7 @@ mod tests {
 			my_current_per_commitment_point: public_key,
 			next_funding: None,
 			my_current_funding_locked: None,
+			next_local_nonces: vec![public_nonce, public_nonce, public_nonce],
 		};
 
 		let encoded_value = cr.encode();
@@ -4753,6 +4767,8 @@ mod tests {
 			)
 		};
 
+		let public_nonce = PublicNonce::from_byte_array(&PUBLIC_NONCE).unwrap();
+
 		let cr = msgs::ChannelReestablish {
 			channel_id: ChannelId::from_bytes([
 				4, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0,
@@ -4773,6 +4789,7 @@ mod tests {
 				retransmit_flags: 1,
 			}),
 			my_current_funding_locked: None,
+			next_local_nonces: vec![public_nonce, public_nonce, public_nonce],
 		};
 
 		let encoded_value = cr.encode();
@@ -4812,6 +4829,8 @@ mod tests {
 			)
 		};
 
+		let public_nonce = PublicNonce::from_byte_array(&PUBLIC_NONCE).unwrap();
+
 		let cr = msgs::ChannelReestablish {
 			channel_id: ChannelId::from_bytes([
 				4, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0,
@@ -4832,6 +4851,7 @@ mod tests {
 				),
 				retransmit_flags: 1,
 			}),
+			next_local_nonces: vec![public_nonce, public_nonce, public_nonce],
 		};
 
 		let encoded_value = cr.encode();
@@ -6313,6 +6333,9 @@ mod tests {
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
 		);
+
+		let public_nonce = PublicNonce::from_byte_array(&PUBLIC_NONCE).unwrap();
+
 		let raa = msgs::RevokeAndACK {
 			channel_id: ChannelId::from_bytes([2; 32]),
 			per_commitment_secret: [
@@ -6321,6 +6344,7 @@ mod tests {
 			],
 			next_per_commitment_point: pubkey_1,
 			release_htlc_message_paths: Vec::new(),
+			next_local_nonces: vec![public_nonce, public_nonce, public_nonce],
 		};
 		let encoded_value = raa.encode();
 		let target_value = <Vec<u8>>::from_hex("02020202020202020202020202020202020202020202020202020202020202020101010101010101010101010101010101010101010101010101010101010101031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f").unwrap();

@@ -70,6 +70,7 @@ delegate!(DynSigner, EcdsaChannelSigner, inner,
 	fn generate_local_nonce_pair(
 		,
 		_commitment_number: u64,
+		_txid: Txid,
 		_secp_ctx: &Secp256k1<secp256k1::All>
 	) -> musig_secp::musig::PublicNonce,
 	fn finalize_holder_commitment(

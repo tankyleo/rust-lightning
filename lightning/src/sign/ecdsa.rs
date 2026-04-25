@@ -2,7 +2,7 @@
 
 use bitcoin::transaction::Transaction;
 
-use bitcoin::secp256k1;
+use bitcoin::{Txid, secp256k1};
 use bitcoin::secp256k1::ecdsa::Signature;
 use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 
@@ -40,7 +40,7 @@ pub trait EcdsaChannelSigner: ChannelSigner {
 	/// Generate a local nonce pair, which requires committing to ahead of time.
 	/// The counterparty needs the public nonce generated herein to compute a partial signature.
 	fn generate_local_nonce_pair(
-		&self, commitment_number: u64, secp_ctx: &Secp256k1<secp256k1::All>,
+		&self, commitment_number: u64, txid: Txid, secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> PublicNonce;
 	/// Create a signature for a counterparty's commitment transaction and associated HTLC transactions.
 	///
