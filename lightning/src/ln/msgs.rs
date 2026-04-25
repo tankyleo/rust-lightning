@@ -84,9 +84,12 @@ impl Readable for PublicNonce {
 	}
 }
 
+/// A partial signature with the corresponding nonce
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct PartialSignatureWithNonce {
+	/// The partial signature
 	pub partial_signature: PartialSignature,
+	/// The public nonce
 	pub public_nonce: PublicNonce,
 }
 

@@ -1726,6 +1726,15 @@ impl EcdsaChannelSigner for InMemorySigner {
 		))
 	}
 
+	fn finalize_holder_commitment(
+		&self,
+		_channel_parameters: &ChannelTransactionParameters,
+		_commitment_tx: &HolderCommitmentTransaction,
+		_secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<secp256k1::schnorr::Signature, ()> {
+	    todo!();
+	}
+
 	fn sign_justice_revoked_output(
 		&self, channel_parameters: &ChannelTransactionParameters, justice_tx: &Transaction,
 		input: usize, amount: u64, per_commitment_key: &SecretKey,

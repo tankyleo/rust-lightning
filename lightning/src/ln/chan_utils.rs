@@ -26,6 +26,8 @@ use bitcoin::hashes::ripemd160::Hash as Ripemd160;
 use bitcoin::hashes::sha256::Hash as Sha256;
 use bitcoin::hashes::{Hash, HashEngine};
 
+use musig_secp::musig::PublicNonce;
+
 use crate::chain::chaininterface::{
 	fee_for_weight, ConfirmationTarget, FeeEstimator, LowerBoundedFeeEstimator,
 };
@@ -1363,6 +1365,8 @@ impl<'a> DirectedChannelTransactionParameters<'a> {
 #[derive(Clone, Debug)]
 pub struct HolderCommitmentTransaction {
 	inner: CommitmentTransaction,
+	/// The next local nonce to be used to aggregate the final signature
+	pub next_local_nonce: PublicNonce,
 	/// Our counterparty's signature for the transaction
 	pub counterparty_sig: PartialSignatureWithNonce,
 	/// All non-dust counterparty HTLC signatures, in the order they appear in the transaction
@@ -1392,6 +1396,7 @@ impl_writeable_tlv_based!(HolderCommitmentTransaction, {
 	(2, counterparty_sig, required),
 	(4, holder_sig_first, required),
 	(6, counterparty_htlc_sigs, required_vec),
+	(8, next_local_nonce, required),
 });
 
 impl HolderCommitmentTransaction {
@@ -1420,6 +1425,7 @@ impl HolderCommitmentTransaction {
 			0xaa, 0xc7, 0xd1, 0x80, 0x86, 0xf4, 0x9a, 0x99,
 		];
 
+		let dummy_local_nonce = PublicNonce::from_byte_array(&PUBLIC_NONCE).unwrap();
 		let dummy_musig2_sig = PartialSignatureWithNonce {
 			partial_signature: PartialSignature::from_byte_array(&PARTIAL_SIGNATURE).unwrap(),
 			public_nonce: PublicNonce::from_byte_array(&PUBLIC_NONCE).unwrap(),
@@ -1451,19 +1457,21 @@ impl HolderCommitmentTransaction {
 			inner,
 			counterparty_sig: dummy_musig2_sig,
 			counterparty_htlc_sigs,
-			holder_sig_first: false
+			holder_sig_first: false,
+			next_local_nonce: dummy_local_nonce,
 		}
 	}
 
 	/// Create a new holder transaction with the given counterparty signatures.
 	/// The funding keys are used to figure out which signature should go first when building the transaction for broadcast.
 	#[rustfmt::skip]
-	pub fn new(commitment_tx: CommitmentTransaction, counterparty_sig: PartialSignatureWithNonce, counterparty_htlc_sigs: Vec<Signature>, holder_funding_key: &PublicKey, counterparty_funding_key: &PublicKey) -> Self {
+	pub fn new(commitment_tx: CommitmentTransaction, next_local_nonce: PublicNonce, counterparty_sig: PartialSignatureWithNonce, counterparty_htlc_sigs: Vec<Signature>, holder_funding_key: &PublicKey, counterparty_funding_key: &PublicKey) -> Self {
 		Self {
 			inner: commitment_tx,
 			counterparty_sig,
 			counterparty_htlc_sigs,
 			holder_sig_first: holder_funding_key.serialize()[..] < counterparty_funding_key.serialize()[..],
+			next_local_nonce,
 		}
 	}
 
