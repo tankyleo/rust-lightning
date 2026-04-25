@@ -1477,7 +1477,6 @@ impl HolderCommitmentTransaction {
 
 	#[rustfmt::skip]
 	pub(crate) fn add_holder_sig(&self, agg_sig: bitcoin::secp256k1::schnorr::Signature) -> Transaction {
-		// First push the multisig dummy, note that due to BIP147 (NULLDUMMY) it must be a zero-length element.
 		let mut tx = self.inner.built.transaction.clone();
 		tx.input[0].witness.push(agg_sig.serialize());
 		tx

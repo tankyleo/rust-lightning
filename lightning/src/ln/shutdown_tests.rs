@@ -2269,9 +2269,9 @@ fn test_simple_close_v1_fallback() {
 
 	// Complete the standard v1 closing_signed flow.
 	nodes[1].node.handle_closing_signed(node_a_id, &closing_signed_0);
-	let (_, closing_signed_1_opt) = get_closing_signed_broadcast(nodes[1].node, node_a_id);
+	let (_, closing_signed_1_opt) = get_closing_signed_broadcast(&nodes[1], node_a_id);
 	nodes[0].node.handle_closing_signed(node_b_id, &closing_signed_1_opt.unwrap());
-	let (_, none_0) = get_closing_signed_broadcast(nodes[0].node, node_b_id);
+	let (_, none_0) = get_closing_signed_broadcast(&nodes[0], node_b_id);
 	assert!(none_0.is_none());
 
 	let reason_a = ClosureReason::LocallyInitiatedCooperativeClosure;

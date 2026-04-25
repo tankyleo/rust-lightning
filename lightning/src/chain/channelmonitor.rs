@@ -5340,12 +5340,11 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 	) -> Vec<Transaction> {
 		log_debug!(logger, "Getting signed copy of latest holder commitment transaction!");
 		let commitment_tx = {
-			let sig = self.onchain_tx_handler.signer.unsafe_sign_holder_commitment(
+			let sig = self.onchain_tx_handler.signer.unsafe_finalize_holder_commitment(
 				&self.funding.channel_parameters, &self.funding.current_holder_commitment_tx,
 				&self.onchain_tx_handler.secp_ctx,
 			).expect("sign holder commitment");
-			let redeem_script = self.funding.channel_parameters.make_funding_redeemscript();
-			self.funding.current_holder_commitment_tx.add_holder_sig(&redeem_script, sig)
+			self.funding.current_holder_commitment_tx.add_holder_sig(sig)
 		};
 		let mut holder_transactions = vec![commitment_tx];
 

@@ -251,6 +251,41 @@ impl ChannelSigner for TestChannelSigner {
 }
 
 impl EcdsaChannelSigner for TestChannelSigner {
+	fn partially_sign_counterparty_commitment(
+		&self, _channel_parameters: &ChannelTransactionParameters,
+		_counterparty_nonce: musig_secp::musig::PublicNonce,
+		_commitment_tx: &CommitmentTransaction,
+		_inbound_htlc_preimages: Vec<PaymentPreimage>,
+		_outbound_htlc_preimages: Vec<PaymentPreimage>,
+		_secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<(crate::ln::msgs::PartialSignatureWithNonce, Vec<Signature>), ()> {
+	    todo!();
+	}
+
+	fn generate_local_nonce_pair(
+		&self, _commitment_number: u64, _secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> musig_secp::musig::PublicNonce {
+	    todo!();
+	}
+
+	fn finalize_holder_commitment(
+		&self,
+		_channel_parameters: &ChannelTransactionParameters,
+		_commitment_tx: &HolderCommitmentTransaction,
+		_secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<secp256k1::schnorr::Signature, ()> {
+	    todo!();
+	}
+
+	fn unsafe_finalize_holder_commitment(
+		&self,
+		_channel_parameters: &ChannelTransactionParameters,
+		_commitment_tx: &HolderCommitmentTransaction,
+		_secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<secp256k1::schnorr::Signature, ()> {
+	    todo!();
+	}
+
 	fn sign_counterparty_commitment(
 		&self, channel_parameters: &ChannelTransactionParameters,
 		commitment_tx: &CommitmentTransaction, inbound_htlc_preimages: Vec<PaymentPreimage>,

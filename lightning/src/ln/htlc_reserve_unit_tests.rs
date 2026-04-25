@@ -876,13 +876,15 @@ pub fn do_test_fee_spike_buffer(cfg: Option<UserConfig>, htlc_fails: bool) {
 			chan_signer.get_per_commitment_point(INITIAL_COMMITMENT_NUMBER - 2, &secp_ctx).unwrap(),
 		)
 	};
-	let remote_point = {
+	let (remote_point, remote_nonce) = {
 		let per_peer_lock;
 		let mut peer_state_lock;
 
 		let channel = get_channel_ref!(nodes[1], nodes[0], per_peer_lock, peer_state_lock, chan.2);
 		let chan_signer = channel.as_funded().unwrap().get_signer();
-		chan_signer.get_per_commitment_point(INITIAL_COMMITMENT_NUMBER - 1, &secp_ctx).unwrap()
+		let remote_point = chan_signer.get_per_commitment_point(INITIAL_COMMITMENT_NUMBER - 1, &secp_ctx).unwrap();
+		let remote_nonce = chan_signer.generate_local_nonce_pair(INITIAL_COMMITMENT_NUMBER - 1, &secp_ctx);
+		(remote_point, remote_nonce)
 	};
 
 	// Build the remote commitment transaction so we can sign it, and then later use the
@@ -919,7 +921,7 @@ pub fn do_test_fee_spike_buffer(cfg: Option<UserConfig>, htlc_fails: bool) {
 		);
 		let params = &channel.funding().channel_transaction_parameters;
 		chan_signer
-			.sign_counterparty_commitment(params, &commitment_tx, Vec::new(), Vec::new(), &secp_ctx)
+			.partially_sign_counterparty_commitment(params, remote_nonce, &commitment_tx, Vec::new(), Vec::new(), &secp_ctx)
 			.unwrap()
 	};
 
@@ -2230,19 +2232,25 @@ pub fn do_test_dust_limit_fee_accounting(can_afford: bool) {
 					.unwrap(),
 			)
 		};
-		let remote_point = {
+		let (remote_point, remote_nonce) = {
 			let per_peer_lock;
 			let mut peer_state_lock;
 
 			let channel =
 				get_channel_ref!(nodes[1], nodes[0], per_peer_lock, peer_state_lock, chan_id);
 			let chan_signer = channel.as_funded().unwrap().get_signer();
-			chan_signer
+			let remote_point = chan_signer
 				.get_per_commitment_point(
 					INITIAL_COMMITMENT_NUMBER - MIN_AFFORDABLE_HTLC_COUNT as u64,
 					&secp_ctx,
 				)
-				.unwrap()
+				.unwrap();
+			let remote_nonce = chan_signer
+				.generate_local_nonce_pair(
+					INITIAL_COMMITMENT_NUMBER - MIN_AFFORDABLE_HTLC_COUNT as u64,
+					&secp_ctx,
+				);
+			(remote_point, remote_nonce)
 		};
 
 		// Build the remote commitment transaction so we can sign it, and then later use the
@@ -2287,8 +2295,9 @@ pub fn do_test_dust_limit_fee_accounting(can_afford: bool) {
 			);
 			let params = &channel.funding().channel_transaction_parameters;
 			chan_signer
-				.sign_counterparty_commitment(
+				.partially_sign_counterparty_commitment(
 					params,
+					remote_nonce,
 					&commitment_tx,
 					Vec::new(),
 					Vec::new(),
@@ -2876,14 +2885,16 @@ fn manually_trigger_update_fail_htlc<'a, 'b, 'c, 'd>(
 			chan_signer.get_per_commitment_point(INITIAL_COMMITMENT_NUMBER - 2, &secp_ctx).unwrap(),
 		)
 	};
-	let remote_point = {
+	let (remote_point, remote_nonce) = {
 		let per_peer_lock;
 		let mut peer_state_lock;
 
 		let channel =
 			get_channel_ref!(nodes[1], nodes[0], per_peer_lock, peer_state_lock, channel_id);
 		let chan_signer = channel.as_funded().unwrap().get_signer();
-		chan_signer.get_per_commitment_point(INITIAL_COMMITMENT_NUMBER - 1, &secp_ctx).unwrap()
+		let remote_point = chan_signer.get_per_commitment_point(INITIAL_COMMITMENT_NUMBER - 1, &secp_ctx).unwrap();
+		let remote_nonce = chan_signer.generate_local_nonce_pair(INITIAL_COMMITMENT_NUMBER - 1, &secp_ctx);
+		(remote_point, remote_nonce)
 	};
 
 	// Build the remote commitment transaction so we can sign it, and then later use the
@@ -2921,7 +2932,7 @@ fn manually_trigger_update_fail_htlc<'a, 'b, 'c, 'd>(
 		);
 		let params = &channel.funding().channel_transaction_parameters;
 		chan_signer
-			.sign_counterparty_commitment(params, &commitment_tx, Vec::new(), Vec::new(), &secp_ctx)
+			.partially_sign_counterparty_commitment(params, remote_nonce, &commitment_tx, Vec::new(), Vec::new(), &secp_ctx)
 			.unwrap()
 	};
 

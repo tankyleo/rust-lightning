@@ -1681,6 +1681,25 @@ impl EcdsaChannelSigner for InMemorySigner {
 	    todo!();
 	}
 
+	fn finalize_holder_commitment(
+		&self,
+		_channel_parameters: &ChannelTransactionParameters,
+		_commitment_tx: &HolderCommitmentTransaction,
+		_secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<secp256k1::schnorr::Signature, ()> {
+	    todo!();
+	}
+
+	#[cfg(any(test, feature = "_test_utils", feature = "unsafe_revoked_tx_signing"))]
+	fn unsafe_finalize_holder_commitment(
+		&self,
+		_channel_parameters: &ChannelTransactionParameters,
+		_commitment_tx: &HolderCommitmentTransaction,
+		_secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<secp256k1::schnorr::Signature, ()> {
+	    todo!();
+	}
+
 	fn sign_holder_commitment(
 		&self, channel_parameters: &ChannelTransactionParameters,
 		commitment_tx: &HolderCommitmentTransaction, secp_ctx: &Secp256k1<secp256k1::All>,
@@ -1724,15 +1743,6 @@ impl EcdsaChannelSigner for InMemorySigner {
 			&self,
 			secp_ctx,
 		))
-	}
-
-	fn finalize_holder_commitment(
-		&self,
-		_channel_parameters: &ChannelTransactionParameters,
-		_commitment_tx: &HolderCommitmentTransaction,
-		_secp_ctx: &Secp256k1<secp256k1::All>,
-	) -> Result<secp256k1::schnorr::Signature, ()> {
-	    todo!();
 	}
 
 	fn sign_justice_revoked_output(
