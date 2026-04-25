@@ -344,7 +344,7 @@ pub struct OpenChannel {
 	/// The minimum value unencumbered by HTLCs for the counterparty to keep in the channel
 	pub channel_reserve_satoshis: u64,
 	/// The next local nonce
-	pub next_local_nonce: Option<PublicNonce>,
+	pub next_local_nonce: PublicNonce,
 }
 
 /// An [`open_channel2`] message to be sent by or received from the channel initiator.
@@ -426,7 +426,7 @@ pub struct AcceptChannel {
 	/// The minimum value unencumbered by HTLCs for the counterparty to keep in the channel
 	pub channel_reserve_satoshis: u64,
 	/// The next local nonce
-	pub next_local_nonce: Option<PublicNonce>,
+	pub next_local_nonce: PublicNonce,
 }
 
 /// An [`accept_channel2`] message to be sent by or received from the channel accepter.
@@ -493,7 +493,7 @@ pub struct ChannelReady {
 	/// messages' recipient.
 	pub short_channel_id_alias: Option<u64>,
 	/// The next local nonce
-	pub next_local_nonce: Option<PublicNonce>,
+	pub next_local_nonce: PublicNonce,
 }
 
 /// A randomly chosen number that is used to identify inputs within an interactive transaction
@@ -2961,6 +2961,7 @@ impl Writeable for AcceptChannel {
 
 impl LengthReadable for AcceptChannel {
 	fn read_from_fixed_length_buffer<R: LengthLimitedRead>(r: &mut R) -> Result<Self, DecodeError> {
+		use crate::util::ser::RequiredWrapper;
 		let temporary_channel_id: ChannelId = Readable::read(r)?;
 		let dust_limit_satoshis: u64 = Readable::read(r)?;
 		let max_htlc_value_in_flight_msat: u64 = Readable::read(r)?;
@@ -2978,11 +2979,11 @@ impl LengthReadable for AcceptChannel {
 
 		let mut shutdown_scriptpubkey: Option<ScriptBuf> = None;
 		let mut channel_type: Option<ChannelTypeFeatures> = None;
-		let mut next_local_nonce: Option<PublicNonce> = None;
+		let mut next_local_nonce = RequiredWrapper(None);
 		decode_tlv_stream!(r, {
 			(0, shutdown_scriptpubkey, (option, encoding: (ScriptBuf, WithoutLength))),
 			(1, channel_type, option),
-			(4, next_local_nonce, option),
+			(4, next_local_nonce, required),
 		});
 
 		Ok(AcceptChannel {
@@ -3004,7 +3005,7 @@ impl LengthReadable for AcceptChannel {
 				channel_type,
 			},
 			channel_reserve_satoshis,
-			next_local_nonce,
+			next_local_nonce: next_local_nonce.0.unwrap(),
 		})
 	}
 }
@@ -3310,7 +3311,7 @@ impl_writeable_msg!(ChannelReady, {
 	next_per_commitment_point,
 }, {
 	(1, short_channel_id_alias, option),
-	(4, next_local_nonce, option),
+	(4, next_local_nonce, required),
 });
 
 pub(crate) fn write_features_up_to_13<W: Writer>(
@@ -3392,6 +3393,7 @@ impl Writeable for OpenChannel {
 
 impl LengthReadable for OpenChannel {
 	fn read_from_fixed_length_buffer<R: LengthLimitedRead>(r: &mut R) -> Result<Self, DecodeError> {
+		use crate::util::ser::RequiredWrapper;
 		let chain_hash: ChainHash = Readable::read(r)?;
 		let temporary_channel_id: ChannelId = Readable::read(r)?;
 		let funding_satoshis: u64 = Readable::read(r)?;
@@ -3413,11 +3415,11 @@ impl LengthReadable for OpenChannel {
 
 		let mut shutdown_scriptpubkey: Option<ScriptBuf> = None;
 		let mut channel_type: Option<ChannelTypeFeatures> = None;
-		let mut next_local_nonce: Option<PublicNonce> = None;
+		let mut next_local_nonce = RequiredWrapper(None);
 		decode_tlv_stream!(r, {
 			(0, shutdown_scriptpubkey, (option, encoding: (ScriptBuf, WithoutLength))),
 			(1, channel_type, option),
-			(4, next_local_nonce, option),
+			(4, next_local_nonce, required),
 		});
 		Ok(OpenChannel {
 			common_fields: CommonOpenChannelFields {
@@ -3442,7 +3444,7 @@ impl LengthReadable for OpenChannel {
 			},
 			push_msat,
 			channel_reserve_satoshis,
-			next_local_nonce,
+			next_local_nonce: next_local_nonce.0.unwrap(),
 		})
 	}
 }
@@ -5260,7 +5262,7 @@ mod tests {
 			},
 			push_msat: 2536655962884945560,
 			channel_reserve_satoshis: 8665828695742877976,
-			next_local_nonce: Some(PublicNonce::from_byte_array(&[0xab; 66]).unwrap()),
+			next_local_nonce: PublicNonce::from_byte_array(&[0xab; 66]).unwrap(),
 		};
 		let encoded_value = open_channel.encode();
 		let mut target_value = Vec::new();
@@ -5554,7 +5556,7 @@ mod tests {
 				channel_type: None,
 			},
 			channel_reserve_satoshis: 3608586615801332854,
-			next_local_nonce: Some(PublicNonce::from_byte_array(&[0xab; 66]).unwrap()),
+			next_local_nonce: PublicNonce::from_byte_array(&[0xab; 66]).unwrap(),
 		};
 		let encoded_value = accept_channel.encode();
 		let mut target_value = <Vec<u8>>::from_hex("020202020202020202020202020202020202020202020202020202020202020212345678901234562334032891223698321446687011447600083a840000034d000c89d4c0bcc0bc031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d076602531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe33703462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b0362c0a046dacce86ddd0343c6d3c7c79c2208ba0d9c9cf24a6d046d21d21f90f703f006a18d5653c4edf5391ff23a61f03ff83d237e880ee61187fa9f379a028e0a").unwrap();
@@ -5781,7 +5783,7 @@ mod tests {
 			channel_id: ChannelId::from_bytes([2; 32]),
 			next_per_commitment_point: pubkey_1,
 			short_channel_id_alias: None,
-			next_local_nonce: Some(PublicNonce::from_byte_array(&PUBLIC_NONCE).unwrap()),
+			next_local_nonce: PublicNonce::from_byte_array(&PUBLIC_NONCE).unwrap(),
 		};
 		let encoded_value = channel_ready.encode();
 		let target_value = <Vec<u8>>::from_hex("0202020202020202020202020202020202020202020202020202020202020202031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f").unwrap();
