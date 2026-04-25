@@ -185,7 +185,7 @@ impl Checksum for Bolt11Bech32 {
 ///
 /// use bitcoin::hashes::sha256;
 ///
-/// use bitcoin::secp256k1::Secp256k1;
+/// use bitcoin::secp256k1::ecdsa::RecoverableSignature;
 /// use bitcoin::secp256k1::SecretKey;
 ///
 /// use lightning_types::payment::PaymentSecret;
