@@ -12255,7 +12255,7 @@ where
 				channel_id: self.context.channel_id(),
 				next_per_commitment_point: self.holder_commitment_point.next_point(),
 				short_channel_id_alias: Some(self.context.outbound_scid_alias),
-				next_local_nonce: Some(next_local_nonce),
+				next_local_nonce,
 			})
 		} else {
 			log_debug!(logger, "Not producing channel_ready: the holder commitment point is not available.");
@@ -15277,7 +15277,7 @@ impl<SP: SignerProvider> OutboundV1Channel<SP> {
 			},
 			push_msat: self.funding.get_value_satoshis() * 1000 - self.funding.value_to_self_msat,
 			channel_reserve_satoshis: self.funding.holder_selected_channel_reserve_satoshis,
-			next_local_nonce: Some(next_local_nonce),
+			next_local_nonce,
 		})
 	}
 
@@ -15293,7 +15293,7 @@ impl<SP: SignerProvider> OutboundV1Channel<SP> {
 			&msg.common_fields,
 			msg.channel_reserve_satoshis,
 		)?;
-		self.funding.next_local_nonce = msg.next_local_nonce;
+		self.funding.next_local_nonce = Some(msg.next_local_nonce);
 		Ok(())
 	}
 
@@ -15484,10 +15484,6 @@ impl<SP: SignerProvider> InboundV1Channel<SP> {
 			htlc_basepoint: HtlcBasepoint::from(msg.common_fields.htlc_basepoint),
 		};
 
-		if msg.next_local_nonce.is_none() {
-			return Err(ChannelError::close(String::from("received open_channel is missing the `next_local_nonce`")));
-		}
-
 		let (funding, context) = ChannelContext::new_for_inbound_channel(
 			fee_estimator,
 			entropy_source,
@@ -15506,7 +15502,7 @@ impl<SP: SignerProvider> InboundV1Channel<SP> {
 			msg.channel_reserve_satoshis,
 			msg.push_msat,
 			msg.common_fields.clone(),
-			msg.next_local_nonce,
+			Some(msg.next_local_nonce),
 		)?;
 		let unfunded_context = UnfundedChannelContext {
 			unfunded_channel_age_ticks: 0,
@@ -15587,7 +15583,7 @@ impl<SP: SignerProvider> InboundV1Channel<SP> {
 				channel_type: Some(self.funding.get_channel_type().clone()),
 			},
 			channel_reserve_satoshis: self.funding.holder_selected_channel_reserve_satoshis,
-			next_local_nonce: Some(next_local_nonce),
+			next_local_nonce,
 		})
 	}
 
