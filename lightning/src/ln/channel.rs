@@ -3582,7 +3582,7 @@ trait InitialRemoteCommitmentReceiver<SP: SignerProvider> {
 
 	#[rustfmt::skip]
 	fn initial_commitment_signed<L: Logger>(
-		&mut self, channel_id: ChannelId, counterparty_signature: PartialSignatureWithNonce, holder_commitment_point: &mut HolderCommitmentPoint,
+		&mut self, channel_id: ChannelId, next_local_nonce: PublicNonce, counterparty_signature: PartialSignatureWithNonce, holder_commitment_point: &mut HolderCommitmentPoint,
 		best_block: BestBlock, signer_provider: &SP, logger: &L,
 	) -> Result<(ChannelMonitor<SP::EcdsaSigner>, CommitmentTransaction), ChannelError> {
 		let initial_commitment_tx = match self.check_counterparty_commitment_signature(&counterparty_signature, holder_commitment_point, logger) {
@@ -3613,6 +3613,7 @@ trait InitialRemoteCommitmentReceiver<SP: SignerProvider> {
 
 		let holder_commitment_tx = HolderCommitmentTransaction::new(
 			initial_commitment_tx,
+			next_local_nonce,
 			counterparty_signature,
 			Vec::new(),
 			&self.funding().get_holder_pubkeys().funding_pubkey,
@@ -5717,6 +5718,7 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 
 		let holder_commitment_tx = HolderCommitmentTransaction::new(
 			commitment_data.tx,
+			funding.next_local_nonce.expect("local nonce should be set here!"),
 			msg.signature,
 			msg.htlc_signatures.clone(),
 			&funding.get_holder_pubkeys().funding_pubkey,
@@ -8404,6 +8406,7 @@ where
 
 		let (channel_monitor, _) = self.initial_commitment_signed(
 			self.context.channel_id(),
+			self.funding.next_local_nonce.expect("Local nonce should be set!"),
 			msg.signature,
 			holder_commitment_point,
 			best_block,
@@ -15302,6 +15305,7 @@ impl<SP: SignerProvider> OutboundV1Channel<SP> {
 
 		let (channel_monitor, _) = match self.initial_commitment_signed(
 			self.context.channel_id(),
+			self.funding.next_local_nonce.expect("local nonce should be set!"),
 			msg.partial_signature_with_nonce,
 			&mut holder_commitment_point,
 			best_block,
@@ -15615,6 +15619,7 @@ impl<SP: SignerProvider> InboundV1Channel<SP> {
 		let (channel_monitor, counterparty_initial_commitment_tx) = match self
 			.initial_commitment_signed(
 				ChannelId::v1_from_funding_outpoint(funding_txo),
+				self.funding.next_local_nonce.expect("Next local nonce should be set!"),
 				msg.partial_signature_with_nonce,
 				&mut holder_commitment_point,
 				best_block,
