@@ -70,10 +70,55 @@ use crate::routing::gossip::{NodeAlias, NodeId};
 /// 21 million * 10^8 * 1000
 pub(crate) const MAX_VALUE_MSAT: u64 = 21_000_000_0000_0000_000;
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+impl Writeable for PublicNonce {
+	fn write<W: Writer>(&self, w: &mut W) -> Result<(), io::Error> {
+		self.serialize().write(w)
+	}
+}
+
+impl Readable for PublicNonce {
+	fn read<R: io::Read>(r: &mut R) -> Result<Self, DecodeError> {
+		let buf: [u8; 66] = Readable::read(r)?;
+		let nonce = PublicNonce::from_byte_array(&buf).map_err(|_| DecodeError::InvalidValue)?;
+		Ok(nonce)
+	}
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct PartialSignatureWithNonce {
 	pub partial_signature: PartialSignature,
 	pub public_nonce: PublicNonce,
+}
+
+impl PartialSignatureWithNonce {
+	pub(crate) fn serialize_compact(&self) -> [u8; 98] {
+		let mut buf = [0u8; 98];
+		let partial_sig = self.partial_signature.serialize();
+		buf[..32].copy_from_slice(&partial_sig);
+		let public_nonce = self.public_nonce.serialize();
+		buf[32..98].copy_from_slice(&public_nonce);
+		buf
+	}
+}
+
+impl Writeable for PartialSignatureWithNonce {
+	fn write<W: Writer>(&self, w: &mut W) -> Result<(), io::Error> {
+		self.partial_signature.serialize().write(w)?;
+		self.public_nonce.serialize().write(w)
+	}
+}
+
+impl Readable for PartialSignatureWithNonce {
+	fn read<R: io::Read>(r: &mut R) -> Result<Self, DecodeError> {
+		let buf: [u8; 32] = Readable::read(r)?;
+		let partial_signature = PartialSignature::from_byte_array(&buf).map_err(|_| DecodeError::InvalidValue)?;
+		let buf: [u8; 66] = Readable::read(r)?;
+		let public_nonce = PublicNonce::from_byte_array(&buf).map_err(|_| DecodeError::InvalidValue)?;
+		Ok(PartialSignatureWithNonce {
+			partial_signature,
+			public_nonce,
+		})
+	}
 }
 
 /// An error in decoding a message or struct.
@@ -292,7 +337,7 @@ pub struct OpenChannel {
 	/// The minimum value unencumbered by HTLCs for the counterparty to keep in the channel
 	pub channel_reserve_satoshis: u64,
 	/// The next local nonce
-	pub next_local_nonce: PublicNonce,
+	pub next_local_nonce: Option<PublicNonce>,
 }
 
 /// An [`open_channel2`] message to be sent by or received from the channel initiator.
@@ -374,7 +419,7 @@ pub struct AcceptChannel {
 	/// The minimum value unencumbered by HTLCs for the counterparty to keep in the channel
 	pub channel_reserve_satoshis: u64,
 	/// The next local nonce
-	pub next_local_nonce: PublicNonce,
+	pub next_local_nonce: Option<PublicNonce>,
 }
 
 /// An [`accept_channel2`] message to be sent by or received from the channel accepter.
@@ -409,8 +454,6 @@ pub struct FundingCreated {
 	pub funding_txid: Txid,
 	/// The specific output index funding this channel
 	pub funding_output_index: u16,
-	/// The signature of the channel initiator (funder) on the initial commitment transaction
-	pub signature: Signature,
 	/// Partial signature with nonce
 	pub partial_signature_with_nonce: PartialSignatureWithNonce,
 }
@@ -424,8 +467,6 @@ pub struct FundingCreated {
 pub struct FundingSigned {
 	/// The channel ID
 	pub channel_id: ChannelId,
-	/// The signature of the channel acceptor (fundee) on the initial commitment transaction
-	pub signature: Signature,
 	/// Partial signature with nonce
 	pub partial_signature_with_nonce: PartialSignatureWithNonce,
 }
@@ -445,7 +486,7 @@ pub struct ChannelReady {
 	/// messages' recipient.
 	pub short_channel_id_alias: Option<u64>,
 	/// The next local nonce
-	pub next_local_nonce: PublicNonce,
+	pub next_local_nonce: Option<PublicNonce>,
 }
 
 /// A randomly chosen number that is used to identify inputs within an interactive transaction
@@ -902,7 +943,7 @@ pub struct CommitmentSigned {
 	/// The channel ID
 	pub channel_id: ChannelId,
 	/// A signature on the commitment transaction
-	pub signature: Signature,
+	pub signature: PartialSignatureWithNonce,
 	/// Signatures on the HTLC transactions
 	pub htlc_signatures: Vec<Signature>,
 	/// The funding transaction, to discriminate among multiple pending funding transactions (e.g. in case of splicing)
@@ -2925,9 +2966,11 @@ impl LengthReadable for AcceptChannel {
 
 		let mut shutdown_scriptpubkey: Option<ScriptBuf> = None;
 		let mut channel_type: Option<ChannelTypeFeatures> = None;
+		let mut next_local_nonce: Option<PublicNonce> = None;
 		decode_tlv_stream!(r, {
 			(0, shutdown_scriptpubkey, (option, encoding: (ScriptBuf, WithoutLength))),
 			(1, channel_type, option),
+			(4, next_local_nonce, option),
 		});
 
 		Ok(AcceptChannel {
@@ -2949,6 +2992,7 @@ impl LengthReadable for AcceptChannel {
 				channel_type,
 			},
 			channel_reserve_satoshis,
+			next_local_nonce,
 		})
 	}
 }
@@ -3238,19 +3282,22 @@ impl_writeable_msg!(FundingCreated, {
 	temporary_channel_id,
 	funding_txid,
 	funding_output_index,
-	signature
-}, {});
+}, {
+	(2, partial_signature_with_nonce, required),
+});
 
 impl_writeable_msg!(FundingSigned, {
 	channel_id,
-	signature
-}, {});
+}, {
+	(2, partial_signature_with_nonce, required),
+});
 
 impl_writeable_msg!(ChannelReady, {
 	channel_id,
 	next_per_commitment_point,
 }, {
 	(1, short_channel_id_alias, option),
+	(4, next_local_nonce, option),
 });
 
 pub(crate) fn write_features_up_to_13<W: Writer>(
@@ -3353,9 +3400,11 @@ impl LengthReadable for OpenChannel {
 
 		let mut shutdown_scriptpubkey: Option<ScriptBuf> = None;
 		let mut channel_type: Option<ChannelTypeFeatures> = None;
+		let mut next_local_nonce: Option<PublicNonce> = None;
 		decode_tlv_stream!(r, {
 			(0, shutdown_scriptpubkey, (option, encoding: (ScriptBuf, WithoutLength))),
 			(1, channel_type, option),
+			(4, next_local_nonce, option),
 		});
 		Ok(OpenChannel {
 			common_fields: CommonOpenChannelFields {
@@ -3380,6 +3429,7 @@ impl LengthReadable for OpenChannel {
 			},
 			push_msat,
 			channel_reserve_satoshis,
+			next_local_nonce,
 		})
 	}
 }
@@ -4581,7 +4631,7 @@ mod tests {
 	use crate::ln::msgs::{
 		self, CommonAcceptChannelFields, CommonOpenChannelFields, FinalOnionHopData,
 		InboundOnionForwardPayload, InboundOnionReceivePayload, OutboundTrampolinePayload,
-		TrampolineOnionPacket,
+		TrampolineOnionPacket, PartialSignatureWithNonce,
 	};
 	use crate::ln::onion_utils::AttributionData;
 	use crate::ln::types::ChannelId;
@@ -4592,6 +4642,7 @@ mod tests {
 	use crate::types::payment::{PaymentHash, PaymentPreimage, PaymentSecret};
 	use crate::util::ser::{BigSize, Hostname, LengthReadable, Readable, ReadableArgs, Writeable};
 	use crate::util::test_utils::{self, pubkey};
+	use bitcoin::secp256k1::musig::{PartialSignature, PublicNonce};
 	use hex_conservative::DisplayHex;
 
 	use bitcoin::{Amount, Sequence, Transaction, TxIn, TxOut, Witness};
@@ -4620,6 +4671,22 @@ mod tests {
 	#[cfg(feature = "std")]
 	use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs};
 	use types::features::{BlindedHopFeatures, Bolt12InvoiceFeatures};
+
+	const PUBLIC_NONCE: [u8; 66] = [
+		0x03, 0xf4, 0xa3, 0x61, 0xab, 0xd3, 0xd5, 0x05, 0x35, 0xbe, 0x08,
+		0x42, 0x1d, 0xbc, 0x73, 0xb0, 0xa8, 0xf5, 0x95, 0x65, 0x4a, 0xe3,
+		0x23, 0x8a, 0xfc, 0xaf, 0x25, 0x99, 0xf9, 0x4e, 0x25, 0x20, 0x4c,
+		0x03, 0x6b, 0xa1, 0x74, 0x21, 0x44, 0x33, 0xe2, 0x1f, 0x5c, 0xd0,
+		0xfc, 0xb1, 0x4b, 0x03, 0x8e, 0xb4, 0x0b, 0x05, 0xb7, 0xe7, 0xc8,
+		0x20, 0xdd, 0x21, 0xaa, 0x56, 0x8f, 0xdb, 0x0a, 0x9d, 0xe4, 0xd7,
+	];
+
+	const PARTIAL_SIGNATURE: [u8; 32] = [
+		0x28, 0x9e, 0xeb, 0x2f, 0x5e, 0xfc, 0x31, 0x4a,
+		0xa6, 0xd8, 0x7b, 0xf5, 0x81, 0x25, 0x04, 0x3c,
+		0x96, 0xd1, 0x5a, 0x00, 0x7d, 0xb4, 0xb6, 0xaa,
+		0xaa, 0xc7, 0xd1, 0x80, 0x86, 0xf4, 0x9a, 0x99,
+	];
 
 	#[test]
 	fn encoding_channel_reestablish() {
@@ -5166,6 +5233,7 @@ mod tests {
 			},
 			push_msat: 2536655962884945560,
 			channel_reserve_satoshis: 8665828695742877976,
+			next_local_nonce: Some(PublicNonce::from_byte_array(&[0xab; 66]).unwrap()),
 		};
 		let encoded_value = open_channel.encode();
 		let mut target_value = Vec::new();
@@ -5459,6 +5527,7 @@ mod tests {
 				channel_type: None,
 			},
 			channel_reserve_satoshis: 3608586615801332854,
+			next_local_nonce: Some(PublicNonce::from_byte_array(&[0xab; 66]).unwrap()),
 		};
 		let encoded_value = accept_channel.encode();
 		let mut target_value = <Vec<u8>>::from_hex("020202020202020202020202020202020202020202020202020202020202020212345678901234562334032891223698321446687011447600083a840000034d000c89d4c0bcc0bc031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d076602531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe33703462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b0362c0a046dacce86ddd0343c6d3c7c79c2208ba0d9c9cf24a6d046d21d21f90f703f006a18d5653c4edf5391ff23a61f03ff83d237e880ee61187fa9f379a028e0a").unwrap();
@@ -5641,12 +5710,6 @@ mod tests {
 	#[test]
 	fn encoding_funding_created() {
 		let _secp_ctx = Secp256k1::new();
-		let (privkey_1, _) = get_keys_from!(
-			"0101010101010101010101010101010101010101010101010101010101010101",
-			secp_ctx
-		);
-		let sig_1 =
-			get_sig_on!(privkey_1, secp_ctx, String::from("01010101010101010101010101010101"));
 		let funding_created = msgs::FundingCreated {
 			temporary_channel_id: ChannelId::from_bytes([2; 32]),
 			funding_txid: Txid::from_str(
@@ -5654,7 +5717,11 @@ mod tests {
 			)
 			.unwrap(),
 			funding_output_index: 255,
-			signature: sig_1,
+			partial_signature_with_nonce: PartialSignatureWithNonce {
+				partial_signature: PartialSignature::from_byte_array(&PARTIAL_SIGNATURE).unwrap(),
+				public_nonce: PublicNonce::from_byte_array(&PUBLIC_NONCE).unwrap(),
+
+			},
 		};
 		let encoded_value = funding_created.encode();
 		let target_value = <Vec<u8>>::from_hex("02020202020202020202020202020202020202020202020202020202020202026e96fe9f8b0ddcd729ba03cfafa5a27b050b39d354dd980814268dfa9a44d4c200ffd977cb9b53d93a6ff64bb5f1e158b4094b66e798fb12911168a3ccdf80a83096340a6a95da0ae8d9f776528eecdbb747eb6b545495a4319ed5378e35b21e073a").unwrap();
@@ -5664,14 +5731,13 @@ mod tests {
 	#[test]
 	fn encoding_funding_signed() {
 		let _secp_ctx = Secp256k1::new();
-		let (privkey_1, _) = get_keys_from!(
-			"0101010101010101010101010101010101010101010101010101010101010101",
-			secp_ctx
-		);
-		let sig_1 =
-			get_sig_on!(privkey_1, secp_ctx, String::from("01010101010101010101010101010101"));
-		let funding_signed =
-			msgs::FundingSigned { channel_id: ChannelId::from_bytes([2; 32]), signature: sig_1 };
+		let funding_signed = msgs::FundingSigned {
+			channel_id: ChannelId::from_bytes([2; 32]),
+			partial_signature_with_nonce: PartialSignatureWithNonce {
+				partial_signature: PartialSignature::from_byte_array(&PARTIAL_SIGNATURE).unwrap(),
+				public_nonce: PublicNonce::from_byte_array(&PUBLIC_NONCE).unwrap(),
+			},
+		};
 		let encoded_value = funding_signed.encode();
 		let target_value = <Vec<u8>>::from_hex("0202020202020202020202020202020202020202020202020202020202020202d977cb9b53d93a6ff64bb5f1e158b4094b66e798fb12911168a3ccdf80a83096340a6a95da0ae8d9f776528eecdbb747eb6b545495a4319ed5378e35b21e073a").unwrap();
 		assert_eq!(encoded_value, target_value);
@@ -5688,6 +5754,7 @@ mod tests {
 			channel_id: ChannelId::from_bytes([2; 32]),
 			next_per_commitment_point: pubkey_1,
 			short_channel_id_alias: None,
+			next_local_nonce: Some(PublicNonce::from_byte_array(&PUBLIC_NONCE).unwrap()),
 		};
 		let encoded_value = channel_ready.encode();
 		let target_value = <Vec<u8>>::from_hex("0202020202020202020202020202020202020202020202020202020202020202031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f").unwrap();
@@ -6197,8 +6264,10 @@ mod tests {
 			"0404040404040404040404040404040404040404040404040404040404040404",
 			secp_ctx
 		);
-		let sig_1 =
-			get_sig_on!(privkey_1, secp_ctx, String::from("01010101010101010101010101010101"));
+		let sig_1 = PartialSignatureWithNonce {
+			partial_signature: PartialSignature::from_byte_array(&PARTIAL_SIGNATURE).unwrap(),
+			public_nonce: PublicNonce::from_byte_array(&PUBLIC_NONCE).unwrap(),
+		};
 		let sig_2 =
 			get_sig_on!(privkey_2, secp_ctx, String::from("01010101010101010101010101010101"));
 		let sig_3 =

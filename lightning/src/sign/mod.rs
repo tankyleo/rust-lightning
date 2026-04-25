@@ -1691,6 +1691,23 @@ impl EcdsaChannelSigner for InMemorySigner {
 		Ok((commitment_sig, htlc_sigs))
 	}
 
+	fn partially_sign_counterparty_commitment(
+		&self, _channel_parameters: &ChannelTransactionParameters,
+		_counterparty_nonce: secp256k1::musig::PublicNonce,
+		_commitment_tx: &CommitmentTransaction,
+		_inbound_htlc_preimages: Vec<PaymentPreimage>,
+		_outbound_htlc_preimages: Vec<PaymentPreimage>,
+		_secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<(crate::ln::msgs::PartialSignatureWithNonce, Vec<Signature>), ()> {
+	    todo!();
+	}
+
+	fn generate_local_nonce_pair(
+		&self, _commitment_number: u64, _secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> secp256k1::musig::PublicNonce {
+	    todo!();
+	}
+
 	fn sign_holder_commitment(
 		&self, channel_parameters: &ChannelTransactionParameters,
 		commitment_tx: &HolderCommitmentTransaction, secp_ctx: &Secp256k1<secp256k1::All>,
