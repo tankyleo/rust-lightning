@@ -10210,12 +10210,23 @@ where
 					}
 				}
 
+				let next_per_commitment_point = self.holder_commitment_point.next_point();
+				let next_commitment_number = self.holder_commitment_point.next_transaction_number();
+				let mut txids: Vec<Txid> = core::iter::once(self.funding.get_funding_txid().unwrap())
+					.chain(self.pending_funding().iter().map(|funding| funding.get_funding_txid().unwrap())).collect();
+				// TODO TAPROOT what is the correct sort order here ?
+				txids.sort();
+				let next_local_nonces = txids.into_iter().map(|txid| {
+					signer.generate_local_nonce_pair(next_commitment_number, txid, &self.context.secp_ctx)
+				}).collect();
+
 				self.context.signer_pending_revoke_and_ack = false;
 				return Some(msgs::RevokeAndACK {
 					channel_id: self.context.channel_id,
 					per_commitment_secret,
-					next_per_commitment_point: self.holder_commitment_point.next_point(),
+					next_per_commitment_point,
 					release_htlc_message_paths,
+					next_local_nonces,
 				});
 			}
 		}
@@ -12237,7 +12248,7 @@ where
 	fn get_channel_ready<L: Logger>(
 		&mut self, logger: &L
 	) -> Option<msgs::ChannelReady> {
-		let next_local_nonce = self.context.holder_signer.generate_local_nonce_pair(self.holder_commitment_point.next_transaction_number(), &self.context.secp_ctx);
+		let next_local_nonce = self.context.holder_signer.generate_local_nonce_pair(self.holder_commitment_point.next_transaction_number(), self.funding.get_funding_txid().unwrap(), &self.context.secp_ctx);
 		if self.holder_commitment_point.can_advance() {
 			self.context.signer_pending_channel_ready = false;
 			Some(msgs::ChannelReady {
@@ -12960,6 +12971,17 @@ where
 			log_info!(logger, "Sending a data_loss_protect with no previous remote per_commitment_secret for channel {}", &self.context.channel_id());
 			[0;32]
 		};
+
+		let next_local_commitment_number = INITIAL_COMMITMENT_NUMBER - self.holder_commitment_point.next_transaction_number();
+
+		let mut txids: Vec<Txid> = core::iter::once(self.funding.get_funding_txid().unwrap())
+			.chain(self.pending_funding().iter().map(|funding| funding.get_funding_txid().unwrap())).collect();
+		// TODO TAPROOT what is the correct sort order here ?
+		txids.sort();
+		let next_local_nonces = txids.into_iter().map(|txid| {
+			self.context.holder_signer.generate_local_nonce_pair(next_local_commitment_number, txid, &self.context.secp_ctx)
+		}).collect();
+
 		msgs::ChannelReestablish {
 			channel_id: self.context.channel_id(),
 			// The protocol has two different commitment number concepts - the "commitment
@@ -12971,7 +12993,7 @@ where
 
 			// next_local_commitment_number is the next commitment_signed number we expect to
 			// receive (indicating if they need to resend one that we missed).
-			next_local_commitment_number: INITIAL_COMMITMENT_NUMBER - self.holder_commitment_point.next_transaction_number(),
+			next_local_commitment_number,
 			// We have to set next_remote_commitment_number to the next revoke_and_ack we expect to
 			// receive, however we track it by the next commitment number for a remote transaction
 			// (which is one further, as they always revoke previous commitment transaction, not
@@ -12984,6 +13006,7 @@ where
 			my_current_per_commitment_point: dummy_pubkey,
 			next_funding: self.maybe_get_next_funding(),
 			my_current_funding_locked: self.maybe_get_my_current_funding_locked(),
+			next_local_nonces,
 		}
 	}
 
@@ -15226,7 +15249,7 @@ impl<SP: SignerProvider> OutboundV1Channel<SP> {
 		};
 		let keys = self.funding.get_holder_pubkeys();
 
-		let next_local_nonce = self.context.holder_signer.generate_local_nonce_pair(INITIAL_COMMITMENT_NUMBER, &self.context.secp_ctx);
+		let next_local_nonce = self.context.holder_signer.generate_local_nonce_pair(0, Txid::all_zeros(), &self.context.secp_ctx);
 
 		Some(msgs::OpenChannel {
 			common_fields: msgs::CommonOpenChannelFields {
@@ -15540,7 +15563,7 @@ impl<SP: SignerProvider> InboundV1Channel<SP> {
 		};
 		let keys = self.funding.get_holder_pubkeys();
 
-		let next_local_nonce = self.context.holder_signer.generate_local_nonce_pair(INITIAL_COMMITMENT_NUMBER, &self.context.secp_ctx);
+		let next_local_nonce = self.context.holder_signer.generate_local_nonce_pair(0, Txid::all_zeros(), &self.context.secp_ctx);
 
 		Some(msgs::AcceptChannel {
 			common_fields: msgs::CommonAcceptChannelFields {

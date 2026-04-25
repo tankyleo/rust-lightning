@@ -1703,7 +1703,7 @@ impl EcdsaChannelSigner for InMemorySigner {
 	}
 
 	fn generate_local_nonce_pair(
-		&self, _commitment_number: u64, _secp_ctx: &Secp256k1<secp256k1::All>,
+		&self, _commitment_number: u64, _txid: Txid, _secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> secp256k1::musig::PublicNonce {
 	    todo!();
 	}
