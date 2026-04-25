@@ -30,6 +30,7 @@ use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
 use bitcoin::secp256k1::ecdsa::Signature;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::{secp256k1, Transaction, Witness};
+use bitcoin::secp256k1::musig::{PartialSignature, PublicNonce};
 
 use crate::blinded_path::message::BlindedMessagePath;
 use crate::blinded_path::payment::{BlindedPaymentTlvs, DummyTlvs, ForwardTlvs, ReceiveTlvs};
@@ -68,6 +69,12 @@ use crate::routing::gossip::{NodeAlias, NodeId};
 
 /// 21 million * 10^8 * 1000
 pub(crate) const MAX_VALUE_MSAT: u64 = 21_000_000_0000_0000_000;
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct PartialSignatureWithNonce {
+	pub partial_signature: PartialSignature,
+	pub public_nonce: PublicNonce,
+}
 
 /// An error in decoding a message or struct.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -284,6 +291,8 @@ pub struct OpenChannel {
 	pub push_msat: u64,
 	/// The minimum value unencumbered by HTLCs for the counterparty to keep in the channel
 	pub channel_reserve_satoshis: u64,
+	/// The next local nonce
+	pub next_local_nonce: PublicNonce,
 }
 
 /// An [`open_channel2`] message to be sent by or received from the channel initiator.
@@ -364,6 +373,8 @@ pub struct AcceptChannel {
 	pub common_fields: CommonAcceptChannelFields,
 	/// The minimum value unencumbered by HTLCs for the counterparty to keep in the channel
 	pub channel_reserve_satoshis: u64,
+	/// The next local nonce
+	pub next_local_nonce: PublicNonce,
 }
 
 /// An [`accept_channel2`] message to be sent by or received from the channel accepter.
@@ -400,6 +411,8 @@ pub struct FundingCreated {
 	pub funding_output_index: u16,
 	/// The signature of the channel initiator (funder) on the initial commitment transaction
 	pub signature: Signature,
+	/// Partial signature with nonce
+	pub partial_signature_with_nonce: PartialSignatureWithNonce,
 }
 
 /// A [`funding_signed`] message to be sent to or received from a peer.
@@ -413,6 +426,8 @@ pub struct FundingSigned {
 	pub channel_id: ChannelId,
 	/// The signature of the channel acceptor (fundee) on the initial commitment transaction
 	pub signature: Signature,
+	/// Partial signature with nonce
+	pub partial_signature_with_nonce: PartialSignatureWithNonce,
 }
 
 /// A [`channel_ready`] message to be sent to or received from a peer.
@@ -429,6 +444,8 @@ pub struct ChannelReady {
 	/// The sender will accept payments to be forwarded over this SCID and forward them to this
 	/// messages' recipient.
 	pub short_channel_id_alias: Option<u64>,
+	/// The next local nonce
+	pub next_local_nonce: PublicNonce,
 }
 
 /// A randomly chosen number that is used to identify inputs within an interactive transaction
