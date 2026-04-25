@@ -1014,7 +1014,7 @@ fn test_unsupported_anysegwit_upfront_shutdown_script() {
 			node_id,
 		} => {
 			assert_eq!(node_id, node_a_id);
-			assert_eq!(msg.data, "Peer is signaling upfront_shutdown but has provided an unacceptable scriptpubkey format: OP_PUSHNUM_16 OP_PUSHBYTES_2 0028");
+			assert_eq!(msg.data, "Peer is signaling upfront_shutdown but has provided an unacceptable scriptpubkey format: OP_16 OP_PUSHBYTES_2 0028");
 		},
 		_ => panic!("Unexpected event"),
 	}
@@ -1048,11 +1048,11 @@ fn test_unsupported_anysegwit_upfront_shutdown_script() {
 			node_id,
 		} => {
 			assert_eq!(node_id, node_b_id);
-			assert_eq!(msg.data, "Peer is signaling upfront_shutdown but has provided an unacceptable scriptpubkey format: OP_PUSHNUM_16 OP_PUSHBYTES_2 0028");
+			assert_eq!(msg.data, "Peer is signaling upfront_shutdown but has provided an unacceptable scriptpubkey format: OP_16 OP_PUSHBYTES_2 0028");
 		},
 		_ => panic!("Unexpected event"),
 	}
-	let reason = ClosureReason::ProcessingError { err: "Peer is signaling upfront_shutdown but has provided an unacceptable scriptpubkey format: OP_PUSHNUM_16 OP_PUSHBYTES_2 0028".to_string() };
+	let reason = ClosureReason::ProcessingError { err: "Peer is signaling upfront_shutdown but has provided an unacceptable scriptpubkey format: OP_16 OP_PUSHBYTES_2 0028".to_string() };
 	check_closed_event(&nodes[0], 1, reason, &[node_b_id], 100000);
 }
 

@@ -2162,7 +2162,7 @@ impl<
 /// [`Event::FundingGenerationReady`].
 ///
 /// ```
-/// # use bitcoin::{script::ScriptPubKeyBuf, Transaction};
+/// # use bitcoin::{script::ScriptPubKeyBuf as ScriptBuf, Transaction};
 /// # use bitcoin::secp256k1::PublicKey;
 /// # use lightning::ln::channelmanager::AChannelManager;
 /// # use lightning::events::{Event, EventsProvider};

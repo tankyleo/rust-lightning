@@ -23,22 +23,22 @@ use bitcoin::transaction::Transaction;
 /// extern crate bitcoin;
 /// extern crate lightning;
 ///
-/// use bitcoin::block::Block;
 /// use bitcoin::constants::genesis_block;
 /// use bitcoin::network::Network;
+/// use bitcoin::transaction::Transaction;
 /// use lightning::chain::transaction::TransactionData;
 ///
 /// let block = genesis_block(Network::Bitcoin);
-/// let txdata: Vec<_> = block.txdata.iter().enumerate().collect();
-/// check_block(&block, &txdata);
+/// let txdata: Vec<_> = block.transactions().iter().enumerate().collect();
+/// check_block(block.transactions(), &txdata);
 ///
-/// fn check_block(block: &Block, txdata: &TransactionData) {
-/// 	assert_eq!(block.txdata.len(), 1);
+/// fn check_block(transactions: &[Transaction], txdata: &TransactionData) {
+/// 	assert_eq!(transactions.len(), 1);
 /// 	assert_eq!(txdata.len(), 1);
 ///
 /// 	let (index, tx) = txdata[0];
 /// 	assert_eq!(index, 0);
-/// 	assert_eq!(tx, &block.txdata[0]);
+/// 	assert_eq!(tx, &transactions[0]);
 /// }
 /// ```
 pub type TransactionData<'a> = [(usize, &'a Transaction)];

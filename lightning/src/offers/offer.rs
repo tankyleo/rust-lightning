@@ -39,7 +39,7 @@
 //! # #[cfg(feature = "std")]
 //! # fn build() -> Result<(), Bolt12ParseError> {
 //! let secp_ctx = Secp256k1::new();
-//! let keys = Keypair::from_secret_key(&secret_key_from_slice(&[42; 32]).unwrap());
+//! let keys = Keypair::from_secret_key(&SecretKey::from_byte_array([42; 32]).unwrap());
 //! let pubkey = PublicKey::from(keys);
 //!
 //! let expiration = SystemTime::now() + Duration::from_secs(24 * 60 * 60);

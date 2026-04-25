@@ -3101,13 +3101,13 @@ mod tests {
 			inputs_a: vec![],
 			a_shared_input: None,
 			shared_output_a: generate_funding_txout(
-				TOTAL_BITCOIN_SUPPLY_SATOSHIS + 1,
-				TOTAL_BITCOIN_SUPPLY_SATOSHIS + 1,
+				TOTAL_BITCOIN_SUPPLY_SATOSHIS - dust_amount,
+				TOTAL_BITCOIN_SUPPLY_SATOSHIS - dust_amount,
 			),
-			outputs_a: vec![],
+			outputs_a: generate_outputs(&[TestOutput::P2WPKH(dust_amount + 1)]),
 			inputs_b: vec![],
 			b_shared_input: None,
-			shared_output_b: generate_funding_txout(TOTAL_BITCOIN_SUPPLY_SATOSHIS + 1, 0),
+			shared_output_b: generate_funding_txout(TOTAL_BITCOIN_SUPPLY_SATOSHIS - dust_amount, 0),
 			outputs_b: vec![],
 			expect_error: Some((AbortReason::ExceededMaximumSatsAllowed, ErrorCulprit::NodeA)),
 		});

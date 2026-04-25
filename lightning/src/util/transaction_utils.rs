@@ -223,8 +223,6 @@ mod tests {
 		let lock_time = LockTime::ZERO;
 		let tx_out = TxOut { script_pubkey: ScriptBuf::new(), amount: Amount::from_sat(1000).expect("amount must fit") };
 		let mut tx = Transaction { version, lock_time, inputs: Vec::new(), outputs: vec![tx_out] };
-		let amount = Amount::from_sat(21_000_000_0000_0001).expect("amount must fit");
-		assert!(maybe_add_change_output(&mut tx, amount, 0, 253, ScriptBuf::new()).is_err());
 		let amount = Amount::from_sat(400).expect("amount must fit");
 		assert!(maybe_add_change_output(&mut tx, amount, 0, 253, ScriptBuf::new()).is_err());
 		let amount = Amount::from_sat(4000).expect("amount must fit");

@@ -1242,8 +1242,12 @@ mod tests {
 	}
 
 	fn funding_output_sats(output_value_sats: u64) -> TxOut {
+		funding_output(Amount::from_sat(output_value_sats).expect("amount must fit"))
+	}
+
+	fn funding_output(amount: Amount) -> TxOut {
 		TxOut {
-			amount: Amount::from_sat(output_value_sats).expect("amount must fit"),
+			amount,
 			script_pubkey: ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array([0; 20])),
 		}
 	}
@@ -1336,7 +1340,9 @@ mod tests {
 			assert_eq!(
 				contribution.validate(),
 				Err(format!(
-					"Total input amount 0.00300000 BTC is lower than needed for splice-in contribution 0.00220000 BTC, considering fees of {}. Need more inputs.",
+					"Total input amount {} is lower than needed for splice-in contribution {}, considering fees of {}. Need more inputs.",
+					Amount::from_sat(300_000).expect("amount must fit"),
+					Amount::from_sat(220_000).expect("amount must fit"),
 					Amount::from_sat(expected_fee).expect("amount must fit"),
 				)),
 			);
@@ -1360,7 +1366,9 @@ mod tests {
 			assert_eq!(
 				contribution.validate(),
 				Err(format!(
-					"Total input amount 0.00100000 BTC is lower than needed for splice-in contribution 0.00220000 BTC, considering fees of {}. Need more inputs.",
+					"Total input amount {} is lower than needed for splice-in contribution {}, considering fees of {}. Need more inputs.",
+					Amount::from_sat(100_000).expect("amount must fit"),
+					Amount::from_sat(220_000).expect("amount must fit"),
 					Amount::from_sat(expected_fee).expect("amount must fit"),
 				)),
 			);
@@ -1405,7 +1413,9 @@ mod tests {
 			assert_eq!(
 				contribution.validate(),
 				Err(format!(
-					"Total input amount 0.00300000 BTC is lower than needed for splice-in contribution 0.00298032 BTC, considering fees of {}. Need more inputs.",
+					"Total input amount {} is lower than needed for splice-in contribution {}, considering fees of {}. Need more inputs.",
+					Amount::from_sat(300_000).expect("amount must fit"),
+					Amount::from_sat(298_032).expect("amount must fit"),
 					Amount::from_sat(expected_fee).expect("amount must fit"),
 				)),
 			);
@@ -1448,56 +1458,23 @@ mod tests {
 
 	#[test]
 	fn test_build_funding_contribution_validates_max_money() {
-		let over_max =
-			(Amount::MAX_MONEY + Amount::from_sat(1).expect("amount must fit")).expect("amount must fit");
 		let feerate = FeeRate::from_sat_per_kwu(2000);
-
-		// splice_in_sync with value_added > MAX_MONEY
-		{
-			let template = FundingTemplate::new(None, None, None);
-			assert!(matches!(
-				template.splice_in_sync(over_max, feerate, feerate, UnreachableWallet),
-				Err(FundingContributionError::InvalidSpliceValue),
-			));
-		}
-
-		// splice_out_sync with single output value > MAX_MONEY
-		{
-			let template = FundingTemplate::new(None, None, None);
-			let outputs = vec![funding_output_sats(over_max.to_sat())];
-			assert!(matches!(
-				template.splice_out_sync(outputs, feerate, feerate, UnreachableWallet),
-				Err(FundingContributionError::InvalidSpliceValue),
-			));
-		}
 
 		// splice_out_sync with multiple outputs summing > MAX_MONEY
 		{
 			let template = FundingTemplate::new(None, None, None);
-			let half_over = ((Amount::MAX_MONEY / 2).expect("amount must fit")
-				+ Amount::from_sat(1).expect("amount must fit")).expect("amount must fit");
-			let outputs = vec![
-				funding_output_sats(half_over.to_sat()),
-				funding_output_sats(half_over.to_sat()),
-			];
+			let outputs = vec![funding_output(Amount::MAX_MONEY), funding_output(Amount::ONE_SAT)];
 			assert!(matches!(
 				template.splice_out_sync(outputs, feerate, feerate, UnreachableWallet),
 				Err(FundingContributionError::InvalidSpliceValue),
 			));
 		}
 
-		// splice_in_and_out_sync with value_added > MAX_MONEY
+		// splice_in_sync with shared input and value_added summing > MAX_MONEY
 		{
-			let template = FundingTemplate::new(None, None, None);
-			let outputs = vec![funding_output_sats(1_000)];
+			let template = FundingTemplate::new(Some(shared_input(Amount::MAX_MONEY.to_sat())), None, None);
 			assert!(matches!(
-				template.splice_in_and_out_sync(
-					over_max,
-					outputs,
-					feerate,
-					feerate,
-					UnreachableWallet
-				),
+				template.splice_in_sync(Amount::ONE_SAT, feerate, feerate, UnreachableWallet),
 				Err(FundingContributionError::InvalidSpliceValue),
 			));
 		}
@@ -1505,7 +1482,7 @@ mod tests {
 		// splice_in_and_out_sync with output sum > MAX_MONEY
 		{
 			let template = FundingTemplate::new(None, None, None);
-			let outputs = vec![funding_output_sats(over_max.to_sat())];
+			let outputs = vec![funding_output(Amount::MAX_MONEY), funding_output(Amount::ONE_SAT)];
 			assert!(matches!(
 				template.splice_in_and_out_sync(
 					Amount::from_sat(1_000).expect("amount must fit"),

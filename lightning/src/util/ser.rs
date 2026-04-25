@@ -116,7 +116,6 @@ impl<'a, R: Read> Read for BufReader<'a, R> {
 impl<'a, R: Read> BufRead for BufReader<'a, R> {
 	#[inline]
 	fn fill_buf(&mut self) -> io::Result<&[u8]> {
-		debug_assert!(false, "rust-bitcoin doesn't actually use this");
 		if self.is_consumed {
 			let count = self.inner.read(&mut self.buf[..])?;
 			debug_assert!(count <= 1, "read gave us a garbage length");
@@ -134,7 +133,6 @@ impl<'a, R: Read> BufRead for BufReader<'a, R> {
 
 	#[inline]
 	fn consume(&mut self, amount: usize) {
-		debug_assert!(false, "rust-bitcoin doesn't actually use this");
 		if amount >= 1 {
 			debug_assert_eq!(amount, 1, "Can only consume one byte");
 			debug_assert!(!self.is_consumed, "Cannot consume more than had been read");
@@ -1407,7 +1405,11 @@ impl Writeable for FeeRate {
 impl Readable for FeeRate {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
 		let sat_kwu: u64 = Readable::read(r)?;
-		Ok(FeeRate::from_sat_per_kwu(sat_kwu.try_into().unwrap()))
+		match Amount::from_sat(sat_kwu) {
+			Ok(amount) =>
+				FeeRate::from_per_kwu(amount).into_result().map_err(|_| DecodeError::InvalidValue),
+			Err(_) => Ok(FeeRate::MAX),
+		}
 	}
 }
 
@@ -1552,6 +1554,10 @@ macro_rules! impl_consensus_ser {
 						Err(DecodeError::ShortRead)
 					},
 					Err(consensus::encode::Error::Io(e)) => Err(DecodeError::Io(e.kind().into())),
+					Err(consensus::encode::Error::Parse(
+						consensus::encode::ParseError::MissingData,
+					)) =>
+						Err(DecodeError::ShortRead),
 					Err(_) => Err(DecodeError::InvalidValue),
 				}
 			}

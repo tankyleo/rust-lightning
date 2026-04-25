@@ -39,7 +39,7 @@
 //! let payment_paths = create_payment_paths();
 //! let payment_hash = create_payment_hash();
 //! let secp_ctx = Secp256k1::new();
-//! let keys = Keypair::from_secret_key(&secret_key_from_slice(&[42; 32])?);
+//! let keys = Keypair::from_secret_key(&SecretKey::from_byte_array([42; 32]).unwrap());
 //! let pubkey = PublicKey::from(keys);
 //! let wpubkey_hash = bitcoin::key::PublicKey::new(pubkey).wpubkey_hash().unwrap();
 //! let mut buffer = Vec::new();
@@ -77,7 +77,7 @@
 //! # let payment_paths = create_payment_paths();
 //! # let payment_hash = create_payment_hash();
 //! # let secp_ctx = Secp256k1::new();
-//! # let keys = Keypair::from_secret_key(&secret_key_from_slice(&[42; 32])?);
+//! # let keys = Keypair::from_secret_key(&SecretKey::from_byte_array([42; 32]).unwrap());
 //! # let pubkey = PublicKey::from(keys);
 //! # let wpubkey_hash = bitcoin::key::PublicKey::new(pubkey).wpubkey_hash().unwrap();
 //! # let mut buffer = Vec::new();
