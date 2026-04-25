@@ -59,6 +59,33 @@ impl Clone for DynSigner {
 }
 
 delegate!(DynSigner, EcdsaChannelSigner, inner,
+	fn partially_sign_counterparty_commitment(
+		,
+		channel_parameters: &ChannelTransactionParameters,
+		counterparty_nonce: secp256k1::musig::PublicNonce,
+		commitment_tx: &CommitmentTransaction,
+		inbound_htlc_preimages: Vec<PaymentPreimage>,
+		outbound_htlc_preimages: Vec<PaymentPreimage>,
+		secp_ctx: &Secp256k1<secp256k1::All>
+	) -> Result<(crate::ln::msgs::PartialSignatureWithNonce, Vec<Signature>), ()>,
+	fn generate_local_nonce_pair(
+		,
+		_commitment_number: u64,
+		_secp_ctx: &Secp256k1<secp256k1::All>
+	) -> secp256k1::musig::PublicNonce,
+	fn finalize_holder_commitment(
+		,
+		channel_parameters: &ChannelTransactionParameters,
+		commitment_tx: &HolderCommitmentTransaction,
+		secp_ctx: &Secp256k1<secp256k1::All>
+	) -> Result<secp256k1::schnorr::Signature, ()>,
+	#[cfg(any(test, feature = "_test_utils", feature = "unsafe_revoked_tx_signing"))]
+	fn unsafe_finalize_holder_commitment(
+		,
+		channel_parameters: &ChannelTransactionParameters,
+		commitment_tx: &HolderCommitmentTransaction,
+		secp_ctx: &Secp256k1<secp256k1::All>
+	) -> Result<secp256k1::schnorr::Signature, ()>,
 	fn sign_holder_commitment(, channel_parameters: &ChannelTransactionParameters,
 		commitment_tx: &HolderCommitmentTransaction,
 		secp_ctx: &Secp256k1<secp256k1::All>) -> Result<Signature, ()>,

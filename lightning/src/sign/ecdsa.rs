@@ -81,6 +81,36 @@ pub trait EcdsaChannelSigner: ChannelSigner {
 	///
 	/// An external signer implementation should check that the commitment has not been revoked.
 	///
+	// TODO: Document the things someone using this interface should enforce before signing.
+	fn finalize_holder_commitment(
+		&self,
+		channel_parameters: &ChannelTransactionParameters,
+		commitment_tx: &HolderCommitmentTransaction,
+		secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<secp256k1::schnorr::Signature, ()>;
+	/// Same as [`sign_holder_commitment`], but exists only for tests to get access to holder
+	/// commitment transactions which will be broadcasted later, after the channel has moved on to a
+	/// newer state. Thus, needs its own method as [`sign_holder_commitment`] may enforce that we
+	/// only ever get called once.
+	///
+	/// This method is *not* async as it is intended only for testing purposes.
+	#[cfg(any(test, feature = "_test_utils", feature = "unsafe_revoked_tx_signing"))]
+	fn unsafe_finalize_holder_commitment(
+		&self,
+		channel_parameters: &ChannelTransactionParameters,
+		commitment_tx: &HolderCommitmentTransaction,
+		secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<secp256k1::schnorr::Signature, ()>;
+	/// Creates a signature for a holder's commitment transaction.
+	///
+	/// This will be called
+	/// - with a non-revoked `commitment_tx`.
+	/// - with the latest `commitment_tx` when we initiate a force-close.
+	///
+	/// This may be called multiple times for the same transaction.
+	///
+	/// An external signer implementation should check that the commitment has not been revoked.
+	///
 	/// An `Err` can be returned to signal that the signer is unavailable/cannot produce a valid
 	/// signature and should be retried later. Once the signer is ready to provide a signature after
 	/// previously returning an `Err`, [`ChannelMonitor::signer_unblocked`] must be called on its
@@ -92,23 +122,6 @@ pub trait EcdsaChannelSigner: ChannelSigner {
 		&self, channel_parameters: &ChannelTransactionParameters,
 		commitment_tx: &HolderCommitmentTransaction, secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<Signature, ()>;
-	/// Creates a signature for a holder's commitment transaction.
-	///
-	/// This will be called
-	/// - with a non-revoked `commitment_tx`.
-	/// - with the latest `commitment_tx` when we initiate a force-close.
-	///
-	/// This may be called multiple times for the same transaction.
-	///
-	/// An external signer implementation should check that the commitment has not been revoked.
-	///
-	// TODO: Document the things someone using this interface should enforce before signing.
-	fn finalize_holder_commitment(
-		&self,
-		channel_parameters: &ChannelTransactionParameters,
-		commitment_tx: &HolderCommitmentTransaction,
-		secp_ctx: &Secp256k1<secp256k1::All>,
-	) -> Result<secp256k1::schnorr::Signature, ()>;
 	/// Same as [`sign_holder_commitment`], but exists only for tests to get access to holder
 	/// commitment transactions which will be broadcasted later, after the channel has moved on to a
 	/// newer state. Thus, needs its own method as [`sign_holder_commitment`] may enforce that we

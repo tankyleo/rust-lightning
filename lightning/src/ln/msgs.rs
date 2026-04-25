@@ -6251,7 +6251,7 @@ mod tests {
 
 	fn do_encoding_commitment_signed(htlcs: bool) {
 		let _secp_ctx = Secp256k1::new();
-		let (privkey_1, _) = get_keys_from!(
+		let (_privkey_1, _) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
 		);
