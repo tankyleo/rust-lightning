@@ -35,6 +35,7 @@ use bitcoin::hash_types::{BlockHash, Txid};
 use bitcoin::hashes::hmac::Hmac;
 use bitcoin::hashes::sha256::Hash as Sha256;
 use bitcoin::hashes::sha256d::Hash as Sha256dHash;
+use bitcoin::hashes::Hash as _;
 use bitcoin::script::{self, ScriptPubKeyBuf as ScriptBuf};
 use bitcoin::secp256k1::constants::{
 	COMPACT_SIGNATURE_SIZE, PUBLIC_KEY_SIZE, SCHNORR_SIGNATURE_SIZE, SECRET_KEY_SIZE,
@@ -1196,7 +1197,7 @@ impl Writeable for SecretKey {
 impl Readable for SecretKey {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
 		let buf: [u8; SECRET_KEY_SIZE] = Readable::read(r)?;
-		match SecretKey::from_byte_array(buf) {
+		match SecretKey::from_secret_bytes(buf) {
 			Ok(key) => Ok(key),
 			Err(_) => return Err(DecodeError::InvalidValue),
 		}
@@ -1205,16 +1206,12 @@ impl Readable for SecretKey {
 
 impl Writeable for Hmac<Sha256> {
 	fn write<W: Writer>(&self, w: &mut W) -> Result<(), io::Error> {
-		use bitcoin::hashes::Hash;
-
 		w.write_all(self.as_byte_array())
 	}
 }
 
 impl Readable for Hmac<Sha256> {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
-		use bitcoin::hashes::Hash;
-
 		let buf: [u8; 32] = Readable::read(r)?;
 		Ok(Hmac::<Sha256>::from_byte_array(buf))
 	}
@@ -1228,8 +1225,6 @@ impl Writeable for Sha256dHash {
 
 impl Readable for Sha256dHash {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
-		
-
 		let buf: [u8; 32] = Readable::read(r)?;
 		Ok(Sha256dHash::from_byte_array(buf))
 	}
@@ -1260,10 +1255,7 @@ impl Writeable for schnorr::Signature {
 impl Readable for schnorr::Signature {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
 		let buf: [u8; SCHNORR_SIGNATURE_SIZE] = Readable::read(r)?;
-		match schnorr::Signature::from_slice(&buf) {
-			Ok(sig) => Ok(sig),
-			Err(_) => return Err(DecodeError::InvalidValue),
-		}
+		Ok(schnorr::Signature::from_byte_array(buf))
 	}
 }
 
@@ -1406,8 +1398,9 @@ impl Readable for FeeRate {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
 		let sat_kwu: u64 = Readable::read(r)?;
 		match Amount::from_sat(sat_kwu) {
-			Ok(amount) =>
-				FeeRate::from_per_kwu(amount).into_result().map_err(|_| DecodeError::InvalidValue),
+			Ok(amount) => {
+				FeeRate::from_per_kwu(amount).into_result().map_err(|_| DecodeError::InvalidValue)
+			},
 			Err(_) => Ok(FeeRate::MAX),
 		}
 	}
@@ -1421,8 +1414,6 @@ impl Writeable for Txid {
 
 impl Readable for Txid {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
-		
-
 		let buf: [u8; 32] = Readable::read(r)?;
 		Ok(Txid::from_byte_array(buf))
 	}
@@ -1436,8 +1427,6 @@ impl Writeable for BlockHash {
 
 impl Readable for BlockHash {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
-		
-
 		let buf: [u8; 32] = Readable::read(r)?;
 		Ok(BlockHash::from_byte_array(buf))
 	}
@@ -1457,8 +1446,6 @@ impl Writeable for [Option<BlockHash>; 12] {
 
 impl Readable for [Option<BlockHash>; 12] {
 	fn read<R: Read>(r: &mut R) -> Result<Self, DecodeError> {
-		
-
 		let mut res = [None; 12];
 		for hash_opt in res.iter_mut() {
 			let buf: [u8; 32] = Readable::read(r)?;
@@ -1556,8 +1543,7 @@ macro_rules! impl_consensus_ser {
 					Err(consensus::encode::Error::Io(e)) => Err(DecodeError::Io(e.kind().into())),
 					Err(consensus::encode::Error::Parse(
 						consensus::encode::ParseError::MissingData,
-					)) =>
-						Err(DecodeError::ShortRead),
+					)) => Err(DecodeError::ShortRead),
 					Err(_) => Err(DecodeError::InvalidValue),
 				}
 			}
@@ -1782,8 +1768,8 @@ impl Readable for ClaimId {
 mod tests {
 	use crate::prelude::*;
 	use crate::util::ser::{Hostname, Readable, Writeable};
-	use hex_conservative::FromHex;
 	use bitcoin::secp256k1::ecdsa;
+	use hex_conservative::FromHex;
 
 	#[test]
 	fn hostname_conversion() {

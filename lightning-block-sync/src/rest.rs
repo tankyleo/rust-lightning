@@ -94,7 +94,6 @@ impl UtxoSource for RestClient {
 mod tests {
 	use super::*;
 	use crate::http::client_tests::{HttpServer, MessageBody};
-	use bitcoin::hashes::Hash;
 
 	/// Parses binary data as a string-encoded `u32`.
 	impl TryInto<u32> for BinaryResponse {

@@ -10,7 +10,6 @@
 //! Tests that test the channel open process.
 
 use crate::chain::chaininterface::LowerBoundedFeeEstimator;
-use crate::prelude::*;
 use crate::chain::channelmonitor::{self, ChannelMonitorUpdateStep};
 use crate::chain::transaction::OutPoint;
 use crate::chain::{self, ChannelMonitorUpdateStatus};
@@ -28,6 +27,7 @@ use crate::ln::msgs::{
 };
 use crate::ln::types::ChannelId;
 use crate::ln::{functional_test_utils::*, msgs};
+use crate::prelude::*;
 use crate::sign::EntropySource;
 use crate::util::config::{
 	ChannelConfigOverrides, ChannelConfigUpdate, ChannelHandshakeConfigUpdate, UserConfig,
@@ -36,14 +36,13 @@ use crate::util::errors::APIError;
 use crate::util::test_utils::{self, TestLogger};
 
 use bitcoin::constants::ChainHash;
-use bitcoin::hashes::Hash;
 use bitcoin::locktime::absolute::LockTime;
 use bitcoin::network::Network;
 use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
-use bitcoin::secp256k1::{PublicKey, SecretKey};
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::transaction::Version;
 use bitcoin::OutPoint as BitcoinOutPoint;
-use bitcoin::{Amount, Sequence, Transaction, TxIn, TxOut, Witness};
+use bitcoin::{Sequence, Transaction, TxIn, TxOut, Witness};
 
 use lightning_macros::xtest;
 
@@ -111,7 +110,10 @@ fn test_0conf_limiting() {
 	// First, get us up to MAX_UNFUNDED_CHANNEL_PEERS so we can test at the edge
 	for _ in 0..MAX_UNFUNDED_CHANNEL_PEERS {
 		let random_pk = PublicKey::from_secret_key(
-			&crate::prelude::secret_key_from_slice(&nodes[1].keys_manager.get_secure_random_bytes()).unwrap(),
+			&crate::prelude::secret_key_from_slice(
+				&nodes[1].keys_manager.get_secure_random_bytes(),
+			)
+			.unwrap(),
 		);
 		nodes[1].node.peer_connected(random_pk, init_msg, true).unwrap();
 
@@ -123,7 +125,8 @@ fn test_0conf_limiting() {
 
 	// If we try to accept a channel from another peer non-0conf it will fail.
 	let last_random_pk = PublicKey::from_secret_key(
-		&crate::prelude::secret_key_from_slice(&nodes[1].keys_manager.get_secure_random_bytes()).unwrap(),
+		&crate::prelude::secret_key_from_slice(&nodes[1].keys_manager.get_secure_random_bytes())
+			.unwrap(),
 	);
 	nodes[1].node.peer_connected(last_random_pk, init_msg, true).unwrap();
 	nodes[1].node.handle_open_channel(last_random_pk, &open_channel_msg);
@@ -862,7 +865,8 @@ pub fn bolt2_open_channel_sending_node_checks_part2() {
 	assert!(node0_to_1_send_open_channel.common_fields.to_self_delay == BREAKDOWN_TIMEOUT);
 
 	// BOLT #2 spec: Sending node must ensure the chain_hash value identifies the chain it wishes to open the channel within.
-	let chain_hash = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+	let chain_hash =
+		ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 	assert_eq!(node0_to_1_send_open_channel.common_fields.chain_hash, chain_hash);
 }
 
@@ -1681,7 +1685,7 @@ pub fn test_invalid_funding_tx() {
 			.map(|(idx, _)| TxIn {
 				previous_output: BitcoinOutPoint { txid: tx.compute_txid(), vout: idx as u32 },
 				script_sig: bitcoin::ScriptSigBuf::new(),
-				sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+				sequence: Sequence::ENABLE_LOCKTIME_AND_RBF,
 				witness: Witness::from_slice(
 					&channelmonitor::deliberately_bogus_accepted_htlc_witness(),
 				),

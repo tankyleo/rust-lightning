@@ -17,7 +17,7 @@ use crate::sign::{NodeSigner, Recipient};
 use crate::util::ser::Writeable;
 
 use bitcoin::hashes::sha256::Hash as Sha256;
-use bitcoin::hashes::{Hash, HashEngine};
+use bitcoin::hashes::HashEngine;
 
 use hex_conservative::DisplayHex;
 
@@ -214,7 +214,7 @@ impl PeerChannelEncryptor {
 
 	#[inline]
 	fn outbound_noise_act<T: secp256k1::Signing>(
-		secp_ctx: &Secp256k1<T>, state: &mut BidirectionalNoiseState, our_key: &SecretKey,
+		_secp_ctx: &Secp256k1<T>, state: &mut BidirectionalNoiseState, our_key: &SecretKey,
 		their_key: &PublicKey,
 	) -> ([u8; 50], [u8; 32]) {
 		let our_pub = PublicKey::from_secret_key(&our_key);
@@ -659,9 +659,9 @@ impl MessageBuf {
 mod tests {
 	use super::{MessageBuf, LN_MAX_MSG_LEN};
 
-	use hex_conservative::FromHex;
+	use bitcoin::secp256k1::PublicKey;
 	use bitcoin::secp256k1::Secp256k1;
-	use bitcoin::secp256k1::{PublicKey, SecretKey};
+	use hex_conservative::FromHex;
 
 	use crate::ln::peer_channel_encryptor::{NoiseState, PeerChannelEncryptor};
 	use crate::util::test_utils::TestNodeSigner;
@@ -684,9 +684,11 @@ mod tests {
 	fn get_inbound_peer_for_test_vectors() -> PeerChannelEncryptor {
 		// transport-responder successful handshake
 		let hex = "2121212121212121212121212121212121212121212121212121212121212121";
-		let our_node_id = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
+		let our_node_id =
+			crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
 		let hex = "2222222222222222222222222222222222222222222222222222222222222222";
-		let our_ephemeral = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
+		let our_ephemeral =
+			crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
 		let secp_ctx = Secp256k1::new();
 		let node_signer = TestNodeSigner::new(our_node_id);
 
@@ -739,7 +741,8 @@ mod tests {
 	#[test]
 	fn noise_initiator_test_vectors() {
 		let hex = "1111111111111111111111111111111111111111111111111111111111111111";
-		let our_node_id = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
+		let our_node_id =
+			crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
 		let node_signer = TestNodeSigner::new(our_node_id);
 
 		{
@@ -805,9 +808,11 @@ mod tests {
 	#[test]
 	fn noise_responder_test_vectors() {
 		let hex = "2121212121212121212121212121212121212121212121212121212121212121";
-		let our_node_id = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
+		let our_node_id =
+			crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
 		let hex = "2222222222222222222222222222222222222222222222222222222222222222";
-		let our_ephemeral = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
+		let our_ephemeral =
+			crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
 		let secp_ctx = Secp256k1::new();
 		let node_signer = TestNodeSigner::new(our_node_id);
 
@@ -970,7 +975,8 @@ mod tests {
 		{
 			let hex = "1111111111111111111111111111111111111111111111111111111111111111";
 			let our_node_id =
-				crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
+				crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..])
+					.unwrap();
 			let node_signer = TestNodeSigner::new(our_node_id);
 
 			let hex = "0002466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f276e2470b93aac583c9ef6eafca3f730ae";

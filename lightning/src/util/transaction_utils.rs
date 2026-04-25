@@ -8,7 +8,6 @@
 // licenses.
 
 use bitcoin::amount::Amount;
-use bitcoin::consensus::encode::varint_size;
 use bitcoin::consensus::Encodable;
 use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
 use bitcoin::transaction::{Transaction, TxOut};
@@ -18,6 +17,15 @@ use crate::prelude::*;
 
 use crate::io_extras::sink;
 use core::cmp::Ordering;
+
+fn compact_size_len(n: u64) -> usize {
+	match n {
+		0..=0xFC => 1,
+		0xFD..=0xFFFF => 3,
+		0x1_0000..=0xFFFF_FFFF => 5,
+		_ => 9,
+	}
+}
 
 pub fn sort_outputs<T, C: Fn(&T, &T) -> Ordering>(outputs: &mut Vec<(TxOut, T)>, tie_breaker: C) {
 	outputs.sort_unstable_by(|a, b| {
@@ -44,27 +52,31 @@ pub(crate) fn maybe_add_change_output(
 
 	let mut output_value = Amount::ZERO;
 	for output in tx.outputs.iter() {
-		output_value = (output_value + output.amount).expect("transaction output total must fit in Amount");
+		output_value =
+			(output_value + output.amount).expect("transaction output total must fit in Amount");
 		if output_value >= input_value {
 			return Err(());
 		}
 	}
 
 	let dust_value = change_destination_script.minimal_non_dust();
-	let mut change_output = TxOut { script_pubkey: change_destination_script, amount: Amount::ZERO };
+	let mut change_output =
+		TxOut { script_pubkey: change_destination_script, amount: Amount::ZERO };
 	let change_len = change_output.consensus_encode(&mut sink()).unwrap();
 	let starting_weight = tx.weight().to_wu() + WITNESS_FLAG_BYTES + witness_max_weight as u64;
 	let starting_fees = (starting_weight as i64) * feerate_sat_per_1000_weight as i64 / 1000;
 	let mut weight_with_change: i64 = starting_weight as i64 + change_len as i64 * 4;
 	// Include any extra bytes required to push an extra output.
 	let num_outputs = tx.outputs.len() as u64;
-	weight_with_change += (varint_size(num_outputs + 1) - varint_size(num_outputs)) as i64 * 4;
+	weight_with_change +=
+		(compact_size_len(num_outputs + 1) - compact_size_len(num_outputs)) as i64 * 4;
 	// When calculating weight, add two for the flag bytes
 	let fees_with_change = weight_with_change * feerate_sat_per_1000_weight as i64 / 1000;
 	let excess_value = (input_value - output_value).expect("input value exceeds output value");
 	let change_value: i64 = excess_value.to_sat() as i64 - fees_with_change;
 	if change_value >= dust_value.to_sat() as i64 {
-		change_output.amount = Amount::from_sat(change_value as u64).expect("change value must fit in Amount");
+		change_output.amount =
+			Amount::from_sat(change_value as u64).expect("change value must fit in Amount");
 		tx.outputs.push(change_output);
 		Ok(weight_with_change as u64)
 	} else if excess_value.to_sat() as i64 - starting_fees < 0 {
@@ -80,13 +92,12 @@ mod tests {
 
 	use bitcoin::amount::Amount;
 	use bitcoin::hash_types::Txid;
-	use bitcoin::hashes::Hash;
-	use hex_conservative::FromHex;
+	use bitcoin::key::PubkeyHash;
 	use bitcoin::locktime::absolute::LockTime;
 	use bitcoin::script::Builder;
 	use bitcoin::transaction::{OutPoint, TxIn, Version};
-	use bitcoin::key::PubkeyHash;
 	use bitcoin::{Sequence, Witness};
+	use hex_conservative::FromHex;
 
 	use alloc::vec;
 
@@ -221,7 +232,10 @@ mod tests {
 		// If we have a bogus input amount or outputs valued more than inputs, we should fail
 		let version = Version::TWO;
 		let lock_time = LockTime::ZERO;
-		let tx_out = TxOut { script_pubkey: ScriptBuf::new(), amount: Amount::from_sat(1000).expect("amount must fit") };
+		let tx_out = TxOut {
+			script_pubkey: ScriptBuf::new(),
+			amount: Amount::from_sat(1000).expect("amount must fit"),
+		};
 		let mut tx = Transaction { version, lock_time, inputs: Vec::new(), outputs: vec![tx_out] };
 		let amount = Amount::from_sat(400).expect("amount must fit");
 		assert!(maybe_add_change_output(&mut tx, amount, 0, 253, ScriptBuf::new()).is_err());
@@ -284,7 +298,8 @@ mod tests {
 	fn test_tx_extra_outputs() {
 		// Check that we correctly handle existing outputs
 		let script_pubkey = Builder::new().push_int(1).unwrap().into_script();
-		let tx_out = TxOut { script_pubkey, amount: Amount::from_sat(1000).expect("amount must fit") };
+		let tx_out =
+			TxOut { script_pubkey, amount: Amount::from_sat(1000).expect("amount must fit") };
 		let previous_output = OutPoint::new(Txid::from_byte_array([0; 32]), 0);
 		let script_sig = bitcoin::ScriptSigBuf::new();
 		let witness = Witness::new();
@@ -297,7 +312,10 @@ mod tests {
 		let orig_weight = tx.weight().to_wu();
 		assert_eq!(orig_weight / 4, 61);
 
-		assert_eq!(Builder::new().push_int(2).unwrap().into_script().minimal_non_dust().to_sat(), 474);
+		assert_eq!(
+			Builder::new().push_int(2).unwrap().into_script().minimal_non_dust().to_sat(),
+			474
+		);
 
 		let script = Builder::new().push_int(2).unwrap().into_script();
 

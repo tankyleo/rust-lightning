@@ -47,7 +47,7 @@ use lightning_invoice::{Bolt11Invoice, InvoiceBuilder, RoutingFees};
 
 use lightning_types::payment::PaymentHash;
 
-use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::Network;
 use lightning_types::payment::PaymentPreimage;
 
@@ -656,7 +656,6 @@ fn max_total_requests_buy_rejected() {
 
 	let client_handler = client_node.liquidity_manager.lsps2_client_handler().unwrap();
 	let service_handler = service_node.liquidity_manager.lsps2_service_handler().unwrap();
-	let secp = Secp256k1::new();
 
 	let special_sk_bytes = [99u8; 32];
 	let special_sk = SecretKey::from_secret_bytes(special_sk_bytes).unwrap();
@@ -1070,7 +1069,8 @@ fn lsps2_service_handler_persistence_across_restarts() {
 		let nodes_restart = create_network(2, &node_cfgs, &node_chanmgrs_restart);
 
 		// Create a new LiquidityManager with the same configuration and KV store to simulate restart
-		let transaction_broadcaster = Arc::new(TestBroadcaster::new(Network::Testnet(bitcoin::network::TestnetVersion::V3)));
+		let transaction_broadcaster =
+			Arc::new(TestBroadcaster::new(Network::Testnet(bitcoin::network::TestnetVersion::V3)));
 
 		let restarted_service_lm = LiquidityManagerSync::new_with_custom_time_provider(
 			nodes_restart[0].keys_manager,

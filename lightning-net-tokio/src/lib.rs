@@ -910,7 +910,9 @@ mod tests {
 		}
 		fn handle_error(&self, _their_node_id: PublicKey, _msg: &ErrorMessage) {}
 		fn get_chain_hashes(&self) -> Option<Vec<ChainHash>> {
-			Some(vec![ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3))])
+			Some(vec![ChainHash::using_genesis_block(Network::Testnet(
+				bitcoin::network::TestnetVersion::V3,
+			))])
 		}
 		fn message_received(&self) {}
 	}
@@ -965,7 +967,7 @@ mod tests {
 	}
 
 	async fn do_basic_connection_test() {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let a_key = SecretKey::from_secret_bytes([1; 32]).unwrap();
 		let b_key = SecretKey::from_secret_bytes([1; 32]).unwrap();
 		let a_pub = PublicKey::from_secret_key(&a_key);
@@ -1062,7 +1064,7 @@ mod tests {
 		// Previously, if we handed an already-disconnected socket to `setup_inbound` we'd panic.
 		// This attempts to find other similar races by opening connections and shutting them down
 		// while connecting. Sadly in testing this did *not* reproduce the previous issue.
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let a_key = SecretKey::from_secret_bytes([1; 32]).unwrap();
 		let b_key = SecretKey::from_secret_bytes([2; 32]).unwrap();
 		let b_pub = PublicKey::from_secret_key(&b_key);
@@ -1179,7 +1181,7 @@ mod tests {
 	}
 
 	async fn test_remote_address_with_override(b_addr_override: Option<SocketAddress>) {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let a_key = SecretKey::from_secret_bytes([1; 32]).unwrap();
 		let b_key = SecretKey::from_secret_bytes([1; 32]).unwrap();
 		let a_pub = PublicKey::from_secret_key(&a_key);
@@ -1267,7 +1269,8 @@ mod tests {
 
 		// Check the init message sent to the peer
 
-		let mainnet_hash = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let mainnet_hash =
+			ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let a_init_msg = Init {
 			features: InitFeatures::empty(),
 			networks: Some(vec![mainnet_hash]),

@@ -12,19 +12,19 @@
 
 use bitcoin::amount::Amount;
 use bitcoin::constants::WITNESS_SCALE_FACTOR;
+use bitcoin::key::{PubkeyHash, WPubkeyHash};
 use bitcoin::opcodes;
 use bitcoin::script::{Builder, ScriptPubKey as Script, ScriptPubKeyBuf as ScriptBuf};
 use bitcoin::sighash;
 use bitcoin::sighash::EcdsaSighashType;
 use bitcoin::transaction::Version;
 use bitcoin::transaction::{OutPoint, Transaction, TxIn, TxOut};
-use bitcoin::key::{PubkeyHash, WPubkeyHash};
 
 use bitcoin::hash_types::Txid;
 use bitcoin::hashes::hash160::Hash as Hash160;
 use bitcoin::hashes::ripemd160::Hash as Ripemd160;
 use bitcoin::hashes::sha256::Hash as Sha256;
-use bitcoin::hashes::{Hash, HashEngine};
+use bitcoin::hashes::HashEngine;
 
 use crate::chain::chaininterface::{
 	fee_for_weight, ConfirmationTarget, FeeEstimator, LowerBoundedFeeEstimator,
@@ -567,7 +567,7 @@ impl Readable for CounterpartyCommitmentSecrets {
 /// Derives a per-commitment-transaction private key (eg an htlc key or delayed_payment key)
 /// from the base secret and the per_commitment_point.
 pub fn derive_private_key<T: secp256k1::Signing>(
-	secp_ctx: &Secp256k1<T>, per_commitment_point: &PublicKey, base_secret: &SecretKey,
+	_secp_ctx: &Secp256k1<T>, per_commitment_point: &PublicKey, base_secret: &SecretKey,
 ) -> SecretKey {
 	let mut sha = Sha256::engine();
 	sha.input(&per_commitment_point.serialize());
@@ -585,7 +585,7 @@ pub fn derive_private_key<T: secp256k1::Signing>(
 /// and revocation_base_secret always come from punisher, which is the broadcaster
 /// of the transaction spending with this key knowledge.
 #[rustfmt::skip]
-pub fn derive_private_revocation_key<T: secp256k1::Signing>(secp_ctx: &Secp256k1<T>,
+pub fn derive_private_revocation_key<T: secp256k1::Signing>(_secp_ctx: &Secp256k1<T>,
 	per_commitment_secret: &SecretKey, countersignatory_revocation_base_secret: &SecretKey)
 -> SecretKey {
 	let countersignatory_revocation_base_point = PublicKey::from_secret_key(&countersignatory_revocation_base_secret);
@@ -610,7 +610,7 @@ pub fn derive_private_revocation_key<T: secp256k1::Signing>(secp_ctx: &Secp256k1
 		.expect("Multiplying a secret key by a hash is expected to never fail per secp256k1 docs");
 	let broadcaster_contrib = per_commitment_secret.clone().mul_tweak(&Scalar::from_be_bytes(commit_append_rev_hash_key).unwrap())
 		.expect("Multiplying a secret key by a hash is expected to never fail per secp256k1 docs");
-	countersignatory_contrib.add_tweak(&Scalar::from_be_bytes(broadcaster_contrib.secret_bytes()).unwrap())
+	countersignatory_contrib.add_tweak(&Scalar::from_be_bytes(broadcaster_contrib.to_secret_bytes()).unwrap())
 		.expect("Addition only fails if the tweak is the inverse of the key. This is not possible when the tweak commits to the key.")
 }
 
@@ -746,7 +746,9 @@ pub fn get_countersigner_payment_script(
 	if channel_type_features.supports_anchors_zero_fee_htlc_tx() {
 		get_to_countersigner_keyed_anchor_redeemscript(payment_key).to_p2wsh()
 	} else {
-		ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array(Hash160::hash(&payment_key.serialize()).to_byte_array()))
+		ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array(
+			Hash160::hash(&payment_key.serialize()).to_byte_array(),
+		))
 	}
 }
 
@@ -1006,7 +1008,7 @@ pub fn build_htlc_input_witness(
 		// Due to BIP146 (MINIMALIF) this must be a zero-length element to relay.
 		witness.push(vec![]);
 	}
-	witness.push(redeem_script.to_bytes());
+	witness.push(redeem_script.to_vec());
 	witness
 }
 
@@ -1051,7 +1053,8 @@ pub fn get_to_countersigner_keyed_anchor_redeemscript(payment_point: &PublicKey)
 	Builder::new()
 		.push_slice(payment_point.serialize())
 		.push_opcode(opcodes::all::OP_CHECKSIGVERIFY)
-		.push_int(1).expect("script integer must fit")
+		.push_int(1)
+		.expect("script integer must fit")
 		.push_opcode(opcodes::all::OP_CSV)
 		.into_script()
 }
@@ -1059,7 +1062,8 @@ pub fn get_to_countersigner_keyed_anchor_redeemscript(payment_point: &PublicKey)
 /// Gets the script_pubkey for a shared anchor
 pub fn shared_anchor_script_pubkey() -> ScriptBuf {
 	Builder::new()
-		.push_int(1).expect("script integer must fit")
+		.push_int(1)
+		.expect("script integer must fit")
 		.push_slice(&[0x4e, 0x73])
 		.into_script()
 }
@@ -1587,8 +1591,10 @@ impl ClosingTransaction {
 		to_holder_value_sat: u64, to_counterparty_value_sat: u64, to_holder_script: ScriptBuf,
 		to_counterparty_script: ScriptBuf, funding_outpoint: OutPoint,
 	) -> Self {
-		let to_holder_value = Amount::from_sat(to_holder_value_sat).expect("closing output value must fit in Amount");
-		let to_counterparty_value = Amount::from_sat(to_counterparty_value_sat).expect("closing output value must fit in Amount");
+		let to_holder_value =
+			Amount::from_sat(to_holder_value_sat).expect("closing output value must fit in Amount");
+		let to_counterparty_value = Amount::from_sat(to_counterparty_value_sat)
+			.expect("closing output value must fit in Amount");
 		let built = build_v1_closing_transaction(
 			to_holder_value,
 			to_counterparty_value,
@@ -1692,7 +1698,8 @@ impl<'a> TrustedClosingTransaction<'a> {
 	pub fn get_sighash_all(
 		&self, funding_redeemscript: &Script, channel_value_satoshis: u64,
 	) -> Message {
-		let funding_witness_script = bitcoin::WitnessScriptBuf::from_bytes(funding_redeemscript.as_bytes().to_vec());
+		let funding_witness_script =
+			bitcoin::WitnessScriptBuf::from_bytes(funding_redeemscript.as_bytes().to_vec());
 		let sighash = sighash::SighashCache::new(self.inner.built_transaction())
 			.p2wsh_signature_hash(
 				0,
@@ -2342,7 +2349,7 @@ impl<'a> TrustedCommitmentTransaction<'a> {
 				vout: output_idx as u32,
 			},
 			script_sig: bitcoin::ScriptSigBuf::new(),
-			sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+			sequence: Sequence::ENABLE_LOCKTIME_AND_RBF,
 			witness: Witness::new(),
 		}];
 		let value = self.inner.built.transaction.outputs[output_idx].amount;
@@ -2408,12 +2415,11 @@ mod tests {
 	use crate::types::features::ChannelTypeFeatures;
 	use crate::types::payment::PaymentHash;
 	use crate::util::test_utils;
-	use bitcoin::hashes::Hash;
-	use hex_conservative::FromHex;
-	use bitcoin::secp256k1::{self, PublicKey, Secp256k1, SecretKey};
-	use bitcoin::PublicKey as BitcoinPublicKey;
 	use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
+	use bitcoin::secp256k1::{self, PublicKey, Secp256k1};
+	use bitcoin::PublicKey as BitcoinPublicKey;
 	use bitcoin::{CompressedPublicKey, Network, Txid};
+	use hex_conservative::FromHex;
 
 	#[allow(unused_imports)]
 	use crate::prelude::*;

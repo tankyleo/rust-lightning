@@ -39,7 +39,7 @@
 //! # #[cfg(feature = "std")]
 //! # fn build() -> Result<(), Bolt12ParseError> {
 //! let secp_ctx = Secp256k1::new();
-//! let keys = Keypair::from_secret_key(&SecretKey::from_byte_array([42; 32]).unwrap());
+//! let keys = Keypair::from_secret_key(&SecretKey::from_secret_bytes([42; 32]).unwrap());
 //! let pubkey = PublicKey::from(keys);
 //!
 //! let expiration = SystemTime::now() + Duration::from_secs(24 * 60 * 60);
@@ -1459,14 +1459,18 @@ mod tests {
 	#[test]
 	fn builds_offer_with_chains() {
 		let mainnet = ChainHash::using_genesis_block(Network::Bitcoin);
-		let testnet = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let testnet =
+			ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 
 		let offer = OfferBuilder::new(pubkey(42)).chain(Network::Bitcoin).build().unwrap();
 		assert!(offer.supports_chain(mainnet));
 		assert_eq!(offer.chains(), vec![mainnet]);
 		assert_eq!(offer.as_tlv_stream().0.chains, None);
 
-		let offer = OfferBuilder::new(pubkey(42)).chain(Network::Testnet(bitcoin::network::TestnetVersion::V3)).build().unwrap();
+		let offer = OfferBuilder::new(pubkey(42))
+			.chain(Network::Testnet(bitcoin::network::TestnetVersion::V3))
+			.build()
+			.unwrap();
 		assert!(offer.supports_chain(testnet));
 		assert_eq!(offer.chains(), vec![testnet]);
 		assert_eq!(offer.as_tlv_stream().0.chains, Some(&vec![testnet]));

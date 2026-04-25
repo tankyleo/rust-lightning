@@ -4109,14 +4109,14 @@ mod tests {
 
 	use bitcoin::amount::Amount;
 	use bitcoin::constants::ChainHash;
-	use bitcoin::hashes::Hash;
-	use hex_conservative::FromHex;
+
 	use bitcoin::network::Network;
 	use bitcoin::opcodes;
 	use bitcoin::script::Builder;
+	use bitcoin::secp256k1::PublicKey;
 	use bitcoin::secp256k1::Secp256k1;
-	use bitcoin::secp256k1::{PublicKey, SecretKey};
 	use bitcoin::transaction::TxOut;
+	use hex_conservative::FromHex;
 
 	use crate::io::Cursor;
 	use crate::prelude::*;
@@ -9346,7 +9346,9 @@ mod tests {
 
 		// Enable channel 1
 		let update_1 = UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(
+				bitcoin::network::TestnetVersion::V3,
+			)),
 			short_channel_id: 1,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9362,7 +9364,9 @@ mod tests {
 
 		// Set the fee on channel 3 to 1 sat, max HTLC to 1M msat
 		let update_3 = UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(
+				bitcoin::network::TestnetVersion::V3,
+			)),
 			short_channel_id: 3,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9378,7 +9382,9 @@ mod tests {
 
 		// Set the fee on channel 13 to 1 sat, max HTLC to 1M msat
 		let update_13 = UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(
+				bitcoin::network::TestnetVersion::V3,
+			)),
 			short_channel_id: 13,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9394,7 +9400,9 @@ mod tests {
 
 		// Set the fee on channel 4 to 1 sat, max HTLC to 1M msat
 		let update_4 = UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(
+				bitcoin::network::TestnetVersion::V3,
+			)),
 			short_channel_id: 4,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9421,7 +9429,9 @@ mod tests {
 
 			// Set the fee on channel 16 to 2 sats, max HTLC to 3M msat
 			let update_a = UnsignedChannelUpdate {
-				chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
+				chain_hash: ChainHash::using_genesis_block(Network::Testnet(
+					bitcoin::network::TestnetVersion::V3,
+				)),
 				short_channel_id: i + 42,
 				timestamp: 2,
 				message_flags: 1, // Only must_be_one
@@ -9437,7 +9447,9 @@ mod tests {
 
 			// Enable channel 16 by providing an update in both directions
 			let update_b = UnsignedChannelUpdate {
-				chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
+				chain_hash: ChainHash::using_genesis_block(Network::Testnet(
+					bitcoin::network::TestnetVersion::V3,
+				)),
 				short_channel_id: i + 42,
 				timestamp: 2,
 				message_flags: 1, // Only must_be_one
@@ -9483,7 +9495,9 @@ mod tests {
 
 		// Set the fee on channel 16 to 2 sats, max HTLC to 3M msat
 		let update_16_a = UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(
+				bitcoin::network::TestnetVersion::V3,
+			)),
 			short_channel_id: 16,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9499,7 +9513,9 @@ mod tests {
 
 		// Enable channel 16 by providing an update in both directions
 		let update_16_b = UnsignedChannelUpdate {
-			chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
+			chain_hash: ChainHash::using_genesis_block(Network::Testnet(
+				bitcoin::network::TestnetVersion::V3,
+			)),
 			short_channel_id: 16,
 			timestamp: 2,
 			message_flags: 1, // Only must_be_one
@@ -9534,8 +9550,7 @@ mod tests {
 #[cfg(any(test, ldk_bench))]
 pub(crate) mod bench_utils {
 	use super::*;
-	use bitcoin::hashes::Hash;
-	use bitcoin::secp256k1::SecretKey;
+
 	use std::fs::File;
 	use std::io::Read;
 
@@ -9615,7 +9630,7 @@ pub(crate) mod bench_utils {
 	}
 
 	pub(crate) fn payer_pubkey() -> PublicKey {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap())
 	}
 

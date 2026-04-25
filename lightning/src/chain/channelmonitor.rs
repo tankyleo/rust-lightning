@@ -27,7 +27,6 @@ use bitcoin::transaction::{OutPoint as BitcoinOutPoint, Transaction, TxOut};
 
 use bitcoin::hash_types::{BlockHash, Txid};
 use bitcoin::hashes::sha256::Hash as Sha256;
-use bitcoin::hashes::Hash;
 
 use bitcoin::ecdsa::Signature as BitcoinSignature;
 use bitcoin::secp256k1::{self, ecdsa::Signature, PublicKey, Secp256k1, SecretKey};
@@ -4705,7 +4704,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		&self, mut justice_tx: Transaction, input_idx: usize, value: u64, commitment_number: u64
 	) -> Result<Transaction, ()> {
 		let secret = self.get_secret(commitment_number).ok_or(())?;
-		let per_commitment_key = SecretKey::from_byte_array(secret).map_err(|_| ())?;
+		let per_commitment_key = SecretKey::from_secret_bytes(secret).map_err(|_| ())?;
 		let their_per_commitment_point = PublicKey::from_secret_key(&per_commitment_key);
 
 		let revocation_pubkey = RevocationKey::from_basepoint(&self.onchain_tx_handler.secp_ctx,
@@ -4787,7 +4786,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			assert_eq!(funding_spent.funding_txid(), funding_txid_spent);
 
 			let secret = self.get_secret(commitment_number).unwrap();
-			let per_commitment_key = ignore_error!(SecretKey::from_byte_array(secret));
+			let per_commitment_key = ignore_error!(SecretKey::from_secret_bytes(secret));
 			let per_commitment_point = PublicKey::from_secret_key(&per_commitment_key);
 			let revocation_pubkey = RevocationKey::from_basepoint(&self.onchain_tx_handler.secp_ctx,  &self.holder_revocation_basepoint, &per_commitment_point,);
 			let delayed_key = DelayedPaymentKey::from_basepoint(&self.onchain_tx_handler.secp_ctx, &self.counterparty_commitment_params.counterparty_delayed_payment_base_key, &PublicKey::from_secret_key(&per_commitment_key));
@@ -5055,7 +5054,7 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 		&mut self, tx: &Transaction, commitment_number: u64, commitment_txid: &Txid, height: u32, logger: &L
 	) -> (Vec<PackageTemplate>, Option<TransactionOutputs>) {
 		let secret = if let Some(secret) = self.get_secret(commitment_number) { secret } else { return (Vec::new(), None); };
-		let per_commitment_key = match SecretKey::from_byte_array(secret) {
+		let per_commitment_key = match SecretKey::from_secret_bytes(secret) {
 			Ok(key) => key,
 			Err(_) => return (Vec::new(), None)
 		};
@@ -6949,8 +6948,10 @@ pub(super) fn dummy_monitor<S: EcdsaChannelSigner + 'static>(
 		delayed_payment_basepoint: DelayedPaymentBasepoint::from(dummy_key),
 		htlc_basepoint: HtlcBasepoint::from(dummy_key),
 	};
-	let funding_outpoint =
-		crate::chain::transaction::OutPoint { txid: Txid::from_byte_array([0; 32]), index: u16::MAX };
+	let funding_outpoint = crate::chain::transaction::OutPoint {
+		txid: Txid::from_byte_array([0; 32]),
+		index: u16::MAX,
+	};
 	let channel_parameters = ChannelTransactionParameters {
 		holder_pubkeys: keys.pubkeys(&secp_ctx),
 		holder_selected_contest_delay: 66,
@@ -6965,7 +6966,8 @@ pub(super) fn dummy_monitor<S: EcdsaChannelSigner + 'static>(
 		channel_value_satoshis: 0,
 	};
 	let shutdown_script = crate::ln::script::ShutdownScript::new_p2wpkh_from_pubkey(dummy_key);
-	let best_block = BestBlock::from_network(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+	let best_block =
+		BestBlock::from_network(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 	let signer = wrap_signer(keys);
 	ChannelMonitor::new(
 		secp_ctx,
@@ -6988,20 +6990,19 @@ pub(super) fn dummy_monitor<S: EcdsaChannelSigner + 'static>(
 mod tests {
 	use bitcoin::amount::Amount;
 	use bitcoin::hash_types::Txid;
-	use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
-	use bitcoin::hashes::Hash;
-	use hex_conservative::FromHex;
+	use bitcoin::hashes::sha256::Hash as Sha256;
 	use bitcoin::locktime::absolute::LockTime;
 	use bitcoin::network::Network;
 	use bitcoin::opcodes;
-	use bitcoin::script::{Builder, ScriptBuf};
+	use bitcoin::script::Builder;
+	use bitcoin::secp256k1::PublicKey;
 	use bitcoin::secp256k1::Secp256k1;
-	use bitcoin::secp256k1::{PublicKey, SecretKey};
 	use bitcoin::sighash;
 	use bitcoin::sighash::EcdsaSighashType;
 	use bitcoin::transaction::OutPoint as BitcoinOutPoint;
 	use bitcoin::transaction::{Transaction, TxIn, TxOut, Version};
 	use bitcoin::{Sequence, Witness};
+	use hex_conservative::FromHex;
 
 	use crate::chain::chaininterface::LowerBoundedFeeEstimator;
 	use crate::events::{ClosureReason, Event};
@@ -7302,7 +7303,7 @@ mod tests {
 				let witness_script = bitcoin::WitnessScriptBuf::from_bytes(redeem_script.as_bytes().to_vec());
 				let sighash = $sighash_parts.p2wsh_signature_hash($idx, witness_script.as_script(), $amount, EcdsaSighashType::All).unwrap();
 				let sighash = hash_to_message!(sighash.as_byte_array());
-				let sig = secp_ctx.sign_ecdsa(sighash, &privkey);
+				let sig = bitcoin::secp256k1::ecdsa::sign(sighash, &privkey);
 				let mut ser_sig = sig.serialize_der().to_vec();
 				ser_sig.push(EcdsaSighashType::All as u8);
 				$sum_actual_sigs += ser_sig.len() as u64;
@@ -7339,7 +7340,7 @@ mod tests {
 						vout: i,
 					},
 					script_sig: bitcoin::ScriptSigBuf::new(),
-					sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+					sequence: Sequence::ENABLE_LOCKTIME_AND_RBF,
 					witness: Witness::new(),
 				});
 			}
@@ -7371,7 +7372,7 @@ mod tests {
 						vout: i,
 					},
 					script_sig: bitcoin::ScriptSigBuf::new(),
-					sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+					sequence: Sequence::ENABLE_LOCKTIME_AND_RBF,
 					witness: Witness::new(),
 				});
 			}
@@ -7402,7 +7403,7 @@ mod tests {
 					vout: 0,
 				},
 				script_sig: bitcoin::ScriptSigBuf::new(),
-				sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+				sequence: Sequence::ENABLE_LOCKTIME_AND_RBF,
 				witness: Witness::new(),
 			});
 			claim_tx.outputs.push(TxOut {
@@ -7426,7 +7427,7 @@ mod tests {
 	#[test]
 	#[rustfmt::skip]
 	fn test_with_channel_monitor_impl_logger() {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let logger = Arc::new(TestLogger::new());
 
 		let dummy_key = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());

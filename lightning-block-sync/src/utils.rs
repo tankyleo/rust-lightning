@@ -1,5 +1,5 @@
-use hex_conservative::{FromHex, HexToArrayError};
 use bitcoin::pow::Work;
+use hex_conservative::{FromHex, HexToArrayError};
 
 pub fn hex_to_work(hex: &str) -> Result<Work, HexToArrayError> {
 	let bytes = <[u8; 32]>::from_hex(hex)?;

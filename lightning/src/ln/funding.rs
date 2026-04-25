@@ -9,9 +9,8 @@
 
 //! Types pertaining to funding channels.
 
-use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::PublicKey;
 use bitcoin::script::{ScriptPubKeyBuf as ScriptBuf, WScriptHash};
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::{Amount, FeeRate, OutPoint, SignedAmount, TxOut, Weight};
 
 use crate::ln::chan_utils::{
@@ -73,7 +72,8 @@ impl core::fmt::Display for FeeRateAdjustmentError {
 					f,
 					"Target feerate {} is below our minimum {}; \
 					 proceeding without contribution, will RBF later",
-					target_feerate.to_sat_per_kwu_floor(), min_feerate.to_sat_per_kwu_floor(),
+					target_feerate.to_sat_per_kwu_floor(),
+					min_feerate.to_sat_per_kwu_floor(),
 				)
 			},
 			FeeRateAdjustmentError::FeeRateTooHigh {
@@ -656,7 +656,7 @@ fn estimate_transaction_fee(
 			//
 			// TODO(taproot): Needs to consider different weights based on channel type
 			.saturating_add(
-					get_output_weight(&ScriptBuf::new_p2wsh(WScriptHash::from_byte_array([0; 32])))
+				get_output_weight(&ScriptBuf::new_p2wsh(WScriptHash::from_byte_array([0; 32])))
 					.to_wu(),
 			);
 
@@ -1016,7 +1016,8 @@ impl FundingContribution {
 			Some(value) => self.change_output.as_mut().unwrap().amount = value,
 			None => self.change_output = None,
 		}
-		self.value_added = (self.value_added + surplus).expect("value added plus surplus must fit in Amount");
+		self.value_added =
+			(self.value_added + surplus).expect("value added plus surplus must fit in Amount");
 		self.estimated_fee = new_estimated_fee;
 		self.feerate = feerate;
 		Ok(self)
@@ -1055,7 +1056,7 @@ impl FundingContribution {
 	) -> Result<SignedAmount, FeeRateAdjustmentError> {
 		let (new_estimated_fee, new_change) =
 			self.compute_feerate_adjustment(target_feerate, holder_balance, is_initiator)?;
-			let surplus = self.fee_buffer_surplus(new_estimated_fee, &new_change).to_signed();
+		let surplus = self.fee_buffer_surplus(new_estimated_fee, &new_change).to_signed();
 		let net_value = self
 			.net_value_with_fee(new_estimated_fee)
 			.checked_add(surplus)
@@ -1115,8 +1116,8 @@ impl FundingContribution {
 	/// Computes the net value using the given `estimated_fee` for the splice-out (no inputs)
 	/// case. For splice-in, fees are paid by inputs so `estimated_fee` is not deducted.
 	fn net_value_with_fee(&self, estimated_fee: Amount) -> SignedAmount {
-		let unpaid_fees = if self.inputs.is_empty() { estimated_fee } else { Amount::ZERO }
-			.to_signed();
+		let unpaid_fees =
+			if self.inputs.is_empty() { estimated_fee } else { Amount::ZERO }.to_signed();
 		let value_added = self.value_added.to_signed();
 		let value_removed = self
 			.outputs
@@ -1146,10 +1147,9 @@ mod tests {
 	};
 	use crate::chain::ClaimId;
 	use crate::util::wallet_utils::{CoinSelection, CoinSelectionSourceSync, Input};
-	use bitcoin::hashes::Hash;
-	use bitcoin::transaction::{Transaction, TxOut, Version};
 	use bitcoin::key::WPubkeyHash;
 	use bitcoin::script::{ScriptBufExt, ScriptPubKeyBuf as ScriptBuf, ScriptPubKeyExt};
+	use bitcoin::transaction::{Transaction, TxOut, Version};
 	use bitcoin::{Amount, FeeRate, Psbt, SignedAmount};
 
 	#[test]
@@ -1472,7 +1472,8 @@ mod tests {
 
 		// splice_in_sync with shared input and value_added summing > MAX_MONEY
 		{
-			let template = FundingTemplate::new(Some(shared_input(Amount::MAX_MONEY.to_sat())), None, None);
+			let template =
+				FundingTemplate::new(Some(shared_input(Amount::MAX_MONEY.to_sat())), None, None);
 			assert!(matches!(
 				template.splice_in_sync(Amount::ONE_SAT, feerate, feerate, UnreachableWallet),
 				Err(FundingContributionError::InvalidSpliceValue),
@@ -1505,7 +1506,12 @@ mod tests {
 		{
 			let template = FundingTemplate::new(None, None, None);
 			assert!(matches!(
-				template.splice_in_sync(Amount::from_sat(10_000).expect("amount must fit"), high, low, UnreachableWallet),
+				template.splice_in_sync(
+					Amount::from_sat(10_000).expect("amount must fit"),
+					high,
+					low,
+					UnreachableWallet
+				),
 				Err(FundingContributionError::FeeRateExceedsMaximum { .. }),
 			));
 		}
@@ -1559,7 +1565,8 @@ mod tests {
 		let expected_target_fee =
 			estimate_transaction_fee(&inputs, &[], Some(&change), false, true, target_feerate);
 		let expected_change = (estimated_fee + Amount::from_sat(10_000).expect("amount must fit")
-			- expected_target_fee).expect("amount arithmetic must fit");
+			- expected_target_fee)
+			.expect("amount arithmetic must fit");
 
 		assert_eq!(contribution.estimated_fee, expected_target_fee);
 		assert!(contribution.change_output.is_some());
@@ -1642,8 +1649,8 @@ mod tests {
 			estimate_transaction_fee(&inputs, &[], None, false, true, target_feerate);
 		assert_eq!(contribution.estimated_fee, expected_fee_no_change);
 		// The surplus (old fee buffer - new fee) goes to value_added, increasing net_value.
-		let surplus =
-			(estimated_fee + change_value - expected_fee_no_change).expect("amount arithmetic must fit");
+		let surplus = (estimated_fee + change_value - expected_fee_no_change)
+			.expect("amount arithmetic must fit");
 		assert_eq!(
 			contribution.net_value(),
 			(net_value_before + surplus.to_signed()).expect("amount arithmetic must fit"),
@@ -1762,10 +1769,7 @@ mod tests {
 		let net_at_feerate =
 			contribution.net_value_for_acceptor_at_feerate(target_feerate, Amount::MAX).unwrap();
 		assert_eq!(net_at_feerate, contribution.net_value());
-		assert_eq!(
-			net_at_feerate,
-			Amount::from_sat(50_000).expect("amount must fit").to_signed(),
-		);
+		assert_eq!(net_at_feerate, Amount::from_sat(50_000).expect("amount must fit").to_signed(),);
 	}
 
 	#[test]
@@ -1797,7 +1801,8 @@ mod tests {
 		let target_fee = estimate_transaction_fee(&[], &outputs, None, false, true, target_feerate);
 		let expected_net = (SignedAmount::ZERO
 			- Amount::from_sat(50_000).expect("amount must fit").to_signed()
-			- target_fee.to_signed()).expect("amount arithmetic must fit");
+			- target_fee.to_signed())
+		.expect("amount arithmetic must fit");
 		assert_eq!(net_at_feerate, expected_net);
 
 		// Should be less negative than net_value() which uses the higher fee estimate.
@@ -1928,7 +1933,10 @@ mod tests {
 		// fee estimate at original (2000, is_initiator=true) due to the ~2.5x weight ratio,
 		// so change increases despite the higher feerate.
 		assert!(adjusted.change_output.is_some());
-		assert!(adjusted.change_output.as_ref().unwrap().amount > Amount::from_sat(10_000).expect("amount must fit"));
+		assert!(
+			adjusted.change_output.as_ref().unwrap().amount
+				> Amount::from_sat(10_000).expect("amount must fit")
+		);
 	}
 
 	#[test]

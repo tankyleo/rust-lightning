@@ -14,7 +14,6 @@ use alloc::vec::Vec;
 use bitcoin::secp256k1::PublicKey;
 
 use crate::chain::chaininterface::{FeeEstimator, LowerBoundedFeeEstimator};
-use crate::prelude::*;
 use crate::chain::transaction::OutPoint;
 use crate::ln::channel::Channel;
 use crate::ln::types::ChannelId;
@@ -676,7 +675,7 @@ impl_writeable_tlv_based_enum!(ChannelShutdownState,
 
 #[cfg(test)]
 mod tests {
-	use bitcoin::{hashes::Hash as _, secp256k1::PublicKey};
+	use bitcoin::secp256k1::PublicKey;
 	use lightning_types::features::Features;
 	use types::payment::PaymentHash;
 
@@ -711,10 +710,7 @@ mod tests {
 				outbound_htlc_minimum_msat: None,
 				outbound_htlc_maximum_msat: None,
 			},
-			funding_txo: Some(OutPoint {
-				txid: bitcoin::Txid::from_byte_array([0; 32]),
-				index: 1,
-			}),
+			funding_txo: Some(OutPoint { txid: bitcoin::Txid::from_byte_array([0; 32]), index: 1 }),
 			funding_redeem_script: Some(make_funding_redeemscript(
 				&PublicKey::from_slice(&[2; 33]).unwrap(),
 				&PublicKey::from_slice(&[2; 33]).unwrap(),

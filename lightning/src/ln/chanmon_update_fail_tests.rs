@@ -47,7 +47,6 @@ use crate::util::test_utils;
 
 use crate::prelude::*;
 use crate::sync::{Arc, Mutex};
-use bitcoin::hashes::Hash;
 use core::sync::atomic::Ordering;
 
 #[test]
@@ -76,7 +75,8 @@ fn test_monitor_and_persister_update_fail() {
 	// bogus update. Note that if instead we updated the nodes[0]'s ChainMonitor
 	// directly, the node would fail to be `Drop`'d at the end because its
 	// ChannelManager and ChainMonitor would be out of sync.
-	let chain_source = test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+	let chain_source =
+		test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 	let logger = test_utils::TestLogger::with_id(format!("node {}", 0));
 	let persister = test_utils::TestPersister::new();
 	let tx_broadcaster = TestBroadcaster {
@@ -85,10 +85,20 @@ fn test_monitor_and_persister_update_fail() {
 		// Because we will connect a block at height 200 below, we need the TestBroadcaster to know
 		// that we are at height 200 so that it doesn't think we're violating the time lock
 		// requirements of transactions broadcasted at that point.
-		blocks: Arc::new(Mutex::new(vec![({
-			let genesis = genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
-			bitcoin::Block::new_unchecked(genesis.header().clone(), genesis.transactions().to_vec())
-		}, 200); 200])),
+		blocks: Arc::new(Mutex::new(vec![
+			(
+				{
+					let genesis =
+						genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+					bitcoin::Block::new_unchecked(
+						genesis.header().clone(),
+						genesis.transactions().to_vec(),
+					)
+				},
+				200
+			);
+			200
+		])),
 	};
 	let chain_mon = {
 		let new_monitor = {
@@ -4974,7 +4984,8 @@ fn native_async_persist() {
 		Arc::clone(&tx_broadcaster),
 		Arc::clone(&fee_estimator),
 	);
-	let chain_source = test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+	let chain_source =
+		test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 	let async_chain_monitor = ChainMonitor::new_async_beta(
 		Some(&chain_source),
 		tx_broadcaster,

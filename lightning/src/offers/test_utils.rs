@@ -34,14 +34,14 @@ pub(crate) fn fail_sign<T: AsRef<TaggedHash>>(_message: &T) -> Result<Signature,
 }
 
 pub(crate) fn payer_keys() -> Keypair {
-	let secp_ctx = Secp256k1::new();
+	let _secp_ctx = Secp256k1::new();
 	Keypair::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap())
 }
 
 pub(crate) fn payer_sign<T: AsRef<TaggedHash>>(message: &T) -> Result<Signature, ()> {
-	let secp_ctx = Secp256k1::new();
+	let _secp_ctx = Secp256k1::new();
 	let keys = Keypair::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
-	Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
+	Ok(bitcoin::secp256k1::schnorr::sign_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 }
 
 pub(crate) fn payer_pubkey() -> PublicKey {
@@ -49,14 +49,14 @@ pub(crate) fn payer_pubkey() -> PublicKey {
 }
 
 pub(crate) fn recipient_keys() -> Keypair {
-	let secp_ctx = Secp256k1::new();
+	let _secp_ctx = Secp256k1::new();
 	Keypair::from_secret_key(&crate::prelude::secret_key_from_slice(&[43; 32]).unwrap())
 }
 
 pub(crate) fn recipient_sign<T: AsRef<TaggedHash>>(message: &T) -> Result<Signature, ()> {
-	let secp_ctx = Secp256k1::new();
+	let _secp_ctx = Secp256k1::new();
 	let keys = Keypair::from_secret_key(&crate::prelude::secret_key_from_slice(&[43; 32]).unwrap());
-	Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
+	Ok(bitcoin::secp256k1::schnorr::sign_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 }
 
 pub(crate) fn recipient_pubkey() -> PublicKey {
@@ -64,7 +64,7 @@ pub(crate) fn recipient_pubkey() -> PublicKey {
 }
 
 pub(super) fn pubkey(byte: u8) -> PublicKey {
-	let secp_ctx = Secp256k1::new();
+	let _secp_ctx = Secp256k1::new();
 	PublicKey::from_secret_key(&privkey(byte))
 }
 

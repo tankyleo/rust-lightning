@@ -1475,7 +1475,9 @@ fn amount_doesnt_match_invreq() {
 				.unwrap()
 				.amount_msats(amt_msat + 1)
 				.unwrap()
-				.chain_hash(ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)))
+				.chain_hash(ChainHash::using_genesis_block(Network::Testnet(
+					bitcoin::network::TestnetVersion::V3,
+				)))
 				.unwrap()
 				.build_and_sign()
 				.unwrap();

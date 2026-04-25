@@ -601,9 +601,7 @@ impl FromBase32 for Sha256 {
 			// "A reader MUST skip over […] a p, [or] h […] field that does not have data_length 52 […]."
 			Err(Bolt11ParseError::Skip)
 		} else {
-			Ok(Sha256(
-				sha256::Hash::from_byte_array(<[u8; 32]>::from_base32(field_data)?),
-			))
+			Ok(Sha256(sha256::Hash::from_byte_array(<[u8; 32]>::from_base32(field_data)?)))
 		}
 	}
 }
@@ -678,19 +676,19 @@ impl FromBase32 for Fallback {
 					.expect("0 through 16 are valid SegWit versions");
 				Ok(Fallback::SegWitProgram { version, program: bytes })
 			},
-				17 => {
-					let pkh = match bytes.as_slice().try_into() {
-						Ok(bytes) => PubkeyHash::from_byte_array(bytes),
-						Err(_) => return Err(Bolt11ParseError::InvalidPubKeyHashLength),
-					};
-					Ok(Fallback::PubKeyHash(pkh))
-				},
-				18 => {
-					let sh = match bytes.as_slice().try_into() {
-						Ok(bytes) => ScriptHash::from_byte_array(bytes),
-						Err(_) => return Err(Bolt11ParseError::InvalidScriptHashLength),
-					};
-					Ok(Fallback::ScriptHash(sh))
+			17 => {
+				let pkh = match bytes.as_slice().try_into() {
+					Ok(bytes) => PubkeyHash::from_byte_array(bytes),
+					Err(_) => return Err(Bolt11ParseError::InvalidPubKeyHashLength),
+				};
+				Ok(Fallback::PubKeyHash(pkh))
+			},
+			18 => {
+				let sh = match bytes.as_slice().try_into() {
+					Ok(bytes) => ScriptHash::from_byte_array(bytes),
+					Err(_) => return Err(Bolt11ParseError::InvalidScriptHashLength),
+				};
+				Ok(Fallback::ScriptHash(sh))
 			},
 			_ => Err(Bolt11ParseError::Skip),
 		}
@@ -980,21 +978,17 @@ mod test {
 		let cases = vec![
 			(
 				from_bech32("3x9et2e20v6pu37c5d9vax37wxq72un98".as_bytes()),
-				Ok(Fallback::PubKeyHash(
-					PubkeyHash::from_byte_array([
-						0x31, 0x72, 0xb5, 0x65, 0x4f, 0x66, 0x83, 0xc8, 0xfb, 0x14, 0x69, 0x59,
-						0xd3, 0x47, 0xce, 0x30, 0x3c, 0xae, 0x4c, 0xa7,
-					]),
-				)),
+				Ok(Fallback::PubKeyHash(PubkeyHash::from_byte_array([
+					0x31, 0x72, 0xb5, 0x65, 0x4f, 0x66, 0x83, 0xc8, 0xfb, 0x14, 0x69, 0x59, 0xd3,
+					0x47, 0xce, 0x30, 0x3c, 0xae, 0x4c, 0xa7,
+				]))),
 			),
 			(
 				from_bech32("j3a24vwu6r8ejrss3axul8rxldph2q7z9".as_bytes()),
-				Ok(Fallback::ScriptHash(
-					ScriptHash::from_byte_array([
-						0x8f, 0x55, 0x56, 0x3b, 0x9a, 0x19, 0xf3, 0x21, 0xc2, 0x11, 0xe9, 0xb9,
-						0xf3, 0x8c, 0xdf, 0x68, 0x6e, 0xa0, 0x78, 0x45,
-					]),
-				)),
+				Ok(Fallback::ScriptHash(ScriptHash::from_byte_array([
+					0x8f, 0x55, 0x56, 0x3b, 0x9a, 0x19, 0xf3, 0x21, 0xc2, 0x11, 0xe9, 0xb9, 0xf3,
+					0x8c, 0xdf, 0x68, 0x6e, 0xa0, 0x78, 0x45,
+				]))),
 			),
 			(
 				from_bech32("qw508d6qejxtdg4y5r3zarvary0c5xw7k".as_bytes()),
@@ -1081,8 +1075,8 @@ mod test {
 			Bolt11InvoiceSignature, Currency, PositiveTimestamp, RawBolt11Invoice, RawDataPart,
 			RawHrp, SiPrefix, SignedRawBolt11Invoice,
 		};
-		use hex_conservative::FromHex;
 		use bitcoin::secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
+		use hex_conservative::FromHex;
 		use lightning_types::features::Bolt11InvoiceFeatures;
 
 		// Feature bits 9, 15, and 99 are set.
@@ -1145,8 +1139,8 @@ mod test {
 			Bolt11InvoiceSignature, Currency, PositiveTimestamp, RawBolt11Invoice, RawDataPart,
 			RawHrp, SignedRawBolt11Invoice,
 		};
-		use hex_conservative::FromHex;
 		use bitcoin::secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
+		use hex_conservative::FromHex;
 
 		assert_eq!(
 			"lnbc1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdpl2pkx2ctnv5sxxmmw\
@@ -1318,9 +1312,9 @@ mod test {
 			PositiveTimestamp, RawBolt11Invoice, RawDataPart, RawHrp, RawTaggedField,
 			SignedRawBolt11Invoice,
 		};
-		use hex_conservative::FromHex;
 		use bitcoin::secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
 		use bitcoin::secp256k1::PublicKey;
+		use hex_conservative::FromHex;
 		use lightning_types::routing::{RouteHint, RouteHintHop, RoutingFees};
 
 		// Generate an `UnknownSemantics` field with a given length.
@@ -1409,8 +1403,7 @@ mod test {
 			0xf1, 0xdf, 0x2d, 0xb6, 0xbd, 0xf5, 0x0a, 0x20,
 		];
 		let signature = Bolt11InvoiceSignature(
-			RecoverableSignature::from_compact(signature, RecoveryId::One)
-				.unwrap(),
+			RecoverableSignature::from_compact(signature, RecoveryId::One).unwrap(),
 		);
 		let signed_invoice = SignedRawBolt11Invoice { raw_invoice, hash, signature };
 

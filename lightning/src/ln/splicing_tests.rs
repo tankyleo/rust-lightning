@@ -36,12 +36,11 @@ use crate::util::wallet_utils::{
 use crate::prelude::*;
 use crate::sync::Arc;
 
-use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::ecdsa::Signature;
-use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
-use bitcoin::transaction::Version;
 use bitcoin::key::WPubkeyHash;
 use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
+use bitcoin::secp256k1::ecdsa::Signature;
+use bitcoin::secp256k1::PublicKey;
+use bitcoin::transaction::Version;
 use bitcoin::{Amount, FeeRate, OutPoint as BitcoinOutPoint, Psbt, Transaction, TxOut, Txid};
 
 fn amount_result(result: bitcoin::NumOpResult<Amount>) -> Amount {
@@ -455,7 +454,8 @@ pub fn complete_interactive_funding_negotiation_for_both<'a, 'b, 'c, 'd>(
 					expected_initiator_outputs
 						.iter()
 						.position(|output| {
-							*output.script_pubkey == msg.script && output.amount.to_sat() == msg.sats
+							*output.script_pubkey == msg.script
+								&& output.amount.to_sat() == msg.sats
 						})
 						.unwrap(),
 				);
@@ -5044,7 +5044,10 @@ pub fn do_test_splice_rbf_tiebreak(
 	// Node 0 sends tx_init_rbf.
 	let tx_init_rbf = get_event_msg!(nodes[0], MessageSendEvent::SendTxInitRbf, node_id_1);
 	assert_eq!(tx_init_rbf.channel_id, channel_id);
-	assert_eq!(tx_init_rbf.feerate_sat_per_1000_weight, rbf_feerate_0.to_sat_per_kwu_floor() as u32);
+	assert_eq!(
+		tx_init_rbf.feerate_sat_per_1000_weight,
+		rbf_feerate_0.to_sat_per_kwu_floor() as u32
+	);
 
 	// Node 1 handles tx_init_rbf — its quiescent_action is consumed, adjusting its contribution
 	// for node 0's feerate. Whether it contributes depends on the feerate and budget constraints.

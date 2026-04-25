@@ -16,8 +16,8 @@ use bitcoin::amount::Amount;
 use bitcoin::consensus::Encodable;
 use bitcoin::constants::WITNESS_SCALE_FACTOR;
 use bitcoin::ecdsa::Signature as BitcoinSignature;
-use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
 use bitcoin::policy::MAX_STANDARD_TX_WEIGHT;
+use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
 use bitcoin::secp256k1::Secp256k1;
 use bitcoin::secp256k1::{Message, PublicKey, XOnlyPublicKey};
 use bitcoin::sighash::SighashCache;
@@ -766,7 +766,7 @@ impl InteractiveTxSigningSession {
 	}
 
 	fn verify_interactive_tx_signatures<C: bitcoin::secp256k1::Verification>(
-		&self, secp_ctx: &Secp256k1<C>, witnesses: &Vec<Witness>,
+		&self, _secp_ctx: &Secp256k1<C>, witnesses: &Vec<Witness>,
 	) -> Result<(), String> {
 		let unsigned_tx = self.unsigned_tx();
 		let built_tx = unsigned_tx.tx();
@@ -827,7 +827,7 @@ impl InteractiveTxSigningSession {
 						"The transaction sighash could not be calculated".to_string()
 					})?;
 				let msg = Message::from_digest(*sighash.as_byte_array());
-				secp_ctx.verify_ecdsa(msg, &sig.signature, &pubkey).map_err(|_| {
+				bitcoin::secp256k1::ecdsa::verify(&sig.signature, msg, &pubkey).map_err(|_| {
 					format!("Failed signature verification for input at index {input_idx} for P2WPKH spend")
 				})?;
 
@@ -841,13 +841,13 @@ impl InteractiveTxSigningSession {
 						let bytes: &[u8; 32] = push_bytes.as_bytes().try_into().map_err(|_| {
 							format!("The scriptPubKey of the previous output for input at index {input_idx} for a P2TR key path spend has an invalid public key")
 						})?;
-							XOnlyPublicKey::from_byte_array(*bytes).map_err(|_| {
+						XOnlyPublicKey::from_byte_array(*bytes).map_err(|_| {
 							format!("The scriptPubKey of the previous output for input at index {input_idx} for a P2TR key path spend has an invalid public key")
 						})?
 					},
 					_ => {
 						let err = format!("The scriptPubKey of the previous output for input at index {input_idx} for a P2TR key path spend is invalid");
-						return Err(err)
+						return Err(err);
 					},
 				};
 
@@ -865,7 +865,12 @@ impl InteractiveTxSigningSession {
 						debug_assert!(false, "Funding transaction sighash should be calculable");
 						"The transaction sighash could not be calculated".to_string()
 					})?;
-				secp_ctx.verify_schnorr(&sig.signature, sighash.as_byte_array(), &pubkey).map_err(|_| {
+				bitcoin::secp256k1::schnorr::verify(
+					&sig.signature,
+					sighash.as_byte_array(),
+					&pubkey,
+				)
+				.map_err(|_| {
 					format!("Failed signature verification for input at index {input_idx} for P2TR key path spend")
 				})?;
 
@@ -1331,7 +1336,8 @@ impl NegotiationContext {
 		} else if let Some(prevtx) = &msg.prevtx {
 			let prev_txid = prevtx.compute_txid();
 			let prev_outpoint = BitcoinOutPoint { txid: prev_txid, vout: msg.prevtx_out };
-			let prev_output = prevtx.outputs.get(vout).ok_or(AbortReason::PrevTxOutInvalid)?.clone();
+			let prev_output =
+				prevtx.outputs.get(vout).ok_or(AbortReason::PrevTxOutInvalid)?.clone();
 			let txin = TxIn {
 				previous_output: prev_outpoint,
 				script_sig: bitcoin::ScriptSigBuf::new(),
@@ -2386,19 +2392,16 @@ mod tests {
 	use crate::util::atomic_counter::AtomicCounter;
 	use bitcoin::absolute::LockTime as AbsoluteLockTime;
 	use bitcoin::amount::Amount;
-	use bitcoin::hashes::Hash;
-	use hex_conservative::FromHex;
+	use bitcoin::key::{PubkeyHash, WPubkeyHash};
 	use bitcoin::key::{TweakedPublicKey, UntweakedPublicKey};
 	use bitcoin::script::Builder;
+	use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
+	use bitcoin::script::WScriptHash;
 	use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 	use bitcoin::transaction::Version;
-	use bitcoin::script::WScriptHash;
 	use bitcoin::{opcodes, Keypair, Weight, XOnlyPublicKey};
-	use bitcoin::key::{PubkeyHash, WPubkeyHash};
-	use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
-	use bitcoin::{
-		OutPoint, Sequence, Transaction, TxIn, TxOut,
-	};
+	use bitcoin::{OutPoint, Sequence, Transaction, TxIn, TxOut};
+	use hex_conservative::FromHex;
 
 	use super::{
 		get_output_weight, ConstructedTransaction, InteractiveTxSigningSession, TxInMetadata,
@@ -2497,7 +2500,7 @@ mod tests {
 					SharedOwnedInput::new(
 						TxIn {
 							previous_output: op,
-							sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+							sequence: Sequence::ENABLE_LOCKTIME_AND_RBF,
 							..TxIn::EMPTY_COINBASE
 						},
 						prev_output,
@@ -2526,7 +2529,7 @@ mod tests {
 					SharedOwnedInput::new(
 						TxIn {
 							previous_output: op,
-							sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+							sequence: Sequence::ENABLE_LOCKTIME_AND_RBF,
 							..TxIn::EMPTY_COINBASE
 						},
 						prev_output,
@@ -2661,18 +2664,16 @@ mod tests {
 	}
 
 	fn generate_txout(output: &TestOutput) -> TxOut {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (value, script_pubkey) = match output {
 			TestOutput::P2WPKH(value) => (*value, generate_p2wpkh_script_pubkey()),
 			TestOutput::P2WSH(value) => (*value, generate_funding_script_pubkey()),
 			TestOutput::P2TR(value) => (
 				*value,
 				ScriptBuf::new_p2tr(
-					UntweakedPublicKey::from_keypair(
-						&Keypair::from_secret_key(
-							&SecretKey::from_secret_bytes([3; 32]).unwrap(),
-						),
-					),
+					UntweakedPublicKey::from_keypair(&Keypair::from_secret_key(
+						&SecretKey::from_secret_bytes([3; 32]).unwrap(),
+					)),
 					None,
 				),
 			),

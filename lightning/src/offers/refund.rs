@@ -44,7 +44,7 @@
 //! # #[cfg(feature = "std")]
 //! # fn build() -> Result<(), Bolt12ParseError> {
 //! let secp_ctx = Secp256k1::new();
-//! let keys = Keypair::from_secret_key(&SecretKey::from_byte_array([42; 32]).unwrap());
+//! let keys = Keypair::from_secret_key(&SecretKey::from_secret_bytes([42; 32]).unwrap());
 //! let pubkey = PublicKey::from(keys);
 //!
 //! let expiration = SystemTime::now() + Duration::from_secs(24 * 60 * 60);
@@ -1028,7 +1028,7 @@ mod tests {
 
 	use bitcoin::constants::ChainHash;
 	use bitcoin::network::Network;
-	use bitcoin::secp256k1::{Keypair, Secp256k1, SecretKey};
+	use bitcoin::secp256k1::{Keypair, Secp256k1};
 
 	use core::time::Duration;
 
@@ -1385,7 +1385,8 @@ mod tests {
 	#[test]
 	fn builds_refund_with_chain() {
 		let mainnet = ChainHash::using_genesis_block(Network::Bitcoin);
-		let testnet = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let testnet =
+			ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 
 		let refund = RefundBuilder::new(vec![1; 32], payer_pubkey(), 1000)
 			.unwrap()
@@ -1618,7 +1619,12 @@ mod tests {
 				assert!(refund.is_expired());
 				assert_eq!(refund.paths(), &paths[..]);
 				assert_eq!(refund.issuer(), Some(PrintableString("bar")));
-				assert_eq!(refund.chain(), ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)));
+				assert_eq!(
+					refund.chain(),
+					ChainHash::using_genesis_block(Network::Testnet(
+						bitcoin::network::TestnetVersion::V3
+					))
+				);
 				assert_eq!(refund.features(), &InvoiceRequestFeatures::unknown());
 				assert_eq!(refund.quantity(), Some(10));
 				assert_eq!(refund.payer_note(), Some(PrintableString("baz")));
@@ -1649,7 +1655,9 @@ mod tests {
 			},
 		}
 
-		let chains = vec![ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3))];
+		let chains = vec![ChainHash::using_genesis_block(Network::Testnet(
+			bitcoin::network::TestnetVersion::V3,
+		))];
 		let mut tlv_stream = refund.as_tlv_stream();
 		tlv_stream.1.chains = Some(&chains);
 
@@ -1797,8 +1805,9 @@ mod tests {
 
 	#[test]
 	fn fails_parsing_refund_with_out_of_range_tlv_records() {
-		let secp_ctx = Secp256k1::new();
-		let keys = Keypair::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
+		let _secp_ctx = Secp256k1::new();
+		let keys =
+			Keypair::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let refund =
 			RefundBuilder::new(vec![1; 32], keys.public_key(), 1000).unwrap().build().unwrap();
 

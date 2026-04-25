@@ -2085,12 +2085,17 @@ mod tests {
 	/// `Persist` and that `channel_monitor_updated` is called on `Completed` status.
 	#[test]
 	fn test_queue_and_flush() {
-		let broadcaster = TestBroadcaster::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let broadcaster =
+			TestBroadcaster::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let fee_est = TestFeeEstimator::new(253);
 		let logger = TestLogger::new();
 		let persister = TestPersister::new();
-		let chain_source = TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
-		let keys = TestKeysInterface::new(&[0; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let chain_source =
+			TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let keys = TestKeysInterface::new(
+			&[0; 32],
+			Network::Testnet(bitcoin::network::TestnetVersion::V3),
+		);
 		let deferred = create_deferred_chain_monitor(
 			&chain_source,
 			&broadcaster,

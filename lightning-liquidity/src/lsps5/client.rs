@@ -474,7 +474,7 @@ mod tests {
 			LSPS5ClientConfig::default(),
 		);
 
-		let secp = Secp256k1::new();
+		let _secp = Secp256k1::new();
 		let secret_key_1 = SecretKey::from_secret_bytes([42u8; 32]).unwrap();
 		let secret_key_2 = SecretKey::from_secret_bytes([43u8; 32]).unwrap();
 		let peer_1 = PublicKey::from_secret_key(&secret_key_1);

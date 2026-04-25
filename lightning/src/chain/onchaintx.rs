@@ -14,7 +14,6 @@
 
 use bitcoin::amount::Amount;
 use bitcoin::hash_types::{BlockHash, Txid};
-use bitcoin::hashes::Hash;
 use bitcoin::locktime::absolute::LockTime;
 use bitcoin::script::{ScriptPubKey as Script, ScriptPubKeyBuf as ScriptBuf};
 use bitcoin::secp256k1;
@@ -1283,11 +1282,10 @@ impl<ChannelSigner: EcdsaChannelSigner> OnchainTxHandler<ChannelSigner> {
 #[cfg(test)]
 mod tests {
 	use bitcoin::hash_types::Txid;
-	use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
-	use bitcoin::hashes::Hash;
-	use bitcoin::Network;
+	use bitcoin::hashes::sha256::Hash as Sha256;
 	use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
-	use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+	use bitcoin::secp256k1::{PublicKey, Secp256k1};
+	use bitcoin::Network;
 	use types::features::ChannelTypeFeatures;
 
 	use crate::chain::chaininterface::{ConfirmationTarget, LowerBoundedFeeEstimator};

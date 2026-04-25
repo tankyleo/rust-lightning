@@ -251,7 +251,7 @@ mod tests {
 	use crate::alloc::string::ToString;
 	use crate::lsps2::utils::is_valid_opening_fee_params;
 
-	use bitcoin::secp256k1::{Secp256k1, SecretKey};
+	use bitcoin::secp256k1::SecretKey;
 
 	use core::str::FromStr;
 
@@ -276,7 +276,8 @@ mod tests {
 		};
 
 		let promise_secret = [1u8; 32];
-		let client_node_id = PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
+		let client_node_id =
+			PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
 
 		let opening_fee_params = raw.into_opening_fee_params(&promise_secret, &client_node_id);
 
@@ -312,7 +313,8 @@ mod tests {
 		};
 
 		let promise_secret = [1u8; 32];
-		let client_node_id = PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
+		let client_node_id =
+			PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
 
 		let mut opening_fee_params = raw.into_opening_fee_params(&promise_secret, &client_node_id);
 		opening_fee_params.min_fee_msat = min_fee_msat + 1;
@@ -346,7 +348,8 @@ mod tests {
 		let promise_secret = [1u8; 32];
 		let other_secret = [2u8; 32];
 
-		let client_node_id = PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
+		let client_node_id =
+			PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
 
 		let opening_fee_params = raw.into_opening_fee_params(&promise_secret, &client_node_id);
 		assert!(!is_valid_opening_fee_params(&opening_fee_params, &other_secret, &client_node_id));
@@ -374,9 +377,11 @@ mod tests {
 
 		let promise_secret = [1u8; 32];
 
-		let client_node_id = PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
+		let client_node_id =
+			PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
 
-		let other_public_key = PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcf; 32]).unwrap());
+		let other_public_key =
+			PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcf; 32]).unwrap());
 
 		let opening_fee_params = raw.into_opening_fee_params(&promise_secret, &client_node_id);
 		assert!(is_valid_opening_fee_params(&opening_fee_params, &promise_secret, &client_node_id));
@@ -410,7 +415,8 @@ mod tests {
 		};
 
 		let promise_secret = [1u8; 32];
-		let client_node_id = PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
+		let client_node_id =
+			PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
 
 		let opening_fee_params = raw.into_opening_fee_params(&promise_secret, &client_node_id);
 		assert!(!is_valid_opening_fee_params(
@@ -441,7 +447,8 @@ mod tests {
 		};
 
 		let promise_secret = [1u8; 32];
-		let client_node_id = PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
+		let client_node_id =
+			PublicKey::from_secret_key(&SecretKey::from_secret_bytes([0xcd; 32]).unwrap());
 
 		let opening_fee_params = raw.into_opening_fee_params(&promise_secret, &client_node_id);
 		let json_str = r#"{"max_client_to_self_delay":128,"max_payment_size_msat":"100000000","min_fee_msat":"100","min_lifetime":144,"min_payment_size_msat":"1","promise":"75eb57db4c37dc092a37f1d2e0026c5ff36a7834a717ea97c41d91a8d5b50ce8","proportional":21,"valid_until":"2023-05-20T08:30:45Z"}"#;

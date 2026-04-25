@@ -37,10 +37,10 @@ use crate::types::payment::{PaymentHash, PaymentSecret};
 use crate::util::config::{HTLCInterceptionFlags, UserConfig};
 use crate::util::ser::{WithoutLength, Writeable};
 use crate::util::test_utils::{self, bytes_from_hex, pubkey_from_hex, secret_from_hex};
-use hex_conservative::DisplayHex;
 use bitcoin::secp256k1::ecdh::SharedSecret;
 use bitcoin::secp256k1::ecdsa::{RecoverableSignature, Signature};
 use bitcoin::secp256k1::{schnorr, All, PublicKey, Scalar, Secp256k1, SecretKey};
+use hex_conservative::DisplayHex;
 use lightning_invoice::RawBolt11Invoice;
 use types::features::Features;
 
@@ -1892,10 +1892,10 @@ fn test_combined_trampoline_onion_creation_vectors() {
 	};
 
 	let associated_data_slice = secret_from_hex("e89bc505e84aaca09613833fc58c9069078fb43bfbea0488f34eec9db99b5f82");
-	let associated_data = PaymentHash(associated_data_slice.secret_bytes());
-	let payment_secret = PaymentSecret(secret_from_hex("7494b65bc092b48a75465e43e29be807eb2cc535ce8aaba31012b8ff1ceac5da").secret_bytes());
+	let associated_data = PaymentHash(associated_data_slice.to_secret_bytes());
+	let payment_secret = PaymentSecret(secret_from_hex("7494b65bc092b48a75465e43e29be807eb2cc535ce8aaba31012b8ff1ceac5da").to_secret_bytes());
 	let outer_session_key = secret_from_hex("4f777e8dac16e6dfe333066d9efb014f7a51d11762ff76eca4d3a95ada99ba3e");
-	let outer_onion_prng_seed = onion_utils::gen_pad_from_shared_secret(&outer_session_key.secret_bytes());
+	let outer_onion_prng_seed = onion_utils::gen_pad_from_shared_secret(&outer_session_key.to_secret_bytes());
 
 	let amt_msat = 150_000_000;
 	let cur_height = 800_000;
@@ -1986,7 +1986,7 @@ fn test_trampoline_inbound_payment_decoding() {
 		})
 	};
 
-	let payment_secret = PaymentSecret(secret_from_hex("7494b65bc092b48a75465e43e29be807eb2cc535ce8aaba31012b8ff1ceac5da").secret_bytes());
+	let payment_secret = PaymentSecret(secret_from_hex("7494b65bc092b48a75465e43e29be807eb2cc535ce8aaba31012b8ff1ceac5da").to_secret_bytes());
 
 	let amt_msat = 150_000_001;
 	let cur_height = 800_001;
@@ -2472,7 +2472,8 @@ fn replacement_onion(
 	original_trampoline_cltv: u32, payment_hash: PaymentHash, payment_secret: PaymentSecret,
 	blinded: bool,
 ) -> msgs::OnionPacket {
-	let outer_session_priv = crate::prelude::secret_key_from_slice(&override_random_bytes[..]).unwrap();
+	let outer_session_priv =
+		crate::prelude::secret_key_from_slice(&override_random_bytes[..]).unwrap();
 	let trampoline_session_priv = onion_utils::compute_trampoline_session_priv(&outer_session_priv);
 	let recipient_onion_fields = RecipientOnionFields::spontaneous_empty(original_amt_msat);
 

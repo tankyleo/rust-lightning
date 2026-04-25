@@ -4576,21 +4576,21 @@ mod tests {
 	use crate::util::ser::{BigSize, Hostname, LengthReadable, Readable, ReadableArgs, Writeable};
 	use crate::util::test_utils::{self, pubkey};
 	use hex_conservative::DisplayHex;
-	use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
+
 	use bitcoin::{Amount, Sequence, Transaction, TxIn, TxOut, Witness};
 
 	use bitcoin::address::Address;
 	use bitcoin::constants::ChainHash;
 	use bitcoin::hash_types::Txid;
-	use hex_conservative::FromHex;
 	use bitcoin::locktime::absolute::LockTime;
 	use bitcoin::network::Network;
 	use bitcoin::opcodes;
 	use bitcoin::script::Builder;
 	use bitcoin::transaction::Version;
+	use hex_conservative::FromHex;
 
+	use bitcoin::secp256k1::PublicKey;
 	use bitcoin::secp256k1::{Message, Secp256k1};
-	use bitcoin::secp256k1::{PublicKey, SecretKey};
 
 	use crate::chain::transaction::OutPoint;
 	use crate::io::{self, Cursor};
@@ -4607,7 +4607,7 @@ mod tests {
 	#[test]
 	fn encoding_channel_reestablish() {
 		let public_key = {
-			let secp_ctx = Secp256k1::new();
+			let _secp_ctx = Secp256k1::new();
 			PublicKey::from_secret_key(
 				&crate::prelude::secret_key_from_slice(
 					&<Vec<u8>>::from_hex(
@@ -4652,7 +4652,7 @@ mod tests {
 	#[test]
 	fn encoding_channel_reestablish_with_next_funding_txid() {
 		let public_key = {
-			let secp_ctx = Secp256k1::new();
+			let _secp_ctx = Secp256k1::new();
 			PublicKey::from_secret_key(
 				&crate::prelude::secret_key_from_slice(
 					&<Vec<u8>>::from_hex(
@@ -4675,9 +4675,10 @@ mod tests {
 			my_current_per_commitment_point: public_key,
 			next_funding: Some(msgs::NextFunding {
 				txid: Txid::from_slice(&[
-						48, 167, 250, 69, 152, 48, 103, 172, 164, 99, 59, 19, 23, 11, 92, 84, 15,
-						80, 4, 12, 98, 82, 75, 31, 201, 11, 91, 23, 98, 23, 53, 124,
-					]).unwrap(),
+					48, 167, 250, 69, 152, 48, 103, 172, 164, 99, 59, 19, 23, 11, 92, 84, 15, 80,
+					4, 12, 98, 82, 75, 31, 201, 11, 91, 23, 98, 23, 53, 124,
+				])
+				.unwrap(),
 				retransmit_flags: 1,
 			}),
 			my_current_funding_locked: None,
@@ -4707,7 +4708,7 @@ mod tests {
 	#[test]
 	fn encoding_channel_reestablish_with_funding_locked_txid() {
 		let public_key = {
-			let secp_ctx = Secp256k1::new();
+			let _secp_ctx = Secp256k1::new();
 			PublicKey::from_secret_key(
 				&crate::prelude::secret_key_from_slice(
 					&<Vec<u8>>::from_hex(
@@ -4731,9 +4732,10 @@ mod tests {
 			next_funding: None,
 			my_current_funding_locked: Some(msgs::FundingLocked {
 				txid: Txid::from_slice(&[
-						21, 167, 250, 69, 152, 48, 103, 172, 164, 99, 59, 19, 23, 11, 92, 84, 15,
-						80, 4, 12, 98, 82, 75, 31, 201, 11, 91, 23, 98, 23, 53, 124,
-					]).unwrap(),
+					21, 167, 250, 69, 152, 48, 103, 172, 164, 99, 59, 19, 23, 11, 92, 84, 15, 80,
+					4, 12, 98, 82, 75, 31, 201, 11, 91, 23, 98, 23, 53, 124,
+				])
+				.unwrap(),
 				retransmit_flags: 1,
 			}),
 		};
@@ -4761,7 +4763,9 @@ mod tests {
 
 	macro_rules! get_keys_from {
 		($slice: expr, $secp_ctx: expr) => {{
-			let privkey = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex($slice).unwrap()[..]).unwrap();
+			let privkey =
+				crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex($slice).unwrap()[..])
+					.unwrap();
 			let pubkey = PublicKey::from_secret_key(&privkey);
 			(privkey, pubkey)
 		}};
@@ -4769,14 +4773,15 @@ mod tests {
 
 	macro_rules! get_sig_on {
 		($privkey: expr, $ctx: expr, $string: expr) => {{
-			let sighash = Message::from_digest_slice(&$string.into_bytes()[..]).unwrap();
-			$ctx.sign_ecdsa(sighash, &$privkey)
+			let sighash =
+				Message::from_digest(<[u8; 32]>::try_from(&$string.into_bytes()[..]).unwrap());
+			bitcoin::secp256k1::ecdsa::sign(sighash, &$privkey)
 		}};
 	}
 
 	#[test]
 	fn encoding_announcement_signatures() {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (privkey, _) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -4800,7 +4805,7 @@ mod tests {
 	}
 
 	fn do_encoding_channel_announcement(unknown_features_bits: bool, excess_data: bool) {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (privkey_1, pubkey_1) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -4882,7 +4887,7 @@ mod tests {
 		unknown_features_bits: bool, ipv4: bool, ipv6: bool, onionv2: bool, onionv3: bool,
 		hostname: bool, excess_address_data: bool, excess_data: bool,
 	) {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (privkey_1, pubkey_1) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -5019,7 +5024,7 @@ mod tests {
 	}
 
 	fn do_encoding_channel_update(direction: bool, disable: bool, excess_data: bool) {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (privkey_1, _) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -5082,7 +5087,7 @@ mod tests {
 	}
 
 	fn do_encoding_open_channel(random_bit: bool, shutdown: bool, incl_chan_type: bool) {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (_, pubkey_1) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -5187,7 +5192,7 @@ mod tests {
 		random_bit: bool, shutdown: bool, incl_chan_type: bool, require_confirmed_inputs: bool,
 		disable_channel_reserve: bool,
 	) {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (_, pubkey_1) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -5383,7 +5388,7 @@ mod tests {
 	}
 
 	fn do_encoding_accept_channel(shutdown: bool) {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (_, pubkey_1) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -5459,7 +5464,7 @@ mod tests {
 		shutdown: bool, incl_chan_type: bool, require_confirmed_inputs: bool,
 		disable_channel_reserve: bool,
 	) {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (_, pubkey_1) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -5618,7 +5623,7 @@ mod tests {
 
 	#[test]
 	fn encoding_funding_created() {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (privkey_1, _) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -5641,7 +5646,7 @@ mod tests {
 
 	#[test]
 	fn encoding_funding_signed() {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (privkey_1, _) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -5657,7 +5662,7 @@ mod tests {
 
 	#[test]
 	fn encoding_channel_ready() {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (_, pubkey_1) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -5674,7 +5679,7 @@ mod tests {
 
 	#[test]
 	fn encoding_splice_init() {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (_, pubkey_1) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -5710,7 +5715,7 @@ mod tests {
 
 	#[test]
 	fn encoding_splice_ack() {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (_, pubkey_1) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -5848,7 +5853,7 @@ mod tests {
 
 	#[test]
 	fn encoding_tx_signatures() {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (privkey_1, _) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -5982,7 +5987,7 @@ mod tests {
 	}
 
 	fn do_encoding_shutdown(script_type: u8) {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (_, pubkey_1) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -5999,8 +6004,11 @@ mod tests {
 			} else if script_type == 2 {
 				script.to_p2sh()
 			} else if script_type == 3 {
-				Address::p2wpkh(::bitcoin::CompressedPublicKey::from_secp(pubkey_1), Network::Testnet(bitcoin::network::TestnetVersion::V3))
-					.script_pubkey()
+				Address::p2wpkh(
+					::bitcoin::CompressedPublicKey::from_secp(pubkey_1),
+					Network::Testnet(bitcoin::network::TestnetVersion::V3),
+				)
+				.script_pubkey()
 			} else {
 				script.to_p2wsh()
 			},
@@ -6045,7 +6053,7 @@ mod tests {
 
 	#[test]
 	fn encoding_closing_signed() {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (privkey_1, _) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -6087,7 +6095,7 @@ mod tests {
 
 	#[test]
 	fn encoding_update_add_htlc() {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (_, pubkey_1) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -6155,7 +6163,7 @@ mod tests {
 	}
 
 	fn do_encoding_commitment_signed(htlcs: bool) {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (privkey_1, _) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -6210,7 +6218,7 @@ mod tests {
 
 	#[test]
 	fn encoding_revoke_and_ack() {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (_, pubkey_1) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -6363,7 +6371,10 @@ mod tests {
 			<Vec<u8>>::from_hex("1a02080badf00d010203040404ffffffff0608deadbeef1bad1dea").unwrap();
 		assert_eq!(encoded_value, target_value);
 
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let node_signer = test_utils::TestKeysInterface::new(
+			&[42; 32],
+			Network::Testnet(bitcoin::network::TestnetVersion::V3),
+		);
 		let inbound_msg =
 			ReadableArgs::read(&mut Cursor::new(&target_value[..]), (None, &node_signer)).unwrap();
 		if let msgs::InboundOnionPayload::Forward(InboundOnionForwardPayload {
@@ -6394,7 +6405,10 @@ mod tests {
 		let target_value = <Vec<u8>>::from_hex("1002080badf00d010203040404ffffffff").unwrap();
 		assert_eq!(encoded_value, target_value);
 
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let node_signer = test_utils::TestKeysInterface::new(
+			&[42; 32],
+			Network::Testnet(bitcoin::network::TestnetVersion::V3),
+		);
 		let inbound_msg =
 			ReadableArgs::read(&mut Cursor::new(&target_value[..]), (None, &node_signer)).unwrap();
 		if let msgs::InboundOnionPayload::Receive(InboundOnionReceivePayload {
@@ -6429,7 +6443,10 @@ mod tests {
 		let target_value = <Vec<u8>>::from_hex("3602080badf00d010203040404ffffffff082442424242424242424242424242424242424242424242424242424242424242421badca1f").unwrap();
 		assert_eq!(encoded_value, target_value);
 
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let node_signer = test_utils::TestKeysInterface::new(
+			&[42; 32],
+			Network::Testnet(bitcoin::network::TestnetVersion::V3),
+		);
 		let inbound_msg =
 			ReadableArgs::read(&mut Cursor::new(&target_value[..]), (None, &node_signer)).unwrap();
 		if let msgs::InboundOnionPayload::Receive(InboundOnionReceivePayload {
@@ -6464,7 +6481,10 @@ mod tests {
 			cltv_expiry_height: 0xffffffff,
 		};
 		let encoded_value = msg.encode();
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let node_signer = test_utils::TestKeysInterface::new(
+			&[42; 32],
+			Network::Testnet(bitcoin::network::TestnetVersion::V3),
+		);
 		assert!(msgs::InboundOnionPayload::read(
 			&mut Cursor::new(&encoded_value[..]),
 			(None, &node_signer)
@@ -6500,7 +6520,10 @@ mod tests {
 		let encoded_value = msg.encode();
 		let target_value = <Vec<u8>>::from_hex("2e02080badf00d010203040404ffffffffff0000000146c6616b021234ff0000000146c6616f084242424242424242").unwrap();
 		assert_eq!(encoded_value, target_value);
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let node_signer = test_utils::TestKeysInterface::new(
+			&[42; 32],
+			Network::Testnet(bitcoin::network::TestnetVersion::V3),
+		);
 		let inbound_msg: msgs::InboundOnionPayload =
 			ReadableArgs::read(&mut Cursor::new(&target_value[..]), (None, &node_signer)).unwrap();
 		if let msgs::InboundOnionPayload::Receive(InboundOnionReceivePayload {
@@ -6523,7 +6546,7 @@ mod tests {
 
 	#[test]
 	fn encoding_final_onion_hop_data_with_trampoline_packet() {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let (_private_key, public_key) = get_keys_from!(
 			"0101010101010101010101010101010101010101010101010101010101010101",
 			secp_ctx
@@ -6837,7 +6860,10 @@ mod tests {
 		let big_payload = encode_big_payload().unwrap();
 		let mut rd = Cursor::new(&big_payload[..]);
 
-		let node_signer = test_utils::TestKeysInterface::new(&[42; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let node_signer = test_utils::TestKeysInterface::new(
+			&[42; 32],
+			Network::Testnet(bitcoin::network::TestnetVersion::V3),
+		);
 		<msgs::InboundOnionPayload as ReadableArgs<(
 			Option<PublicKey>,
 			&test_utils::TestKeysInterface,

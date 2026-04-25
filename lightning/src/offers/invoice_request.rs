@@ -165,11 +165,14 @@ macro_rules! invoice_request_derived_payer_signing_pubkey_builder_methods {
 			let mut unsigned_invoice_request = unsigned_invoice_request;
 			debug_assert!(keys.is_some());
 
-			let secp_ctx = secp_ctx.unwrap();
+			let _secp_ctx = secp_ctx.unwrap();
 			let keys = keys.unwrap();
 			let invoice_request = unsigned_invoice_request
 				.sign(|message: &UnsignedInvoiceRequest| {
-					Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
+					Ok(bitcoin::secp256k1::schnorr::sign_no_aux_rand(
+						message.as_ref().as_digest_bytes(),
+						&keys,
+					))
 				})
 				.unwrap();
 			Ok(invoice_request)
@@ -390,11 +393,11 @@ macro_rules! invoice_request_builder_test_methods { (
 		let mut unsigned_invoice_request = unsigned_invoice_request;
 		debug_assert!(keys.is_some());
 
-		let secp_ctx = secp_ctx.unwrap();
+		let _secp_ctx = secp_ctx.unwrap();
 		let keys = keys.unwrap();
 		unsigned_invoice_request
 			.sign(|message: &UnsignedInvoiceRequest|
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
+				Ok(bitcoin::secp256k1::schnorr::sign_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
 			)
 			.unwrap()
 	}
@@ -1575,7 +1578,7 @@ mod tests {
 	use crate::util::ser::{BigSize, Readable, Writeable};
 	use bitcoin::constants::ChainHash;
 	use bitcoin::network::Network;
-	use bitcoin::secp256k1::{self, Keypair, Secp256k1, SecretKey};
+	use bitcoin::secp256k1::{self, Keypair, Secp256k1};
 	use core::num::NonZeroU64;
 	#[cfg(feature = "std")]
 	use core::time::Duration;
@@ -1826,7 +1829,8 @@ mod tests {
 		let payment_id = PaymentId([1; 32]);
 
 		let mainnet = ChainHash::using_genesis_block(Network::Bitcoin);
-		let testnet = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let testnet =
+			ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 
 		let invoice_request = OfferBuilder::new(recipient_pubkey())
 			.amount_msats(1000)
@@ -2851,7 +2855,8 @@ mod tests {
 		assert!(UNKNOWN_ODD_TYPE % 2 == 1);
 
 		let secp_ctx = Secp256k1::new();
-		let keys = Keypair::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
+		let keys =
+			Keypair::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let (mut unsigned_invoice_request, payer_keys, _) = OfferBuilder::new(keys.public_key())
 			.amount_msats(1000)
 			.build()
@@ -2872,7 +2877,10 @@ mod tests {
 		let keys = payer_keys.unwrap();
 		let invoice_request = unsigned_invoice_request
 			.sign(|message: &UnsignedInvoiceRequest| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
+				Ok(bitcoin::secp256k1::schnorr::sign_no_aux_rand(
+					message.as_ref().as_digest_bytes(),
+					&keys,
+				))
 			})
 			.unwrap();
 
@@ -2907,7 +2915,10 @@ mod tests {
 		let keys = payer_keys.unwrap();
 		let invoice_request = unsigned_invoice_request
 			.sign(|message: &UnsignedInvoiceRequest| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
+				Ok(bitcoin::secp256k1::schnorr::sign_no_aux_rand(
+					message.as_ref().as_digest_bytes(),
+					&keys,
+				))
 			})
 			.unwrap();
 
@@ -2931,7 +2942,8 @@ mod tests {
 		assert!(UNKNOWN_ODD_TYPE % 2 == 1);
 
 		let secp_ctx = Secp256k1::new();
-		let keys = Keypair::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
+		let keys =
+			Keypair::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
 		let (mut unsigned_invoice_request, payer_keys, _) = OfferBuilder::new(keys.public_key())
 			.amount_msats(1000)
 			.build()
@@ -2955,7 +2967,10 @@ mod tests {
 		let keys = payer_keys.unwrap();
 		let invoice_request = unsigned_invoice_request
 			.sign(|message: &UnsignedInvoiceRequest| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
+				Ok(bitcoin::secp256k1::schnorr::sign_no_aux_rand(
+					message.as_ref().as_digest_bytes(),
+					&keys,
+				))
 			})
 			.unwrap();
 
@@ -2993,7 +3008,10 @@ mod tests {
 		let keys = payer_keys.unwrap();
 		let invoice_request = unsigned_invoice_request
 			.sign(|message: &UnsignedInvoiceRequest| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
+				Ok(bitcoin::secp256k1::schnorr::sign_no_aux_rand(
+					message.as_ref().as_digest_bytes(),
+					&keys,
+				))
 			})
 			.unwrap();
 

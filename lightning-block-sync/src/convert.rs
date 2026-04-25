@@ -7,12 +7,11 @@ use crate::{BlockHeaderData, BlockSourceError};
 use bitcoin::block::{Block, Header};
 use bitcoin::consensus::encode;
 use bitcoin::hash_types::{BlockHash, TxMerkleNode, Txid};
-use hex_conservative::FromHex;
 use bitcoin::Transaction;
+use hex_conservative::FromHex;
 
 use serde_json;
 
-use bitcoin::hashes::Hash;
 use std::convert::Infallible;
 use std::convert::TryFrom;
 use std::convert::TryInto;
@@ -333,9 +332,8 @@ impl TryInto<GetUtxosResponse> for JsonResponse {
 pub(crate) mod tests {
 	use super::*;
 	use bitcoin::constants::genesis_block;
-	use bitcoin::hashes::Hash;
-	use hex_conservative::DisplayHex;
 	use bitcoin::network::Network;
+	use hex_conservative::DisplayHex;
 	use serde_json::value::Number;
 	use serde_json::Value;
 

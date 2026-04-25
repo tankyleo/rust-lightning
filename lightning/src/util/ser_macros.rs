@@ -1448,8 +1448,8 @@ mod tests {
 		HighZeroBytesDroppedBigSize, LengthReadable, MaybeReadable, Readable, VecWriter,
 		WithoutLength, Writeable,
 	};
-	use hex_conservative::FromHex;
 	use bitcoin::secp256k1::PublicKey;
+	use hex_conservative::FromHex;
 
 	// The BOLT TLV test cases don't include any tests which use our "required-value" logic since
 	// the encoding layer in the BOLTs has no such concept, though it makes our macros easier to

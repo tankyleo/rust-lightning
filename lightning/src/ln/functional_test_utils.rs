@@ -57,17 +57,16 @@ use crate::util::wallet_utils::{WalletSourceSync, WalletSync};
 use bitcoin::amount::Amount;
 use bitcoin::block::{Block, Header, Version as BlockVersion};
 use bitcoin::hash_types::{BlockHash, TxMerkleNode};
-use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
-use bitcoin::hashes::Hash as _;
+use bitcoin::hashes::sha256::Hash as Sha256;
+use bitcoin::key::WPubkeyHash;
 use bitcoin::locktime::absolute::LockTime;
 use bitcoin::network::Network;
 use bitcoin::policy::MAX_STANDARD_TX_WEIGHT;
 use bitcoin::pow::CompactTarget;
 use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
-use bitcoin::secp256k1::{PublicKey, SecretKey};
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::transaction::{self, Version as TxVersion};
 use bitcoin::transaction::{Transaction, TxIn, TxOut};
-use bitcoin::key::WPubkeyHash;
 use bitcoin::BlockTime;
 
 use crate::io;
@@ -166,8 +165,7 @@ pub fn confirm_transactions_at<'a, 'b, 'c, 'd>(
 	}
 	let block = create_dummy_block(node.best_block_hash(), conf_height, txdata);
 	connect_block(node, &block);
-	scid_utils::scid_from_parts(conf_height as u64, block.as_parts().1.len() as u64 - 1, 0)
-		.unwrap()
+	scid_utils::scid_from_parts(conf_height as u64, block.as_parts().1.len() as u64 - 1, 0).unwrap()
 }
 pub fn confirm_transaction_at<'a, 'b, 'c, 'd>(
 	node: &'a Node<'b, 'c, 'd>, tx: &Transaction, conf_height: u32,
@@ -371,7 +369,9 @@ fn do_connect_block_without_consistency_checks<'a, 'b, 'c, 'd>(
 				if *node.connect_style.borrow()
 					== ConnectStyle::TransactionsDuplicativelyFirstSkippingBlocks
 				{
-					node.chain_monitor.chain_monitor.transactions_confirmed(header, &txdata, height);
+					node.chain_monitor
+						.chain_monitor
+						.transactions_confirmed(header, &txdata, height);
 				}
 				call_claimable_balances(node);
 				node.chain_monitor.chain_monitor.best_block_updated(header, height);
@@ -410,7 +410,7 @@ pub fn provide_utxo_reserves<'a, 'b, 'c>(
 	for node in nodes {
 		let script_pubkey = node.wallet_source.get_change_script().unwrap();
 		for _ in 0..utxos {
-			output.push(TxOut { amount: amount, script_pubkey: script_pubkey.clone() });
+			output.push(TxOut { amount, script_pubkey: script_pubkey.clone() });
 		}
 	}
 	let tx = Transaction {
@@ -457,7 +457,9 @@ pub fn disconnect_blocks<'a, 'b, 'c, 'd>(node: &'a Node<'b, 'c, 'd>, count: u32)
 			| ConnectStyle::HighlyRedundantTransactionsFirstSkippingBlocks
 			| ConnectStyle::TransactionsDuplicativelyFirstSkippingBlocks => {
 				if i == count - 1 {
-					node.chain_monitor.chain_monitor.best_block_updated(prev.0.as_parts().0, prev.1);
+					node.chain_monitor
+						.chain_monitor
+						.best_block_updated(prev.0.as_parts().0, prev.1);
 					node.node.best_block_updated(prev.0.as_parts().0, prev.1);
 				}
 			},
@@ -926,7 +928,9 @@ impl<'a, 'b, 'c> Drop for Node<'a, 'b, 'c> {
 			}
 
 			let persister = test_utils::TestPersister::new();
-			let chain_source = test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+			let chain_source = test_utils::TestChainSource::new(Network::Testnet(
+				bitcoin::network::TestnetVersion::V3,
+			));
 			let chain_monitor = test_utils::TestChainMonitor::new(
 				Some(&chain_source),
 				&broadcaster,
@@ -2842,7 +2846,8 @@ pub fn get_payment_preimage_hash(
 /// Gets a route from the given sender to the node described in `payment_params`.
 pub fn get_route(send_node: &Node, route_params: &RouteParameters) -> Result<Route, &'static str> {
 	let scorer = TestScorer::new();
-	let keys_manager = TestKeysInterface::new(&[0u8; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
+	let keys_manager =
+		TestKeysInterface::new(&[0u8; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 	let random_seed_bytes = keys_manager.get_secure_random_bytes();
 	let first_hops = send_node.node.list_usable_channels();
 	router::get_route(
@@ -2860,7 +2865,8 @@ pub fn get_route(send_node: &Node, route_params: &RouteParameters) -> Result<Rou
 /// Like `get_route` above, but adds a random CLTV offset to the final hop.
 pub fn find_route(send_node: &Node, route_params: &RouteParameters) -> Result<Route, &'static str> {
 	let scorer = TestScorer::new();
-	let keys_manager = TestKeysInterface::new(&[0u8; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
+	let keys_manager =
+		TestKeysInterface::new(&[0u8; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 	let random_seed_bytes = keys_manager.get_secure_random_bytes();
 	router::find_route(
 		&send_node.node.get_our_node_id(),
@@ -4540,9 +4546,13 @@ pub fn create_chanmon_cfgs_internal(
 	let mut chan_mon_cfgs = Vec::new();
 	let phantom_seed = if phantom { Some(&[42; 32]) } else { None };
 	for i in 0..node_count {
-		let tx_broadcaster = test_utils::TestBroadcaster::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let tx_broadcaster = test_utils::TestBroadcaster::new(Network::Testnet(
+			bitcoin::network::TestnetVersion::V3,
+		));
 		let fee_estimator = test_utils::TestFeeEstimator::new(253);
-		let chain_source = test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let chain_source = test_utils::TestChainSource::new(Network::Testnet(
+			bitcoin::network::TestnetVersion::V3,
+		));
 		let logger = test_utils::TestLogger::with_id(format!("node {}", i));
 		let persister = test_utils::TestPersister::new();
 		let mut seed = [i as u8; 32];
@@ -4599,7 +4609,10 @@ where
 
 	for i in 0..node_count {
 		let cfg = &chanmon_cfgs[i];
-		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &cfg.logger));
+		let network_graph = Arc::new(NetworkGraph::new(
+			Network::Testnet(bitcoin::network::TestnetVersion::V3),
+			&cfg.logger,
+		));
 		let chain_monitor = if deferred {
 			test_utils::TestChainMonitor::new_deferred(
 				Some(&cfg.chain_source),

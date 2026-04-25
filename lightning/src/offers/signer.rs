@@ -281,7 +281,7 @@ impl MetadataMaterial {
 	}
 
 	fn derive_metadata_and_keys<W: Writeable, T: secp256k1::Signing>(
-		mut self, iv_bytes: &[u8; IV_LEN], tlv_stream: W, secp_ctx: &Secp256k1<T>,
+		mut self, iv_bytes: &[u8; IV_LEN], tlv_stream: W, _secp_ctx: &Secp256k1<T>,
 	) -> (Vec<u8>, Keypair) {
 		self.hmac.input(iv_bytes);
 		self.hmac.input(&self.nonce.0);
@@ -293,7 +293,7 @@ impl MetadataMaterial {
 		let bytes = self.encrypted_payment_id.map(|id| id.to_vec()).unwrap_or_default();
 
 		let hmac = self.hmac.finalize();
-		let privkey = SecretKey::from_byte_array(*hmac.as_byte_array()).unwrap();
+		let privkey = SecretKey::from_secret_bytes(*hmac.as_byte_array()).unwrap();
 		let keys = Keypair::from_secret_key(&privkey);
 
 		(bytes, keys)
@@ -316,8 +316,8 @@ pub(super) fn derive_keys(nonce: Nonce, expanded_key: &ExpandedKey) -> Keypair {
 	hmac.input(IV_BYTES);
 	hmac.input(&nonce.0);
 
-	let secp_ctx = Secp256k1::new();
-	let privkey = SecretKey::from_byte_array(*hmac.finalize().as_byte_array()).unwrap();
+	let _secp_ctx = Secp256k1::new();
+	let privkey = SecretKey::from_secret_bytes(*hmac.finalize().as_byte_array()).unwrap();
 	Keypair::from_secret_key(&privkey)
 }
 
@@ -347,12 +347,7 @@ pub(super) fn verify_payer_metadata<'a, T: secp256k1::Signing>(
 	hmac.input(WITH_ENCRYPTED_PAYMENT_ID_HMAC_INPUT);
 	hmac.input(&encrypted_payment_id);
 
-	verify_metadata(
-		&metadata[PaymentId::LENGTH..],
-		hmac.finalize(),
-		signing_pubkey,
-		secp_ctx,
-	)?;
+	verify_metadata(&metadata[PaymentId::LENGTH..], hmac.finalize(), signing_pubkey, secp_ctx)?;
 
 	let nonce = Nonce::try_from(&metadata[PaymentId::LENGTH..][..Nonce::LENGTH]).unwrap();
 	let payment_id = expanded_key.crypt_for_offer(encrypted_payment_id, nonce);
@@ -380,12 +375,11 @@ pub(super) fn verify_recipient_metadata<'a, T: secp256k1::Signing>(
 }
 
 fn verify_metadata<T: secp256k1::Signing>(
-	metadata: &[u8], hmac: Hmac<Sha256>, signing_pubkey: PublicKey, secp_ctx: &Secp256k1<T>,
+	metadata: &[u8], hmac: Hmac<Sha256>, signing_pubkey: PublicKey, _secp_ctx: &Secp256k1<T>,
 ) -> Result<Option<Keypair>, ()> {
 	if metadata.len() == Nonce::LENGTH {
-		let derived_keys = Keypair::from_secret_key(
-			&SecretKey::from_byte_array(*hmac.as_byte_array()).unwrap(),
-		);
+		let derived_keys =
+			Keypair::from_secret_key(&SecretKey::from_secret_bytes(*hmac.as_byte_array()).unwrap());
 		#[allow(unused_mut)]
 		let mut ok = fixed_time_eq(&signing_pubkey.serialize(), &derived_keys.public_key().serialize());
 		#[cfg(fuzzing)]

@@ -10,7 +10,6 @@
 //! This module contains various types which are used to configure or process outbound payments.
 
 use bitcoin::hashes::sha256::Hash as Sha256;
-use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{self, Secp256k1, SecretKey};
 use lightning_invoice::Bolt11Invoice;
 
@@ -2902,7 +2901,7 @@ impl_writeable_tlv_based_enum_upgradable!(PendingOutboundPayment,
 #[cfg(test)]
 mod tests {
 	use bitcoin::network::Network;
-	use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+	use bitcoin::secp256k1::{PublicKey, Secp256k1};
 
 	use core::time::Duration;
 
@@ -2976,7 +2975,7 @@ mod tests {
 		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
 		let router = test_utils::TestRouter::new(network_graph, &logger, &scorer);
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 
 		let past_expiry_time = std::time::SystemTime::UNIX_EPOCH.elapsed().unwrap().as_secs() - 2;
@@ -3023,7 +3022,7 @@ mod tests {
 		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
 		let router = test_utils::TestRouter::new(network_graph, &logger, &scorer);
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 
 		let payment_params = PaymentParameters::from_node_id(
@@ -3064,7 +3063,7 @@ mod tests {
 		let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
 		let router = test_utils::TestRouter::new(network_graph, &logger, &scorer);
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let keys_manager = test_utils::TestKeysInterface::new(&[0; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
 
 		let sender_pk = PublicKey::from_secret_key(&crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());

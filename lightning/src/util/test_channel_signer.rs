@@ -28,7 +28,6 @@ use crate::sync::{Arc, Mutex};
 use core::cmp;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use bitcoin::hashes::Hash;
 use bitcoin::sighash;
 use bitcoin::sighash::EcdsaSighashType;
 use bitcoin::transaction::Transaction;
@@ -426,13 +425,12 @@ impl EcdsaChannelSigner for TestChannelSigner {
 				&htlc_descriptor.per_commitment_point,
 			);
 
-			secp_ctx
-				.verify_ecdsa(
-					hash_to_message!(sighash.as_byte_array()),
-					&htlc_descriptor.counterparty_sig,
-					&countersignatory_htlc_key.to_public_key(),
-				)
-				.unwrap();
+			bitcoin::secp256k1::ecdsa::verify(
+				&htlc_descriptor.counterparty_sig,
+				hash_to_message!(sighash.as_byte_array()),
+				&countersignatory_htlc_key.to_public_key(),
+			)
+			.unwrap();
 		}
 		Ok(EcdsaChannelSigner::sign_holder_htlc_transaction(
 			&self.inner,

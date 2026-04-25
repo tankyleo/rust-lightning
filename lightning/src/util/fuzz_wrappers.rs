@@ -11,12 +11,13 @@ macro_rules! hash_to_message {
 	($slice: expr) => {{
 		#[cfg(not(fuzzing))]
 		{
-			::bitcoin::secp256k1::Message::from_digest_slice($slice).unwrap()
+			let digest = <[u8; 32] as ::core::convert::TryFrom<&[u8]>>::try_from($slice).unwrap();
+			::bitcoin::secp256k1::Message::from_digest(digest)
 		}
 		#[cfg(fuzzing)]
 		{
-			match ::bitcoin::secp256k1::Message::from_digest_slice($slice) {
-				Ok(msg) => msg,
+			match <[u8; 32] as ::core::convert::TryFrom<&[u8]>>::try_from($slice) {
+				Ok(digest) => ::bitcoin::secp256k1::Message::from_digest(digest),
 				Err(_) => ::bitcoin::secp256k1::Message::from_digest([1; 32]),
 			}
 		}

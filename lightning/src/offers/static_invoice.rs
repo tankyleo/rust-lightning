@@ -184,12 +184,15 @@ impl<'a> StaticInvoiceBuilder<'a> {
 
 	/// Builds a signed [`StaticInvoice`] after checking for valid semantics.
 	pub fn build_and_sign<T: secp256k1::Signing>(
-		self, secp_ctx: &Secp256k1<T>,
+		self, _secp_ctx: &Secp256k1<T>,
 	) -> Result<StaticInvoice, Bolt12SemanticError> {
 		let (unsigned_invoice, keys) = self.build()?;
 		let invoice = unsigned_invoice
 			.sign(|message: &UnsignedStaticInvoice| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.tagged_hash.as_digest_bytes(), &keys))
+				Ok(bitcoin::secp256k1::schnorr::sign_no_aux_rand(
+					message.tagged_hash.as_digest_bytes(),
+					&keys,
+				))
 			})
 			.unwrap();
 		Ok(invoice)
@@ -1435,7 +1438,10 @@ mod tests {
 
 		let invoice = unsigned_invoice
 			.sign(|message: &UnsignedStaticInvoice| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
+				Ok(bitcoin::secp256k1::schnorr::sign_no_aux_rand(
+					message.as_ref().as_digest_bytes(),
+					&keys,
+				))
 			})
 			.unwrap();
 
@@ -1474,7 +1480,10 @@ mod tests {
 
 		let invoice = unsigned_invoice
 			.sign(|message: &UnsignedStaticInvoice| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
+				Ok(bitcoin::secp256k1::schnorr::sign_no_aux_rand(
+					message.as_ref().as_digest_bytes(),
+					&keys,
+				))
 			})
 			.unwrap();
 
@@ -1550,7 +1559,10 @@ mod tests {
 
 		let invoice = unsigned_invoice
 			.sign(|message: &UnsignedStaticInvoice| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
+				Ok(bitcoin::secp256k1::schnorr::sign_no_aux_rand(
+					message.as_ref().as_digest_bytes(),
+					&keys,
+				))
 			})
 			.unwrap();
 
@@ -1591,7 +1603,10 @@ mod tests {
 
 		let invoice = unsigned_invoice
 			.sign(|message: &UnsignedStaticInvoice| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &keys))
+				Ok(bitcoin::secp256k1::schnorr::sign_no_aux_rand(
+					message.as_ref().as_digest_bytes(),
+					&keys,
+				))
 			})
 			.unwrap();
 

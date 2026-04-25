@@ -30,7 +30,6 @@ use crate::util::errors::APIError;
 use crate::util::test_utils;
 use crate::util::test_utils::OnGetShutdownScriptpubkey;
 
-use bitcoin::amount::Amount;
 use bitcoin::locktime::absolute::LockTime;
 use bitcoin::network::Network;
 use bitcoin::opcodes;
@@ -395,7 +394,10 @@ fn updates_shutdown_wait() {
 	let chan_2 = create_announced_chan_between_nodes(&nodes, 1, 2);
 	let logger = test_utils::TestLogger::new();
 	let scorer = test_utils::TestScorer::new();
-	let keys_manager = test_utils::TestKeysInterface::new(&[0u8; 32], Network::Testnet(bitcoin::network::TestnetVersion::V3));
+	let keys_manager = test_utils::TestKeysInterface::new(
+		&[0u8; 32],
+		Network::Testnet(bitcoin::network::TestnetVersion::V3),
+	);
 	let random_seed_bytes = keys_manager.get_secure_random_bytes();
 
 	let (payment_preimage_0, payment_hash_0, ..) =
@@ -987,7 +989,8 @@ fn test_unsupported_anysegwit_upfront_shutdown_script() {
 	let node_b_id = nodes[1].node.get_our_node_id();
 
 	// Use a non-v0 segwit script supported by option_shutdown_anysegwit
-	let anysegwit_shutdown_script = Builder::new().push_int(16).unwrap().push_slice(&[0, 40]).into_script();
+	let anysegwit_shutdown_script =
+		Builder::new().push_int(16).unwrap().push_slice(&[0, 40]).into_script();
 
 	// Check script when handling an open_channel message
 	nodes[0].node.create_channel(node_b_id, 100000, 10001, 42, None, None).unwrap();
@@ -1118,7 +1121,8 @@ fn test_segwit_v0_shutdown_script() {
 
 	// Use a segwit v0 script supported even without option_shutdown_anysegwit
 	let mut node_0_shutdown = get_event_msg!(nodes[1], MessageSendEvent::SendShutdown, node_a_id);
-	node_0_shutdown.scriptpubkey = Builder::new().push_int(0).unwrap().push_slice(&[0; 20]).into_script();
+	node_0_shutdown.scriptpubkey =
+		Builder::new().push_int(0).unwrap().push_slice(&[0; 20]).into_script();
 	nodes[0].node.handle_shutdown(node_b_id, &node_0_shutdown);
 
 	let events = nodes[0].node.get_and_clear_pending_msg_events();
@@ -1157,7 +1161,8 @@ fn test_anysegwit_shutdown_script() {
 
 	// Use a non-v0 segwit script supported by option_shutdown_anysegwit
 	let mut node_0_shutdown = get_event_msg!(nodes[1], MessageSendEvent::SendShutdown, node_a_id);
-	node_0_shutdown.scriptpubkey = Builder::new().push_int(16).unwrap().push_slice(&[0, 0]).into_script();
+	node_0_shutdown.scriptpubkey =
+		Builder::new().push_int(16).unwrap().push_slice(&[0, 0]).into_script();
 	nodes[0].node.handle_shutdown(node_b_id, &node_0_shutdown);
 
 	let events = nodes[0].node.get_and_clear_pending_msg_events();
@@ -1247,7 +1252,8 @@ fn test_invalid_shutdown_script() {
 
 	// Use a segwit v0 script with an unsupported witness program
 	let mut node_0_shutdown = get_event_msg!(nodes[1], MessageSendEvent::SendShutdown, node_a_id);
-	node_0_shutdown.scriptpubkey = Builder::new().push_int(0).unwrap().push_slice(&[0, 0]).into_script();
+	node_0_shutdown.scriptpubkey =
+		Builder::new().push_int(0).unwrap().push_slice(&[0, 0]).into_script();
 	nodes[0].node.handle_shutdown(node_b_id, &node_0_shutdown);
 
 	assert_eq!(

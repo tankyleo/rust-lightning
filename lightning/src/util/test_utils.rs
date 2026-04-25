@@ -68,7 +68,7 @@ use bitcoin::block::Block;
 use bitcoin::constants::genesis_block;
 use bitcoin::constants::ChainHash;
 use bitcoin::hash_types::Txid;
-use bitcoin::hashes::{hex::FromHex, Hash};
+use bitcoin::hashes::hex::FromHex;
 use bitcoin::network::Network;
 use bitcoin::script::{Builder, ScriptPubKey as Script, ScriptPubKeyBuf as ScriptBuf};
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
@@ -101,7 +101,7 @@ use bitcoin::Sequence;
 use super::test_channel_signer::SignerOp;
 
 pub fn pubkey(byte: u8) -> PublicKey {
-	let secp_ctx = Secp256k1::new();
+	let _secp_ctx = Secp256k1::new();
 	PublicKey::from_secret_key(&privkey(byte))
 }
 
@@ -126,9 +126,10 @@ pub fn preimage_from_hex(hex: &str) -> PaymentPreimage {
 }
 
 pub fn public_from_secret_hex(
-	secp_ctx: &Secp256k1<bitcoin::secp256k1::All>, hex: &str,
+	_secp_ctx: &Secp256k1<bitcoin::secp256k1::All>, hex: &str,
 ) -> PublicKey {
-	let secret = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
+	let secret =
+		crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(hex).unwrap()[..]).unwrap();
 	PublicKey::from_secret_key(&secret)
 }
 
@@ -1565,7 +1566,7 @@ impl msgs::BaseMessageHandler for TestChannelMessageHandler {
 
 fn get_dummy_channel_announcement(short_chan_id: u64) -> msgs::ChannelAnnouncement {
 	use bitcoin::secp256k1::ffi::Signature as FFISignature;
-	let secp_ctx = Secp256k1::new();
+	let _secp_ctx = Secp256k1::new();
 	let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 	let node_1_privkey = crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();
 	let node_2_privkey = crate::prelude::secret_key_from_slice(&[41; 32]).unwrap();
@@ -1732,7 +1733,9 @@ impl BaseMessageHandler for TestRoutingMessageHandler {
 		pending_events.push(MessageSendEvent::SendGossipTimestampFilter {
 			node_id: their_node_id.clone(),
 			msg: msgs::GossipTimestampFilter {
-				chain_hash: ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
+				chain_hash: ChainHash::using_genesis_block(Network::Testnet(
+					bitcoin::network::TestnetVersion::V3,
+				)),
 				first_timestamp: gossip_start_time as u32,
 				timestamp_range: u32::max_value(),
 			},
@@ -1877,7 +1880,7 @@ impl NodeSigner for TestNodeSigner {
 	}
 
 	fn get_receive_auth_key(&self) -> ReceiveAuthKey {
-		ReceiveAuthKey(self.node_secret.secret_bytes())
+		ReceiveAuthKey(self.node_secret.to_secret_bytes())
 	}
 
 	fn get_node_id(&self, recipient: Recipient) -> Result<PublicKey, ()> {
@@ -2327,12 +2330,11 @@ impl Drop for TestScorer {
 pub struct TestWalletSource {
 	secret_key: SecretKey,
 	utxos: Mutex<Vec<ConfirmedUtxo>>,
-	secp: Secp256k1<bitcoin::secp256k1::All>,
 }
 
 impl TestWalletSource {
 	pub fn new(secret_key: SecretKey) -> Self {
-		Self { secret_key, utxos: Mutex::new(Vec::new()), secp: Secp256k1::new() }
+		Self { secret_key, utxos: Mutex::new(Vec::new()) }
 	}
 
 	pub fn add_utxo(&self, prevtx: Transaction, vout: u32) {
@@ -2359,23 +2361,22 @@ impl TestWalletSource {
 				let sighash = SighashCache::new(&tx).p2wpkh_signature_hash(
 					i,
 					&utxo.output().script_pubkey,
-				utxo.output().amount,
-				EcdsaSighashType::All,
-			)?;
+					utxo.output().amount,
+					EcdsaSighashType::All,
+				)?;
 				#[cfg(not(feature = "grind_signatures"))]
-				let signature = self.secp.sign_ecdsa(
+				let signature = bitcoin::secp256k1::ecdsa::sign(
 					secp256k1::Message::from_digest(sighash.to_byte_array()),
 					&self.secret_key,
 				);
 				#[cfg(feature = "grind_signatures")]
-				let signature = self.secp.sign_ecdsa_low_r(
+				let signature = bitcoin::secp256k1::ecdsa::sign_low_r(
 					secp256k1::Message::from_digest(sighash.to_byte_array()),
 					&self.secret_key,
 				);
 				let bitcoin_sig =
 					bitcoin::ecdsa::Signature { signature, sighash_type: EcdsaSighashType::All };
-				tx.inputs[i].witness =
-					Witness::p2wpkh(bitcoin_sig, self.secret_key.public_key());
+				tx.inputs[i].witness = Witness::p2wpkh(bitcoin_sig, self.secret_key.public_key());
 			}
 		}
 		Ok(tx)

@@ -88,8 +88,8 @@ mod tests {
 	use crate::ln::types::ChannelId;
 
 	use bitcoin::consensus::encode;
-	use hex_conservative::FromHex;
 	use bitcoin::transaction::Transaction;
+	use hex_conservative::FromHex;
 
 	#[test]
 	fn test_channel_id_calculation() {

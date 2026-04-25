@@ -29,7 +29,6 @@ use crate::util::errors::APIError;
 use crate::util::ser::{Writeable, ReadableArgs};
 use crate::util::config::{HTLCInterceptionFlags, UserConfig};
 
-use bitcoin::hashes::Hash;
 use types::payment::{PaymentHash, PaymentPreimage};
 
 use crate::prelude::*;

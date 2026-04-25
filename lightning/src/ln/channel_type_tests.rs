@@ -6,7 +6,7 @@ use crate::util::config::UserConfig;
 use crate::util::test_utils::{TestFeeEstimator, TestKeysInterface, TestLogger};
 use bitcoin::constants::ChainHash;
 use bitcoin::network::Network;
-use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+use bitcoin::secp256k1::{PublicKey, Secp256k1};
 use lightning_types::features::{ChannelTypeFeatures, InitFeatures};
 
 #[test]
@@ -121,7 +121,7 @@ fn do_test_get_initial_channel_type<F1, F2>(
 fn test_zero_conf_channel_type_support() {
 	let test_est = TestFeeEstimator::new(15000);
 	let feeest = LowerBoundedFeeEstimator::new(&test_est);
-	let secp_ctx = Secp256k1::new();
+	let _secp_ctx = Secp256k1::new();
 	let seed = [42; 32];
 	let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
 	let keys_provider = TestKeysInterface::new(&seed, network);
@@ -216,7 +216,7 @@ fn test_supports_zero_fee_commitments_and_htlc_tx_fee() {
 }
 
 fn do_test_supports_channel_type(config: UserConfig, expected_channel_type: ChannelTypeFeatures) {
-	let secp_ctx = Secp256k1::new();
+	let _secp_ctx = Secp256k1::new();
 	let test_est = TestFeeEstimator::new(15000);
 	let fee_estimator = LowerBoundedFeeEstimator::new(&test_est);
 	let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
@@ -305,7 +305,7 @@ fn do_test_supports_channel_type(config: UserConfig, expected_channel_type: Chan
 fn test_rejects_if_channel_type_not_set() {
 	// Tests that if `channel_type` is not set in `open_channel` and `accept_channel`, it is
 	// rejected.
-	let secp_ctx = Secp256k1::new();
+	let _secp_ctx = Secp256k1::new();
 	let test_est = TestFeeEstimator::new(15000);
 	let fee_estimator = LowerBoundedFeeEstimator::new(&test_est);
 	let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
@@ -392,7 +392,7 @@ fn test_rejects_if_channel_type_not_set() {
 fn test_rejects_if_channel_type_differ() {
 	// Tests that if the `channel_type` in `accept_channel` does not match the one set in
 	// `open_channel` it rejects the channel.
-	let secp_ctx = Secp256k1::new();
+	let _secp_ctx = Secp256k1::new();
 	let test_est = TestFeeEstimator::new(15000);
 	let fee_estimator = LowerBoundedFeeEstimator::new(&test_est);
 	let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);
@@ -462,7 +462,7 @@ fn test_rejects_if_channel_type_differ() {
 fn test_rejects_simple_anchors_channel_type() {
 	// Tests that if `option_anchors` is being negotiated through the `channel_type` feature,
 	// it is rejected.
-	let secp_ctx = Secp256k1::new();
+	let _secp_ctx = Secp256k1::new();
 	let test_est = TestFeeEstimator::new(15000);
 	let fee_estimator = LowerBoundedFeeEstimator::new(&test_est);
 	let network = Network::Testnet(bitcoin::network::TestnetVersion::V3);

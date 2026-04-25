@@ -227,7 +227,9 @@ pub(crate) mod fake_scid {
 				MAINNET_SEGWIT_ACTIVATION_HEIGHT
 			);
 
-			let testnet_genesis = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+			let testnet_genesis = ChainHash::using_genesis_block(Network::Testnet(
+				bitcoin::network::TestnetVersion::V3,
+			));
 			assert_eq!(segwit_activation_height(&testnet_genesis), TEST_SEGWIT_ACTIVATION_HEIGHT);
 
 			let signet_genesis = ChainHash::using_genesis_block(Network::Signet);
@@ -241,7 +243,9 @@ pub(crate) mod fake_scid {
 		fn test_is_valid_phantom() {
 			let namespace = Namespace::Phantom;
 			let fake_scid_rand_bytes = [0; 32];
-			let testnet_genesis = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+			let testnet_genesis = ChainHash::using_genesis_block(Network::Testnet(
+				bitcoin::network::TestnetVersion::V3,
+			));
 			let valid_encrypted_vout = namespace.get_encrypted_vout(0, 0, &fake_scid_rand_bytes);
 			let valid_fake_scid =
 				scid_utils::scid_from_parts(1, 0, valid_encrypted_vout as u64).unwrap();
@@ -254,7 +258,9 @@ pub(crate) mod fake_scid {
 		fn test_is_valid_intercept() {
 			let namespace = Namespace::Intercept;
 			let fake_scid_rand_bytes = [0; 32];
-			let testnet_genesis = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+			let testnet_genesis = ChainHash::using_genesis_block(Network::Testnet(
+				bitcoin::network::TestnetVersion::V3,
+			));
 			let valid_encrypted_vout = namespace.get_encrypted_vout(0, 0, &fake_scid_rand_bytes);
 			let valid_fake_scid =
 				scid_utils::scid_from_parts(1, 0, valid_encrypted_vout as u64).unwrap();
@@ -272,8 +278,10 @@ pub(crate) mod fake_scid {
 			let mainnet_genesis = ChainHash::using_genesis_block(Network::Bitcoin);
 			let seed = [0; 32];
 			let fake_scid_rand_bytes = [1; 32];
-			let keys_manager =
-				Arc::new(test_utils::TestKeysInterface::new(&seed, Network::Testnet(bitcoin::network::TestnetVersion::V3)));
+			let keys_manager = Arc::new(test_utils::TestKeysInterface::new(
+				&seed,
+				Network::Testnet(bitcoin::network::TestnetVersion::V3),
+			));
 			let namespace = Namespace::Phantom;
 			let fake_scid = namespace.get_fake_scid(
 				500_000,

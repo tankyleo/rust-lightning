@@ -32,7 +32,6 @@ macro_rules! invoice_builder_methods_common { (
 	pub fn fallback_v0_p2wsh(
 		$($self_mut)* $self: $self_type, script_hash: &bitcoin::script::WScriptHash
 	) -> $return_type {
-		use bitcoin::hashes::Hash;
 
 		let address = FallbackAddress {
 			version: bitcoin::WitnessVersion::V0.to_num(),
@@ -49,7 +48,6 @@ macro_rules! invoice_builder_methods_common { (
 	pub fn fallback_v0_p2wpkh(
 		$($self_mut)* $self: $self_type, pubkey_hash: &bitcoin::key::WPubkeyHash
 	) -> $return_type {
-		use bitcoin::hashes::Hash;
 
 		let address = FallbackAddress {
 			version: bitcoin::WitnessVersion::V0.to_num(),

@@ -37,9 +37,9 @@ use crate::types::features::{ChannelFeatures, InitFeatures};
 use crate::util::ser::{FixedLengthReader, LengthReadable, Writeable, Writer};
 use crate::util::test_utils::{TestChainSource, TestKeysInterface, TestLogger, TestNodeSigner};
 
-use hex_conservative::FromHex;
 use bitcoin::network::Network;
 use bitcoin::secp256k1::{All, PublicKey, Secp256k1, SecretKey};
+use hex_conservative::FromHex;
 
 use crate::io;
 use crate::io_extras::read_to_end;
@@ -292,16 +292,23 @@ impl MessengerCfg {
 
 fn create_nodes_using_cfgs(cfgs: Vec<MessengerCfg>) -> Vec<MessengerNode> {
 	let gossip_logger = Arc::new(TestLogger::with_id("gossip".to_string()));
-	let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), Arc::clone(&gossip_logger)));
+	let network_graph = Arc::new(NetworkGraph::new(
+		Network::Testnet(bitcoin::network::TestnetVersion::V3),
+		Arc::clone(&gossip_logger),
+	));
 	let gossip_sync = Arc::new(P2PGossipSync::new(Arc::clone(&network_graph), None, gossip_logger));
 
 	let mut nodes = Vec::new();
 	for (i, cfg) in cfgs.into_iter().enumerate() {
-		let secret_key =
-			cfg.secret_override.unwrap_or(crate::prelude::secret_key_from_slice(&[(i + 1) as u8; 32]).unwrap());
+		let secret_key = cfg
+			.secret_override
+			.unwrap_or(crate::prelude::secret_key_from_slice(&[(i + 1) as u8; 32]).unwrap());
 		let logger = Arc::new(TestLogger::with_id(format!("node {}", i)));
 		let seed = [i as u8; 32];
-		let entropy_source = Arc::new(TestKeysInterface::new(&seed, Network::Testnet(bitcoin::network::TestnetVersion::V3)));
+		let entropy_source = Arc::new(TestKeysInterface::new(
+			&seed,
+			Network::Testnet(bitcoin::network::TestnetVersion::V3),
+		));
 		let node_signer = Arc::new(TestNodeSigner::new(secret_key));
 
 		let node_id_lookup = Arc::new(EmptyNodeIdLookUp {});
@@ -1182,7 +1189,9 @@ fn spec_test_vector() {
 		"4444444444444444444444444444444444444444444444444444444444444444", // Dave
 	]
 	.iter()
-	.map(|secret_hex| crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(secret_hex).unwrap()).unwrap())
+	.map(|secret_hex| {
+		crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(secret_hex).unwrap()).unwrap()
+	})
 	.map(|secret| MessengerCfg::new().with_node_secret(secret))
 	.collect();
 	let nodes = create_nodes_using_cfgs(node_cfgs);
@@ -1195,11 +1204,12 @@ fn spec_test_vector() {
 	let mut packet_reader = FixedLengthReader::new(&mut reader, sender_to_alice_packet_bytes_len);
 	let sender_to_alice_packet: Packet =
 		<Packet as LengthReadable>::read_from_fixed_length_buffer(&mut packet_reader).unwrap();
-	let secp_ctx = Secp256k1::new();
+	let _secp_ctx = Secp256k1::new();
 
 	let blinding_key_hex = "6363636363636363636363636363636363636363636363636363636363636363";
 	let blinding_key =
-		crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(blinding_key_hex).unwrap()).unwrap();
+		crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(blinding_key_hex).unwrap())
+			.unwrap();
 	let sender_to_alice_om = msgs::OnionMessage {
 		blinding_point: PublicKey::from_secret_key(&blinding_key),
 		onion_routing_packet: sender_to_alice_packet,

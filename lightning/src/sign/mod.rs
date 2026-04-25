@@ -17,8 +17,7 @@ use bitcoin::bip32::{ChildNumber, Xpriv, Xpub};
 use bitcoin::ecdsa::Signature as EcdsaSignature;
 use bitcoin::locktime::absolute::LockTime;
 use bitcoin::network::{Network, TestnetVersion};
-use bitcoin::opcodes;
-use bitcoin::script::{Builder, ScriptPubKey as Script, ScriptPubKeyBuf as ScriptBuf};
+use bitcoin::script::{ScriptPubKey as Script, ScriptPubKeyBuf as ScriptBuf};
 use bitcoin::sighash;
 use bitcoin::sighash::EcdsaSighashType;
 use bitcoin::transaction::Version;
@@ -26,14 +25,13 @@ use bitcoin::transaction::{Transaction, TxIn, TxOut};
 
 use bitcoin::hashes::sha256::Hash as Sha256;
 use bitcoin::hashes::sha256d::Hash as Sha256dHash;
-use bitcoin::hashes::{Hash, HashEngine};
+use bitcoin::hashes::HashEngine;
 
 use bitcoin::secp256k1::ecdh::SharedSecret;
 use bitcoin::secp256k1::ecdsa::{RecoverableSignature, Signature};
 use bitcoin::secp256k1::schnorr;
 use bitcoin::secp256k1::All;
 use bitcoin::secp256k1::{Keypair, PublicKey, Scalar, Secp256k1, SecretKey, Signing};
-use bitcoin::key::WPubkeyHash;
 use bitcoin::{secp256k1, Psbt, Sequence, Txid, Witness};
 
 use lightning_invoice::RawBolt11Invoice;
@@ -420,9 +418,8 @@ impl SpendableOutputDescriptor {
 
 				bitcoin::psbt::Input {
 					witness_utxo: Some(output.clone()),
-					witness_script: witness_script.map(|script| {
-						bitcoin::WitnessScriptBuf::from_bytes(script.into_bytes())
-					}),
+					witness_script: witness_script
+						.map(|script| bitcoin::WitnessScriptBuf::from_bytes(script.into_bytes())),
 					proprietary: add_tweak
 						.map(|add_tweak| {
 							[(
@@ -500,8 +497,8 @@ impl SpendableOutputDescriptor {
 						// Guarantees a low R signature
 						witness_weight -= 1;
 					}
-					input_value =
-						(input_value + descriptor.output.amount).expect("input value must fit in Amount");
+					input_value = (input_value + descriptor.output.amount)
+						.expect("input value must fit in Amount");
 				},
 				SpendableOutputDescriptor::DelayedPaymentOutput(descriptor) => {
 					if !output_set.insert(descriptor.outpoint) {
@@ -519,8 +516,8 @@ impl SpendableOutputDescriptor {
 						// Guarantees a low R signature
 						witness_weight -= 1;
 					}
-					input_value =
-						(input_value + descriptor.output.amount).expect("input value must fit in Amount");
+					input_value = (input_value + descriptor.output.amount)
+						.expect("input value must fit in Amount");
 				},
 				SpendableOutputDescriptor::StaticOutput { ref outpoint, ref output, .. } => {
 					if !output_set.insert(*outpoint) {
@@ -538,7 +535,8 @@ impl SpendableOutputDescriptor {
 						// Guarantees a low R signature
 						witness_weight -= 1;
 					}
-					input_value = (input_value + output.amount).expect("input value must fit in Amount");
+					input_value =
+						(input_value + output.amount).expect("input value must fit in Amount");
 				},
 			}
 			if input_value > Amount::MAX_MONEY {
@@ -1268,7 +1266,7 @@ pub fn compute_funding_key_tweak(
 ) -> Scalar {
 	let mut sha = Sha256::engine();
 	sha.input(splice_parent_funding_txid.as_byte_array());
-	sha.input(&base_funding_secret_key.secret_bytes());
+	sha.input(&base_funding_secret_key.to_secret_bytes());
 	Scalar::from_be_bytes(Sha256::from_engine(sha).to_byte_array()).unwrap()
 }
 
@@ -1473,7 +1471,7 @@ impl InMemorySigner {
 		witness.push(remotesig.serialize_der().to_vec());
 		witness[0].push(EcdsaSighashType::All as u8);
 		if channel_type_features.supports_anchors_zero_fee_htlc_tx() {
-			witness.push(witness_script.to_bytes());
+			witness.push(witness_script.to_vec());
 		} else {
 			witness.push(remotepubkey.to_bytes());
 		}
@@ -1565,11 +1563,13 @@ impl EntropySource for InMemorySigner {
 
 impl ChannelSigner for InMemorySigner {
 	fn get_per_commitment_point(
-		&self, idx: u64, secp_ctx: &Secp256k1<secp256k1::All>,
+		&self, idx: u64, _secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<PublicKey, ()> {
-		let commitment_secret =
-			SecretKey::from_byte_array(chan_utils::build_commitment_secret(&self.commitment_seed, idx))
-				.unwrap();
+		let commitment_secret = SecretKey::from_secret_bytes(chan_utils::build_commitment_secret(
+			&self.commitment_seed,
+			idx,
+		))
+		.unwrap();
 		Ok(PublicKey::from_secret_key(&commitment_secret))
 	}
 
@@ -1588,7 +1588,7 @@ impl ChannelSigner for InMemorySigner {
 		Ok(())
 	}
 
-	fn pubkeys(&self, secp_ctx: &Secp256k1<secp256k1::All>) -> ChannelPublicKeys {
+	fn pubkeys(&self, _secp_ctx: &Secp256k1<secp256k1::All>) -> ChannelPublicKeys {
 		// Because splices always break downgrades, we go ahead and always use the new derivation
 		// here as its just much better.
 		let payment_key =
@@ -1608,7 +1608,7 @@ impl ChannelSigner for InMemorySigner {
 	}
 
 	fn new_funding_pubkey(
-		&self, splice_parent_funding_txid: Txid, secp_ctx: &Secp256k1<secp256k1::All>,
+		&self, splice_parent_funding_txid: Txid, _secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> PublicKey {
 		self.funding_key(Some(splice_parent_funding_txid)).public_key()
 	}
@@ -1960,11 +1960,11 @@ impl EcdsaChannelSigner for InMemorySigner {
 
 	fn sign_channel_announcement_with_funding_key(
 		&self, channel_parameters: &ChannelTransactionParameters,
-		msg: &UnsignedChannelAnnouncement, secp_ctx: &Secp256k1<secp256k1::All>,
+		msg: &UnsignedChannelAnnouncement, _secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<Signature, ()> {
 		let msghash = hash_to_message!(Sha256dHash::hash(&msg.encode()[..]).as_byte_array());
 		let funding_key = self.funding_key(channel_parameters.splice_parent_funding_txid);
-		Ok(secp_ctx.sign_ecdsa(msghash, &funding_key))
+		Ok(bitcoin::secp256k1::ecdsa::sign(msghash, &funding_key))
 	}
 
 	fn sign_splice_shared_input(
@@ -2079,82 +2079,77 @@ impl KeysManager {
 		// Note that when we aren't serializing the key, network doesn't matter
 		{
 			let master_key = Xpriv::new_master(Network::Testnet(TestnetVersion::V3), seed);
-				let node_secret = master_key
-					.derive_priv([NODE_SECRET_INDEX])
-					.expect("Your RNG is busted")
-					.private_key;
-				let node_id = PublicKey::from_secret_key(&node_secret);
-				let destination_script =
-					match master_key.derive_priv([DESTINATION_SCRIPT_INDEX]) {
-						Ok(destination_key) => {
-							let wpubkey_hash = Xpub::from_priv(&destination_key).to_pub().wpubkey_hash();
-							ScriptBuf::new_p2wpkh(wpubkey_hash)
-						},
-						Err(_) => panic!("Your RNG is busted"),
-					};
-				let shutdown_pubkey =
-					match master_key.derive_priv([SHUTDOWN_PUBKEY_INDEX]) {
-						Ok(shutdown_key) => Xpub::from_priv(&shutdown_key).public_key,
-						Err(_) => panic!("Your RNG is busted"),
-					};
-				let channel_master_key = master_key
-					.derive_priv([CHANNEL_MASTER_KEY_INDEX])
-					.expect("Your RNG is busted");
-				let inbound_payment_key: SecretKey = master_key
-					.derive_priv([INBOUND_PAYMENT_KEY_INDEX])
-					.expect("Your RNG is busted")
-					.private_key;
-				let mut inbound_pmt_key_bytes = [0; 32];
-				inbound_pmt_key_bytes.copy_from_slice(&inbound_payment_key[..]);
-				let peer_storage_key = master_key
-					.derive_priv([PEER_STORAGE_KEY_INDEX])
-					.expect("Your RNG is busted")
-					.private_key;
+			let node_secret = master_key
+				.derive_priv([NODE_SECRET_INDEX])
+				.expect("Your RNG is busted")
+				.private_key;
+			let node_id = PublicKey::from_secret_key(&node_secret);
+			let destination_script = match master_key.derive_priv([DESTINATION_SCRIPT_INDEX]) {
+				Ok(destination_key) => {
+					let wpubkey_hash = Xpub::from_priv(&destination_key).to_pub().wpubkey_hash();
+					ScriptBuf::new_p2wpkh(wpubkey_hash)
+				},
+				Err(_) => panic!("Your RNG is busted"),
+			};
+			let shutdown_pubkey = match master_key.derive_priv([SHUTDOWN_PUBKEY_INDEX]) {
+				Ok(shutdown_key) => Xpub::from_priv(&shutdown_key).public_key,
+				Err(_) => panic!("Your RNG is busted"),
+			};
+			let channel_master_key =
+				master_key.derive_priv([CHANNEL_MASTER_KEY_INDEX]).expect("Your RNG is busted");
+			let inbound_payment_key: SecretKey = master_key
+				.derive_priv([INBOUND_PAYMENT_KEY_INDEX])
+				.expect("Your RNG is busted")
+				.private_key;
+			let mut inbound_pmt_key_bytes = [0; 32];
+			inbound_pmt_key_bytes.copy_from_slice(&inbound_payment_key[..]);
+			let peer_storage_key = master_key
+				.derive_priv([PEER_STORAGE_KEY_INDEX])
+				.expect("Your RNG is busted")
+				.private_key;
 
-				let receive_auth_key = master_key
-					.derive_priv([RECEIVE_AUTH_KEY_INDEX])
-					.expect("Your RNG is busted")
-					.private_key;
+			let receive_auth_key = master_key
+				.derive_priv([RECEIVE_AUTH_KEY_INDEX])
+				.expect("Your RNG is busted")
+				.private_key;
 
-				let static_payment_key = master_key
-					.derive_priv([STATIC_PAYMENT_KEY_INDEX])
-					.expect("Your RNG is busted");
+			let static_payment_key =
+				master_key.derive_priv([STATIC_PAYMENT_KEY_INDEX]).expect("Your RNG is busted");
 
-				let mut rand_bytes_engine = Sha256::engine();
-				rand_bytes_engine.input(&starting_time_secs.to_be_bytes());
-				rand_bytes_engine.input(&starting_time_nanos.to_be_bytes());
-				rand_bytes_engine.input(seed);
-				rand_bytes_engine.input(b"LDK PRNG Seed");
-				let rand_bytes_unique_start =
-					Sha256::from_engine(rand_bytes_engine).to_byte_array();
+			let mut rand_bytes_engine = Sha256::engine();
+			rand_bytes_engine.input(&starting_time_secs.to_be_bytes());
+			rand_bytes_engine.input(&starting_time_nanos.to_be_bytes());
+			rand_bytes_engine.input(seed);
+			rand_bytes_engine.input(b"LDK PRNG Seed");
+			let rand_bytes_unique_start = Sha256::from_engine(rand_bytes_engine).to_byte_array();
 
-				let mut res = KeysManager {
-					secp_ctx,
-					node_secret,
-					node_id,
-					inbound_payment_key: ExpandedKey::new(inbound_pmt_key_bytes),
+			let mut res = KeysManager {
+				secp_ctx,
+				node_secret,
+				node_id,
+				inbound_payment_key: ExpandedKey::new(inbound_pmt_key_bytes),
 
-					peer_storage_key: PeerStorageKey { inner: peer_storage_key.secret_bytes() },
-					receive_auth_key: ReceiveAuthKey(receive_auth_key.secret_bytes()),
+				peer_storage_key: PeerStorageKey { inner: peer_storage_key.to_secret_bytes() },
+				receive_auth_key: ReceiveAuthKey(receive_auth_key.to_secret_bytes()),
 
-					destination_script,
-					shutdown_pubkey,
+				destination_script,
+				shutdown_pubkey,
 
-					channel_master_key,
-					channel_child_index: AtomicUsize::new(0),
+				channel_master_key,
+				channel_child_index: AtomicUsize::new(0),
 
-					static_payment_key,
-					v2_remote_key_derivation,
+				static_payment_key,
+				v2_remote_key_derivation,
 
-					entropy_source: RandomBytes::new(rand_bytes_unique_start),
+				entropy_source: RandomBytes::new(rand_bytes_unique_start),
 
-					seed: *seed,
-					starting_time_secs,
-					starting_time_nanos,
-				};
-				let secp_seed = res.get_secure_random_bytes();
-				res.secp_ctx.seeded_randomize(&secp_seed);
-				res
+				seed: *seed,
+				starting_time_secs,
+				starting_time_nanos,
+			};
+			let secp_seed = res.get_secure_random_bytes();
+			res.secp_ctx.seeded_randomize(&secp_seed);
+			res
 		}
 	}
 
@@ -2175,19 +2170,19 @@ impl KeysManager {
 	/// argument to [`KeysManager::new`] set, or any spliced channels will close to such scripts,
 	/// other channels will close to a randomly-generated `script_pubkey`.
 	pub fn possible_v2_counterparty_closed_balance_spks<C: Signing>(
-		&self, secp_ctx: &Secp256k1<C>,
+		&self, _secp_ctx: &Secp256k1<C>,
 	) -> Vec<ScriptBuf> {
 		let mut res = Vec::with_capacity(usize::from(STATIC_PAYMENT_KEY_COUNT) * 2);
 		let static_remote_key_features = ChannelTypeFeatures::only_static_remote_key();
 		let mut zero_fee_htlc_features = ChannelTypeFeatures::only_static_remote_key();
 		zero_fee_htlc_features.set_anchors_zero_fee_htlc_tx_required();
 		for idx in 0..STATIC_PAYMENT_KEY_COUNT {
-			let key = self
-				.static_payment_key
-				.derive_priv([ChildNumber::from_hardened_idx(u32::from(idx))
-					.expect("key space exhausted")])
-				.expect("Your RNG is busted")
-				.private_key;
+			let key =
+				self.static_payment_key
+					.derive_priv([ChildNumber::from_hardened_idx(u32::from(idx))
+						.expect("key space exhausted")])
+					.expect("Your RNG is busted")
+					.private_key;
 			let pubkey = PublicKey::from_secret_key(&key);
 			res.push(get_countersigner_payment_script(&static_remote_key_features, &pubkey));
 			res.push(get_countersigner_payment_script(&zero_fee_htlc_features, &pubkey));
@@ -2234,7 +2229,7 @@ impl KeysManager {
 				sha.input(&seed);
 				sha.input(&$prev_key[..]);
 				sha.input(&$info[..]);
-				SecretKey::from_byte_array(Sha256::from_engine(sha).to_byte_array())
+				SecretKey::from_secret_bytes(Sha256::from_engine(sha).to_byte_array())
 					.expect("SHA-256 is busted")
 			}};
 		}
@@ -2334,10 +2329,10 @@ impl KeysManager {
 						// Note that when we aren't serializing the key, network doesn't matter
 						let master_key =
 							Xpriv::new_master(Network::Testnet(TestnetVersion::V3), &self.seed);
-						match master_key.derive_priv([ChildNumber::from_hardened_idx(
-							derivation_idx,
-						)
-						.expect("key space exhausted")]) {
+						match master_key
+							.derive_priv([ChildNumber::from_hardened_idx(derivation_idx)
+								.expect("key space exhausted")])
+						{
 							Ok(key) => key,
 							Err(_) => panic!("Your RNG is busted"),
 						}
@@ -2348,7 +2343,8 @@ impl KeysManager {
 						assert_eq!(xpub.public_key, self.shutdown_pubkey);
 					}
 					let payment_script =
-						bitcoin::Address::p2wpkh(pubkey, Network::Testnet(TestnetVersion::V3)).script_pubkey();
+						bitcoin::Address::p2wpkh(pubkey, Network::Testnet(TestnetVersion::V3))
+							.script_pubkey();
 
 					if payment_script != output.script_pubkey {
 						return Err(());
@@ -2425,7 +2421,7 @@ impl NodeSigner for KeysManager {
 			Recipient::Node => Ok(&self.node_secret),
 			Recipient::PhantomNode => Err(()),
 		}?;
-		Ok(self.secp_ctx.sign_ecdsa_recoverable(hash_to_message!(&hash), secret))
+		Ok(RecoverableSignature::sign_ecdsa_recoverable(hash_to_message!(&hash), secret))
 	}
 
 	fn sign_bolt12_invoice(
@@ -2434,12 +2430,12 @@ impl NodeSigner for KeysManager {
 		let message = invoice.tagged_hash().as_digest();
 		let keys = Keypair::from_secret_key(&self.node_secret);
 		let aux_rand = self.get_secure_random_bytes();
-		Ok(self.secp_ctx.sign_schnorr_with_aux_rand(message.as_ref(), &keys, &aux_rand))
+		Ok(bitcoin::secp256k1::schnorr::sign_with_aux_rand(message.as_ref(), &keys, &aux_rand))
 	}
 
 	fn sign_gossip_message(&self, msg: UnsignedGossipMessage) -> Result<Signature, ()> {
 		let msg_hash = hash_to_message!(Sha256dHash::hash(&msg.encode()[..]).as_byte_array());
-		Ok(self.secp_ctx.sign_ecdsa(msg_hash, &self.node_secret))
+		Ok(bitcoin::secp256k1::ecdsa::sign(msg_hash, &self.node_secret))
 	}
 
 	fn sign_message(&self, msg: &[u8]) -> Result<String, ()> {
@@ -2596,7 +2592,7 @@ impl NodeSigner for PhantomKeysManager {
 			Recipient::Node => &self.inner.node_secret,
 			Recipient::PhantomNode => &self.phantom_secret,
 		};
-		Ok(self.inner.secp_ctx.sign_ecdsa_recoverable(hash_to_message!(&hash), secret))
+		Ok(RecoverableSignature::sign_ecdsa_recoverable(hash_to_message!(&hash), secret))
 	}
 
 	fn sign_bolt12_invoice(
@@ -2679,7 +2675,7 @@ impl PhantomKeysManager {
 			b"LDK Inbound and Phantom Payment Key Expansion",
 			cross_node_seed,
 		);
-		let phantom_secret = SecretKey::from_byte_array(phantom_key).unwrap();
+		let phantom_secret = SecretKey::from_secret_bytes(phantom_key).unwrap();
 		let phantom_node_id = PublicKey::from_secret_key(&phantom_secret);
 		Self {
 			inner,
@@ -2751,7 +2747,10 @@ pub mod benches {
 
 	pub fn bench_get_secure_random_bytes(bench: &mut Criterion) {
 		let seed = [0u8; 32];
-		let now = Duration::from_secs(genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)).header.time as u64);
+		let now = Duration::from_secs(
+			genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)).header.time
+				as u64,
+		);
 		let keys_manager =
 			Arc::new(KeysManager::new(&seed, now.as_secs(), now.subsec_micros(), true));
 

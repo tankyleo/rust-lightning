@@ -655,14 +655,18 @@ mod tests {
 	use crate::util::test_utils::{TestChainSource, TestLogger};
 
 	use bitcoin::amount::Amount;
-	use bitcoin::secp256k1::{Secp256k1, SecretKey};
+	use bitcoin::secp256k1::Secp256k1;
 
 	use core::sync::atomic::Ordering;
 
 	fn get_network() -> (TestChainSource, NetworkGraph<Box<TestLogger>>) {
 		let logger = Box::new(TestLogger::new());
-		let chain_source = TestChainSource::new(bitcoin::Network::Testnet(bitcoin::network::TestnetVersion::V3));
-		let network_graph = NetworkGraph::new(bitcoin::Network::Testnet(bitcoin::network::TestnetVersion::V3), logger);
+		let chain_source =
+			TestChainSource::new(bitcoin::Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let network_graph = NetworkGraph::new(
+			bitcoin::Network::Testnet(bitcoin::network::TestnetVersion::V3),
+			logger,
+		);
 
 		(chain_source, network_graph)
 	}
@@ -721,8 +725,10 @@ mod tests {
 
 		let notifier = Arc::new(Notifier::new());
 		let future = UtxoFuture::new(Arc::clone(&notifier));
-		future
-			.resolve(Ok(TxOut { amount: Amount::from_sat(1_000_000).expect("amount must fit"), script_pubkey: good_script }));
+		future.resolve(Ok(TxOut {
+			amount: Amount::from_sat(1_000_000).expect("amount must fit"),
+			script_pubkey: good_script,
+		}));
 		assert!(notifier.notify_pending());
 		network_graph.pending_checks.check_resolved_futures(&network_graph);
 		*chain_source.utxo_ret.lock().unwrap() = UtxoResult::Async(future.clone());
@@ -801,7 +807,10 @@ mod tests {
 		assert!(network_graph.read_only().channels().get(&scid).is_none());
 
 		let value = Amount::from_sat(1_000_000).expect("amount must fit");
-		future.resolve(Ok(TxOut { amount: value, script_pubkey: bitcoin::script::ScriptPubKeyBuf::new() }));
+		future.resolve(Ok(TxOut {
+			amount: value,
+			script_pubkey: bitcoin::script::ScriptPubKeyBuf::new(),
+		}));
 		assert!(notifier.notify_pending());
 		network_graph.pending_checks.check_resolved_futures(&network_graph);
 		assert!(network_graph.read_only().channels().get(&scid).is_none());
@@ -881,8 +890,10 @@ mod tests {
 		);
 
 		assert!(!notifier.notify_pending());
-		future
-			.resolve(Ok(TxOut { amount: Amount::from_sat(1_000_000).expect("amount must fit"), script_pubkey: good_script }));
+		future.resolve(Ok(TxOut {
+			amount: Amount::from_sat(1_000_000).expect("amount must fit"),
+			script_pubkey: good_script,
+		}));
 		assert!(notifier.notify_pending());
 		network_graph.pending_checks.check_resolved_futures(&network_graph);
 
@@ -950,8 +961,10 @@ mod tests {
 		);
 
 		assert!(!notifier.notify_pending());
-		future
-			.resolve(Ok(TxOut { amount: Amount::from_sat(1_000_000).expect("amount must fit"), script_pubkey: good_script }));
+		future.resolve(Ok(TxOut {
+			amount: Amount::from_sat(1_000_000).expect("amount must fit"),
+			script_pubkey: good_script,
+		}));
 		assert!(notifier.notify_pending());
 		network_graph.pending_checks.check_resolved_futures(&network_graph);
 
@@ -1016,8 +1029,10 @@ mod tests {
 		assert_eq!(chain_source.get_utxo_call_count.load(Ordering::Relaxed), 2);
 
 		// Still, if we resolve the original future, the original channel will be accepted.
-		future
-			.resolve(Ok(TxOut { amount: Amount::from_sat(1_000_000).expect("amount must fit"), script_pubkey: good_script }));
+		future.resolve(Ok(TxOut {
+			amount: Amount::from_sat(1_000_000).expect("amount must fit"),
+			script_pubkey: good_script,
+		}));
 		assert!(notifier_a.notify_pending());
 		assert!(!notifier_b.notify_pending());
 		network_graph.pending_checks.check_resolved_futures(&network_graph);

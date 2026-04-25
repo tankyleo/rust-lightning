@@ -2617,7 +2617,6 @@ mod tests {
 	use crate::io;
 	use bitcoin::constants::ChainHash;
 	use bitcoin::hashes::sha256d::Hash as Sha256dHash;
-	use bitcoin::hashes::Hash;
 	use bitcoin::network::Network;
 	use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 	use core::time::Duration;
@@ -2632,12 +2631,12 @@ mod tests {
 	}
 
 	fn source_pubkey() -> PublicKey {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		PublicKey::from_secret_key(&source_privkey())
 	}
 
 	fn target_pubkey() -> PublicKey {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		PublicKey::from_secret_key(&target_privkey())
 	}
 
@@ -2660,12 +2659,12 @@ mod tests {
 	}
 
 	fn sender_pubkey() -> PublicKey {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		PublicKey::from_secret_key(&sender_privkey())
 	}
 
 	fn recipient_pubkey() -> PublicKey {
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		PublicKey::from_secret_key(&recipient_privkey())
 	}
 
@@ -2674,7 +2673,8 @@ mod tests {
 	}
 
 	fn network_graph(logger: &TestLogger) -> NetworkGraph<&TestLogger> {
-		let mut network_graph = NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), logger);
+		let mut network_graph =
+			NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), logger);
 		add_channel(&mut network_graph, 42, source_privkey(), target_privkey());
 		add_channel(&mut network_graph, 43, target_privkey(), recipient_privkey());
 
@@ -2689,7 +2689,7 @@ mod tests {
 		let genesis_hash = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 		let node_1_secret = &crate::prelude::secret_key_from_slice(&[39; 32]).unwrap();
 		let node_2_secret = &crate::prelude::secret_key_from_slice(&[40; 32]).unwrap();
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let unsigned_announcement = UnsignedChannelAnnouncement {
 			features: channelmanager::provided_channel_features(&UserConfig::default()),
 			chain_hash: genesis_hash,
@@ -2702,10 +2702,10 @@ mod tests {
 		};
 		let msghash = hash_to_message!(Sha256dHash::hash(&unsigned_announcement.encode()[..]).as_byte_array());
 		let signed_announcement = ChannelAnnouncement {
-			node_signature_1: secp_ctx.sign_ecdsa(msghash, &node_1_key),
-			node_signature_2: secp_ctx.sign_ecdsa(msghash, &node_2_key),
-			bitcoin_signature_1: secp_ctx.sign_ecdsa(msghash, &node_1_secret),
-			bitcoin_signature_2: secp_ctx.sign_ecdsa(msghash, &node_2_secret),
+			node_signature_1: bitcoin::secp256k1::ecdsa::sign(msghash, &node_1_key),
+			node_signature_2: bitcoin::secp256k1::ecdsa::sign(msghash, &node_2_key),
+			bitcoin_signature_1: bitcoin::secp256k1::ecdsa::sign(msghash, &node_1_secret),
+			bitcoin_signature_2: bitcoin::secp256k1::ecdsa::sign(msghash, &node_2_secret),
 			contents: unsigned_announcement,
 		};
 		let chain_source: Option<&crate::util::test_utils::TestChainSource> = None;
@@ -2719,8 +2719,9 @@ mod tests {
 		network_graph: &mut NetworkGraph<&TestLogger>, short_channel_id: u64, node_key: SecretKey,
 		channel_flags: u8, htlc_maximum_msat: u64, timestamp: u32,
 	) {
-		let genesis_hash = ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
-		let secp_ctx = Secp256k1::new();
+		let genesis_hash =
+			ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+		let _secp_ctx = Secp256k1::new();
 		let unsigned_update = UnsignedChannelUpdate {
 			chain_hash: genesis_hash,
 			short_channel_id,
@@ -2734,9 +2735,10 @@ mod tests {
 			fee_proportional_millionths: 0,
 			excess_data: Vec::new(),
 		};
-		let msghash = hash_to_message!(Sha256dHash::hash(&unsigned_update.encode()[..]).as_byte_array());
+		let msghash =
+			hash_to_message!(Sha256dHash::hash(&unsigned_update.encode()[..]).as_byte_array());
 		let signed_update = ChannelUpdate {
-			signature: secp_ctx.sign_ecdsa(msghash, &node_key),
+			signature: bitcoin::secp256k1::ecdsa::sign(msghash, &node_key),
 			contents: unsigned_update,
 		};
 		network_graph.update_channel(&signed_update).unwrap();
@@ -3191,7 +3193,7 @@ mod tests {
 		// such channel" error in the `InvoicePayer`), we would call `failed_downstream` on all
 		// channels in the route, even ones which they payment never reached. This tests to ensure
 		// we do not score such channels.
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let logger = TestLogger::new();
 		let mut network_graph = NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &logger);
 		let secret_a = crate::prelude::secret_key_from_slice(&[42; 32]).unwrap();

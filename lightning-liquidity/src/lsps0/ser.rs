@@ -953,8 +953,8 @@ pub(crate) mod u32_fee_rate {
 	where
 		S: Serializer,
 	{
-			let fee_rate_sat_kwu = x.to_sat_per_kwu_floor();
-			s.serialize_u32(fee_rate_sat_kwu as u32)
+		let fee_rate_sat_kwu = x.to_sat_per_kwu_floor();
+		s.serialize_u32(fee_rate_sat_kwu as u32)
 	}
 
 	pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<FeeRate, D::Error>
@@ -963,9 +963,9 @@ pub(crate) mod u32_fee_rate {
 	{
 		let fee_rate_sat_kwu = u32::deserialize(deserializer)?;
 
-			Ok(FeeRate::from_sat_per_kwu(fee_rate_sat_kwu))
-		}
+		Ok(FeeRate::from_sat_per_kwu(fee_rate_sat_kwu))
 	}
+}
 
 #[cfg(test)]
 mod tests {

@@ -5,8 +5,8 @@ use crate::{
 	RawTaggedField, Sha256, TaggedField,
 };
 use bech32::Fe32;
-use hex_conservative::FromHex;
 use core::fmt::Debug;
+use hex_conservative::FromHex;
 use std::str::FromStr;
 
 /// Test base32 encode and decode
@@ -224,7 +224,7 @@ fn raw_data_part() {
 fn payeepubkey() {
 	use bitcoin::secp256k1::{PublicKey, SecretKey};
 
-	let dummy_secret_key = SecretKey::from_byte_array([1; 32]).unwrap();
+	let dummy_secret_key = SecretKey::from_secret_bytes([1; 32]).unwrap();
 	let payee_pub_key = PayeePubKey(PublicKey::from_secret_key(&dummy_secret_key));
 	ser_de_test_len(payee_pub_key, "qvdcf32k0vfxgsyet5ldt246q4jaw8scx3sysx0lnstlt6w4m5rc7");
 }

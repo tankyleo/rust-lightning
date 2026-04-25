@@ -5,7 +5,6 @@ use crate::{
 
 use bitcoin::block::{Block, Header, HeaderExt, Version};
 use bitcoin::constants::genesis_block;
-use bitcoin::hashes::Hash;
 use bitcoin::hash_types::{BlockHash, TxMerkleNode};
 use bitcoin::locktime::absolute::LockTime;
 use bitcoin::network::Network;
@@ -58,7 +57,8 @@ impl Blockchain {
 				inputs: vec![],
 				outputs: vec![],
 			};
-			let merkle_root = TxMerkleNode::from_byte_array(coinbase.compute_txid().to_byte_array());
+			let merkle_root =
+				TxMerkleNode::from_byte_array(coinbase.compute_txid().to_byte_array());
 			self.blocks.push(Block::new_unchecked(
 				Header {
 					version: Version::NO_SOFT_FORK_SIGNALLING,

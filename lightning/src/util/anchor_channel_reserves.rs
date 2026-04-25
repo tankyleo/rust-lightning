@@ -195,7 +195,7 @@ fn get_reserve_per_channel_with_input(
 		htlc_success_transaction_weight(context) * expected_accepted_htlcs +
 		htlc_timeout_transaction_weight(context) * expected_accepted_htlcs,
 	);
-	context.upper_bound_fee_rate.fee_wu(weight).unwrap_or(Amount::MAX)
+	context.upper_bound_fee_rate.to_fee(weight)
 }
 
 /// Returns the amount that needs to be maintained as a reserve per anchor channel.
@@ -240,10 +240,8 @@ pub fn get_supportable_anchor_channels(
 	let mut total_fractional_amount = Amount::ZERO;
 	let mut num_whole_utxos = 0;
 	for utxo in utxos {
-		let satisfaction_fee = context
-			.upper_bound_fee_rate
-			.fee_wu(Weight::from_wu(utxo.satisfaction_weight))
-			.unwrap_or(Amount::MAX);
+		let satisfaction_fee =
+			context.upper_bound_fee_rate.to_fee(Weight::from_wu(utxo.satisfaction_weight));
 		let amount = utxo.output.amount.checked_sub(satisfaction_fee).unwrap_or(Amount::MIN);
 		if amount >= reserve_per_channel {
 			num_whole_utxos += 1;
@@ -344,7 +342,7 @@ mod test {
 			},
 			output: TxOut { amount, script_pubkey: ScriptBuf::new() },
 			satisfaction_weight: 1 * 4 + (1 + 1 + 72 + 1 + 33),
-			sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+			sequence: Sequence::ENABLE_LOCKTIME_AND_RBF,
 		}
 	}
 

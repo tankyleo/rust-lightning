@@ -33,8 +33,7 @@ use crate::prelude::*;
 macro_rules! build_keys_helper {
 	($session_priv: ident, $secp_ctx: ident, $callback: ident) => {
 		let mut msg_blinding_point_priv = $session_priv.clone();
-		let mut msg_blinding_point =
-			PublicKey::from_secret_key(&msg_blinding_point_priv);
+		let mut msg_blinding_point = PublicKey::from_secret_key(&msg_blinding_point_priv);
 		let mut onion_packet_pubkey_priv = msg_blinding_point_priv.clone();
 		let mut onion_packet_pubkey = msg_blinding_point.clone();
 
@@ -85,8 +84,7 @@ macro_rules! build_keys_helper {
 				msg_blinding_point_priv = msg_blinding_point_priv
 					.mul_tweak(&Scalar::from_be_bytes(msg_blinding_point_blinding_factor).unwrap())
 					.expect("RNG is busted");
-				msg_blinding_point =
-					PublicKey::from_secret_key(&msg_blinding_point_priv);
+				msg_blinding_point = PublicKey::from_secret_key(&msg_blinding_point_priv);
 
 				let onion_packet_pubkey_blinding_factor = {
 					let mut sha = Sha256::engine();
@@ -97,16 +95,15 @@ macro_rules! build_keys_helper {
 				onion_packet_pubkey_priv = onion_packet_pubkey_priv
 					.mul_tweak(&Scalar::from_be_bytes(onion_packet_pubkey_blinding_factor).unwrap())
 					.expect("RNG is busted");
-				onion_packet_pubkey =
-					PublicKey::from_secret_key(&onion_packet_pubkey_priv);
+				onion_packet_pubkey = PublicKey::from_secret_key(&onion_packet_pubkey_priv);
 			};
 		}
 	};
 }
 
 pub(crate) fn construct_keys_for_onion_message<'a, T, I, F>(
-	secp_ctx: &Secp256k1<T>, unblinded_path: I, destination: Destination, session_priv: &SecretKey,
-	mut callback: F,
+	_secp_ctx: &Secp256k1<T>, unblinded_path: I, destination: Destination,
+	session_priv: &SecretKey, mut callback: F,
 ) where
 	T: secp256k1::Signing + secp256k1::Verification,
 	I: Iterator<Item = PublicKey>,
@@ -134,7 +131,7 @@ pub(crate) fn construct_keys_for_onion_message<'a, T, I, F>(
 }
 
 fn construct_keys_for_blinded_path<'a, T, I, F, H>(
-	secp_ctx: &Secp256k1<T>, unblinded_path: I, session_priv: &SecretKey, mut callback: F,
+	_secp_ctx: &Secp256k1<T>, unblinded_path: I, session_priv: &SecretKey, mut callback: F,
 ) where
 	T: secp256k1::Signing + secp256k1::Verification,
 	H: Borrow<PublicKey>,

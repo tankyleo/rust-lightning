@@ -1170,8 +1170,10 @@ pub fn do_cannot_afford_on_holding_cell_release(
 			{
 				let commitment_tx = get_local_commitment_txn!(nodes[0], channel_id)[0].clone();
 
-				let mut actual_fee =
-					commitment_tx.outputs.iter().fold(0, |acc, output| acc + output.amount.to_sat());
+				let mut actual_fee = commitment_tx
+					.outputs
+					.iter()
+					.fold(0, |acc, output| acc + output.amount.to_sat());
 				actual_fee = channel_value_sat - actual_fee;
 				assert_eq!(expected_tx_fee_sat, actual_fee);
 			}
@@ -1180,8 +1182,10 @@ pub fn do_cannot_afford_on_holding_cell_release(
 			{
 				let commitment_tx = get_local_commitment_txn!(nodes[1], channel_id)[0].clone();
 
-				let mut actual_fee =
-					commitment_tx.outputs.iter().fold(0, |acc, output| acc + output.amount.to_sat());
+				let mut actual_fee = commitment_tx
+					.outputs
+					.iter()
+					.fold(0, |acc, output| acc + output.amount.to_sat());
 				actual_fee = channel_value_sat - actual_fee;
 				assert_eq!(expected_tx_fee_sat, actual_fee);
 			}

@@ -370,10 +370,7 @@ pub(super) fn verify<L: Logger>(
 			let mut hmac = HmacEngine::<Sha256Engine>::new(&keys.user_pmt_hash_key);
 			hmac.input(&metadata_bytes[..]);
 			hmac.input(&payment_hash.0);
-			if !fixed_time_eq(
-				&iv_bytes,
-				&hmac.finalize().to_byte_array().split_at_mut(IV_LEN).0,
-			) {
+			if !fixed_time_eq(&iv_bytes, &hmac.finalize().to_byte_array().split_at_mut(IV_LEN).0) {
 				log_trace!(
 					logger,
 					"Failing HTLC with user-generated payment_hash {}: unexpected payment_secret",
@@ -399,10 +396,7 @@ pub(super) fn verify<L: Logger>(
 		Ok(Method::SpontaneousPayment) => {
 			let mut hmac = HmacEngine::<Sha256Engine>::new(&keys.spontaneous_pmt_key);
 			hmac.input(&metadata_bytes[..]);
-			if !fixed_time_eq(
-				&iv_bytes,
-				&hmac.finalize().to_byte_array().split_at_mut(IV_LEN).0,
-			) {
+			if !fixed_time_eq(&iv_bytes, &hmac.finalize().to_byte_array().split_at_mut(IV_LEN).0) {
 				log_trace!(logger, "Failing async payment HTLC with sender-generated payment_hash {}: unexpected payment_secret", &payment_hash);
 				return Err(());
 			}

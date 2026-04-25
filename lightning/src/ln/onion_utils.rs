@@ -117,7 +117,7 @@ pub(super) fn gen_pad_from_shared_secret(shared_secret: &[u8]) -> [u8; 32] {
 
 /// Calculates a pubkey for the next hop, such as the next hop's packet pubkey or blinding point.
 pub(crate) fn next_hop_pubkey<T: secp256k1::Verification>(
-	secp_ctx: &Secp256k1<T>, curr_pubkey: PublicKey, shared_secret: &[u8],
+	_secp_ctx: &Secp256k1<T>, curr_pubkey: PublicKey, shared_secret: &[u8],
 ) -> Result<PublicKey, secp256k1::Error> {
 	let blinding_factor = {
 		let mut sha = Sha256::engine();
@@ -322,7 +322,7 @@ impl<'a, 'b> OnionPayload<'a, 'b> for msgs::OutboundTrampolinePayload<'a> {
 }
 
 fn construct_onion_keys_generic<'a, T, H>(
-	secp_ctx: &'a Secp256k1<T>, hops: &'a [H], blinded_tail: Option<&'a BlindedTail>,
+	_secp_ctx: &'a Secp256k1<T>, hops: &'a [H], blinded_tail: Option<&'a BlindedTail>,
 	session_priv: &SecretKey,
 ) -> impl Iterator<Item = (SharedSecret, [u8; 32], PublicKey, Option<&'a H>, usize)> + 'a
 where
@@ -2626,8 +2626,9 @@ pub fn create_payment_onion<T: secp256k1::Signing>(
 pub(super) fn compute_trampoline_session_priv(outer_onion_session_priv: &SecretKey) -> SecretKey {
 	// When creating the inner trampoline onion, we set the session priv to the hash of the outer
 	// onion session priv.
-	let session_priv_hash = Sha256::hash(&outer_onion_session_priv.secret_bytes()).to_byte_array();
-	SecretKey::from_byte_array(session_priv_hash).expect("You broke SHA-256!")
+	let session_priv_hash =
+		Sha256::hash(&outer_onion_session_priv.to_secret_bytes()).to_byte_array();
+	SecretKey::from_secret_bytes(session_priv_hash).expect("You broke SHA-256!")
 }
 
 /// Build a payment onion, returning the first hop msat and cltv values as well.
@@ -3042,9 +3043,9 @@ mod tests {
 	use crate::util::test_utils::TestLogger;
 
 	use super::*;
-	use hex_conservative::{DisplayHex, FromHex};
 	use bitcoin::secp256k1::Secp256k1;
 	use bitcoin::secp256k1::{PublicKey, SecretKey};
+	use hex_conservative::{DisplayHex, FromHex};
 	use types::features::Features;
 
 	fn get_test_session_key() -> SecretKey {
@@ -3341,7 +3342,7 @@ mod tests {
 		assert_eq!(hop_4_serialized_payload, expected_serialized_hop_4_payload);
 
 		let pad_keytype_seed =
-			super::gen_pad_from_shared_secret(&get_test_session_key().secret_bytes());
+			super::gen_pad_from_shared_secret(&get_test_session_key().to_secret_bytes());
 
 		let packet: msgs::OnionPacket = super::construct_onion_packet_with_writable_hopdata::<_>(
 			payloads,

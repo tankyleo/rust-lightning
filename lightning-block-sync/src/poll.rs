@@ -83,11 +83,11 @@ impl Validate for BlockHeaderData {
 impl Validate for BlockData {
 	type T = ValidatedBlock;
 
-		fn validate(self, block_hash: BlockHash) -> BlockSourceResult<Self::T> {
-			let header = match &self {
-				BlockData::FullBlock(block) => block.as_parts().0,
-				BlockData::HeaderOnly(header) => header,
-			};
+	fn validate(self, block_hash: BlockHash) -> BlockSourceResult<Self::T> {
+		let header = match &self {
+			BlockData::FullBlock(block) => block.as_parts().0,
+			BlockData::HeaderOnly(header) => header,
+		};
 
 		let pow_valid_block_hash =
 			header.validate_pow(header.target()).map_err(BlockSourceError::persistent)?;
@@ -101,9 +101,9 @@ impl Validate for BlockData {
 				return Err(BlockSourceError::persistent("invalid merkle root"));
 			}
 
-				if !block.check_witness_commitment().0 {
-					return Err(BlockSourceError::persistent("invalid witness commitment"));
-				}
+			if !block.check_witness_commitment().0 {
+				return Err(BlockSourceError::persistent("invalid witness commitment"));
+			}
 		}
 
 		Ok(ValidatedBlock { block_hash, inner: self })

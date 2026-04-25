@@ -14,7 +14,7 @@ use crate::ln::splicing_tests::{initiate_splice_out, negotiate_splice_tx};
 use crate::prelude::*;
 use crate::util::ser::Writeable;
 use bitcoin::secp256k1::Secp256k1;
-use bitcoin::{Amount, TxOut};
+use bitcoin::TxOut;
 
 use crate::chain::channelmonitor::LATENCY_GRACE_PERIOD_BLOCKS;
 use crate::chain::ChannelMonitorUpdateStatus;

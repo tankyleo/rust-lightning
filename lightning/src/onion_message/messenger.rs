@@ -167,7 +167,7 @@ impl<
 /// # impl MessageRouter for FakeMessageRouter {
 /// #     fn find_path(&self, sender: PublicKey, peers: Vec<PublicKey>, destination: Destination) -> Result<OnionMessagePath, ()> {
 /// #         let secp_ctx = Secp256k1::new();
-/// #         let node_secret = SecretKey::from_byte_array([1; 32]).unwrap();
+/// #         let node_secret = SecretKey::from_secret_bytes([1; 32]).unwrap();
 /// #         let hop_node_id1 = PublicKey::from_secret_key(&node_secret);
 /// #         let hop_node_id2 = hop_node_id1;
 /// #         Ok(OnionMessagePath {
@@ -187,7 +187,7 @@ impl<
 /// # let time = Duration::from_secs(123456);
 /// # let keys_manager = KeysManager::new(&seed, time.as_secs(), time.subsec_nanos(), true);
 /// # let logger = Arc::new(FakeLogger {});
-/// # let node_secret = SecretKey::from_byte_array([1; 32]).unwrap();
+/// # let node_secret = SecretKey::from_secret_bytes([1; 32]).unwrap();
 /// # let secp_ctx = Secp256k1::new();
 /// # let hop_node_id1 = PublicKey::from_secret_key(&node_secret);
 /// # let (hop_node_id3, hop_node_id4) = (hop_node_id1, hop_node_id1);
@@ -1105,7 +1105,8 @@ pub fn create_onion_message<
 	}
 
 	let blinding_secret_bytes = entropy_source.get_secure_random_bytes();
-	let blinding_secret = SecretKey::from_byte_array(blinding_secret_bytes).expect("RNG is busted");
+	let blinding_secret =
+		SecretKey::from_secret_bytes(blinding_secret_bytes).expect("RNG is busted");
 	let (first_node_id, blinding_point) = if let Some(first_node_id) = intermediate_nodes.first() {
 		(*first_node_id, PublicKey::from_secret_key(&blinding_secret))
 	} else {

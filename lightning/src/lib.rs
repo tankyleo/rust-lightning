@@ -133,6 +133,7 @@ pub mod io_extras {
 
 mod prelude {
 	#![allow(unused_imports)]
+	#![allow(dead_code)]
 
 	pub use alloc::{boxed::Box, collections::VecDeque, string::String, vec, vec::Vec};
 
@@ -187,7 +188,8 @@ mod prelude {
 
 	impl LegacySecretKeyExt for bitcoin::secp256k1::SecretKey {
 		fn from_slice(data: &[u8]) -> Result<Self, bitcoin::secp256k1::Error> {
-			let data = <[u8; 32]>::try_from(data).map_err(|_| bitcoin::secp256k1::Error::InvalidSecretKey)?;
+			let data = <[u8; 32]>::try_from(data)
+				.map_err(|_| bitcoin::secp256k1::Error::InvalidSecretKey)?;
 			Self::from_secret_bytes(data)
 		}
 	}
@@ -195,7 +197,8 @@ mod prelude {
 	pub(crate) fn secret_key_from_slice(
 		data: &[u8],
 	) -> Result<bitcoin::secp256k1::SecretKey, bitcoin::secp256k1::Error> {
-		let data = <[u8; 32]>::try_from(data).map_err(|_| bitcoin::secp256k1::Error::InvalidSecretKey)?;
+		let data =
+			<[u8; 32]>::try_from(data).map_err(|_| bitcoin::secp256k1::Error::InvalidSecretKey)?;
 		bitcoin::secp256k1::SecretKey::from_secret_bytes(data)
 	}
 

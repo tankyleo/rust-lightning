@@ -359,14 +359,14 @@ impl Base32Iterable for Fallback {
 				let v = Fe32::try_from(v.to_num()).expect("valid version");
 				core::iter::once(v).chain(p[..].fe_iter())
 			},
-				Fallback::PubKeyHash(ref hash) => {
-					// 17 '3'
-					core::iter::once(Fe32::_3).chain(hash.as_byte_array()[..].fe_iter())
-				},
-				Fallback::ScriptHash(ref hash) => {
-					// 18 'J'
-					core::iter::once(Fe32::J).chain(hash.as_byte_array()[..].fe_iter())
-				},
+			Fallback::PubKeyHash(ref hash) => {
+				// 17 '3'
+				core::iter::once(Fe32::_3).chain(hash.as_byte_array()[..].fe_iter())
+			},
+			Fallback::ScriptHash(ref hash) => {
+				// 18 'J'
+				core::iter::once(Fe32::J).chain(hash.as_byte_array()[..].fe_iter())
+			},
 		}
 	}
 }

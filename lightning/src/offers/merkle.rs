@@ -11,7 +11,7 @@
 
 use crate::io;
 use crate::util::ser::{BigSize, Readable, Writeable, Writer};
-use bitcoin::hashes::{sha256, Hash, HashEngine};
+use bitcoin::hashes::{sha256, HashEngine};
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{self, Message, PublicKey, Secp256k1};
 
@@ -134,8 +134,9 @@ where
 
 	let digest = message.as_ref().as_digest_bytes();
 	let pubkey = pubkey.into();
-	let secp_ctx = Secp256k1::verification_only();
-	secp_ctx.verify_schnorr(&signature, digest, &pubkey).map_err(|e| SignError::Verification(e))?;
+	let _secp_ctx = Secp256k1::verification_only();
+	bitcoin::secp256k1::schnorr::verify(&signature, digest, &pubkey)
+		.map_err(|e| SignError::Verification(e))?;
 
 	Ok(signature)
 }
@@ -147,8 +148,8 @@ pub fn verify_signature(
 ) -> Result<(), secp256k1::Error> {
 	let digest = message.as_digest_bytes();
 	let pubkey = pubkey.into();
-	let secp_ctx = Secp256k1::verification_only();
-	secp_ctx.verify_schnorr(signature, digest, &pubkey)
+	let _secp_ctx = Secp256k1::verification_only();
+	bitcoin::secp256k1::schnorr::verify(signature, digest, &pubkey)
 }
 
 /// Computes a merkle root hash for the given data, which must be a well-formed TLV stream
@@ -298,10 +299,10 @@ mod tests {
 	use crate::offers::signer::Metadata;
 	use crate::offers::test_utils::recipient_pubkey;
 	use crate::util::ser::Writeable;
-	use bitcoin::hashes::{sha256, Hash};
-	use hex_conservative::FromHex;
+	use bitcoin::hashes::sha256;
 	use bitcoin::secp256k1::schnorr::Signature;
-	use bitcoin::secp256k1::{Keypair, Message, Secp256k1, SecretKey};
+	use bitcoin::secp256k1::{Keypair, Message, Secp256k1};
+	use hex_conservative::FromHex;
 
 	#[test]
 	fn calculates_merkle_root_hash() {
@@ -373,7 +374,10 @@ mod tests {
 			.payer_signing_pubkey(payer_keys.public_key())
 			.build_unchecked()
 			.sign(|message: &UnsignedInvoiceRequest| {
-				Ok(secp_ctx.sign_schnorr_no_aux_rand(message.as_ref().as_digest_bytes(), &payer_keys))
+				Ok(bitcoin::secp256k1::schnorr::sign_no_aux_rand(
+					message.as_ref().as_digest_bytes(),
+					&payer_keys,
+				))
 			})
 			.unwrap();
 		assert_eq!(
@@ -389,8 +393,8 @@ mod tests {
 			sha256::Hash::from_byte_array(<[u8; 32]>::try_from(bytes.as_slice()).unwrap()),
 		);
 
-		let bytes = <Vec<u8>>::from_hex("b8f83ea3288cfd6ea510cdb481472575141e8d8744157f98562d162cc1c472526fdb24befefbdebab4dbb726bbd1b7d8aec057f8fa805187e5950d2bbe0e5642").unwrap();
-		assert_eq!(invoice_request.signature(), Signature::from_slice(&bytes).unwrap(),);
+		let bytes = <[u8; 64]>::from_hex("b8f83ea3288cfd6ea510cdb481472575141e8d8744157f98562d162cc1c472526fdb24befefbdebab4dbb726bbd1b7d8aec057f8fa805187e5950d2bbe0e5642").unwrap();
+		assert_eq!(invoice_request.signature(), Signature::from_byte_array(bytes),);
 	}
 
 	#[test]

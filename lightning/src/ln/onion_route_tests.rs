@@ -43,12 +43,12 @@ use crate::util::ser::{BigSize, Writeable, Writer};
 use crate::util::test_utils;
 
 use bitcoin::constants::ChainHash;
-use bitcoin::hashes::hmac::{Hmac, HmacEngine};
+use bitcoin::hashes::hmac::HmacEngine;
 use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
 use bitcoin::hashes::{Hash, HashEngine};
 
 use bitcoin::secp256k1;
-use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+use bitcoin::secp256k1::{PublicKey, Secp256k1};
 
 use crate::blinded_path::BlindedHop;
 use crate::io;
@@ -1971,7 +1971,9 @@ fn test_trampoline_onion_payload_assembly_values() {
 	assert_eq!(path.final_cltv_expiry_delta(), None);
 
 	let payment_secret = PaymentSecret(
-		crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(SECRET_HEX).unwrap()).unwrap().secret_bytes(),
+		crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(SECRET_HEX).unwrap())
+			.unwrap()
+			.to_secret_bytes(),
 	);
 	let recipient_onion_fields = RecipientOnionFields::secret_only(payment_secret, amt_msat);
 	let (trampoline_payloads, outer_total_msat) = onion_utils::build_trampoline_onion_payloads(
@@ -2017,9 +2019,10 @@ fn test_trampoline_onion_payload_assembly_values() {
 
 	// all dummy values
 	let secp_ctx = Secp256k1::new();
-	let session_priv = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(SESSION_HEX).unwrap()).unwrap();
-	let prng_seed = onion_utils::gen_pad_from_shared_secret(&session_priv.secret_bytes());
-	let payment_hash = PaymentHash(session_priv.secret_bytes());
+	let session_priv =
+		crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(SESSION_HEX).unwrap()).unwrap();
+	let prng_seed = onion_utils::gen_pad_from_shared_secret(&session_priv.to_secret_bytes());
+	let payment_hash = PaymentHash(session_priv.to_secret_bytes());
 
 	let onion_keys = construct_trampoline_onion_keys(
 		&secp_ctx,
@@ -2128,7 +2131,7 @@ fn test_trampoline_onion_payload_construction_vectors() {
 			.unwrap(),
 	)
 	.unwrap();
-	let associated_data = PaymentHash(associated_data_slice.secret_bytes());
+	let associated_data = PaymentHash(associated_data_slice.to_secret_bytes());
 
 	let trampoline_hops = Path {
 		hops: vec![],
@@ -2207,9 +2210,11 @@ fn test_trampoline_onion_payload_construction_vectors() {
 			trampoline_packet: trampoline_onion_packet,
 			multipath_trampoline_data: Some(FinalOnionHopData {
 				payment_secret: PaymentSecret(
-					crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex(SECRET_HEX).unwrap())
-						.unwrap()
-						.secret_bytes(),
+					crate::prelude::secret_key_from_slice(
+						&<Vec<u8>>::from_hex(SECRET_HEX).unwrap(),
+					)
+					.unwrap()
+					.to_secret_bytes(),
 				),
 				total_msat: 150153000,
 			}),
@@ -2255,7 +2260,7 @@ fn test_trampoline_onion_payload_construction_vectors() {
 	.unwrap();
 	let outer_onion_keys = construct_onion_keys(&Secp256k1::new(), &outer_hops, &outer_session_key);
 	let outer_onion_prng_seed =
-		onion_utils::gen_pad_from_shared_secret(&outer_session_key.secret_bytes());
+		onion_utils::gen_pad_from_shared_secret(&outer_session_key.to_secret_bytes());
 	let outer_onion_packet = onion_utils::construct_onion_packet(
 		outer_payloads,
 		outer_onion_keys,
@@ -2529,7 +2534,8 @@ fn test_phantom_invalid_onion_payload() {
 				}) => {
 					// Construct the onion payloads for the entire route and an invalid amount.
 					let height = nodes[0].best_block_info().1;
-					let session_priv = crate::prelude::secret_key_from_slice(&session_priv).unwrap();
+					let session_priv =
+						crate::prelude::secret_key_from_slice(&session_priv).unwrap();
 					let mut onion_keys =
 						construct_onion_keys(&Secp256k1::new(), &route.paths[0], &session_priv);
 					let recipient_onion_fields =

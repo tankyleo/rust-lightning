@@ -4,7 +4,6 @@
 //! and can be used to predict whether we'd accept a payment.
 
 use bitcoin::hashes::sha256::Hash as Sha256;
-use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::ecdh::SharedSecret;
 use bitcoin::secp256k1::{self, PublicKey, Secp256k1};
 
@@ -760,8 +759,7 @@ mod tests {
 	use crate::types::features::{ChannelFeatures, NodeFeatures};
 	use crate::types::payment::{PaymentHash, PaymentPreimage, PaymentSecret};
 	use crate::util::test_utils;
-	use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
-	use bitcoin::hashes::Hash;
+	use bitcoin::hashes::sha256::Hash as Sha256;
 	use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 
 	#[test]

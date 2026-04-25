@@ -115,7 +115,7 @@ impl BlindedMessagePath {
 		);
 		let blinding_secret_bytes = entropy_source.get_secure_random_bytes();
 		let blinding_secret =
-			SecretKey::from_byte_array(blinding_secret_bytes).expect("RNG is busted");
+			SecretKey::from_secret_bytes(blinding_secret_bytes).expect("RNG is busted");
 
 		Self(BlindedPath {
 			introduction_node,

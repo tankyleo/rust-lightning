@@ -1,7 +1,6 @@
 //! Various unit tests covering HTLC handling as well as tests covering channel reserve tracking.
 
 use crate::events::{ClosureReason, Event, HTLCHandlingFailureType, PaymentPurpose};
-use crate::prelude::*;
 use crate::ln::chan_utils::{
 	self, commit_tx_fee_sat, commitment_tx_base_weight, second_stage_tx_fees_sat,
 	shared_anchor_script_pubkey, CommitmentTransaction, COMMITMENT_TX_WEIGHT_PER_HTLC,
@@ -18,6 +17,7 @@ use crate::ln::msgs::{self, BaseMessageHandler, ChannelMessageHandler, MessageSe
 use crate::ln::onion_utils::{self, AttributionData};
 use crate::ln::outbound_payment::RecipientOnionFields;
 use crate::ln::types::ChannelId;
+use crate::prelude::*;
 use crate::routing::router::PaymentParameters;
 use crate::sign::ecdsa::EcdsaChannelSigner;
 use crate::sign::tx_builder::{SpecTxBuilder, TxBuilder};
@@ -29,8 +29,8 @@ use crate::util::errors::APIError;
 
 use lightning_macros::xtest;
 
-use bitcoin::secp256k1::{Secp256k1, SecretKey};
-use bitcoin::{Amount, Transaction};
+use bitcoin::secp256k1::Secp256k1;
+use bitcoin::Transaction;
 
 fn do_test_counterparty_no_reserve(send_from_initiator: bool) {
 	// A peer providing a channel_reserve_satoshis of 0 (or less than our dust limit) is insecure,

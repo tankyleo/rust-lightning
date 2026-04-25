@@ -850,21 +850,21 @@ impl PackageSolvingData {
 	#[rustfmt::skip]
 	fn as_tx_input(&self, previous_output: BitcoinOutPoint) -> TxIn {
 		let sequence = match self {
-			PackageSolvingData::RevokedOutput(_) => Sequence::ENABLE_RBF_NO_LOCKTIME,
-			PackageSolvingData::RevokedHTLCOutput(_) => Sequence::ENABLE_RBF_NO_LOCKTIME,
+			PackageSolvingData::RevokedOutput(_) => Sequence::ENABLE_LOCKTIME_AND_RBF,
+			PackageSolvingData::RevokedHTLCOutput(_) => Sequence::ENABLE_LOCKTIME_AND_RBF,
 			PackageSolvingData::CounterpartyOfferedHTLCOutput(outp) => if outp.channel_type_features.supports_anchors_zero_fee_htlc_tx() {
 				Sequence::from_consensus(1)
 			} else {
-				Sequence::ENABLE_RBF_NO_LOCKTIME
+				Sequence::ENABLE_LOCKTIME_AND_RBF
 			},
 			PackageSolvingData::CounterpartyReceivedHTLCOutput(outp) => if outp.channel_type_features.supports_anchors_zero_fee_htlc_tx() {
 				Sequence::from_consensus(1)
 			} else {
-				Sequence::ENABLE_RBF_NO_LOCKTIME
+				Sequence::ENABLE_LOCKTIME_AND_RBF
 			},
 			_ => {
 				debug_assert!(false, "This should not be reachable by 'untractable' or 'malleable with external funding' packages");
-				Sequence::ENABLE_RBF_NO_LOCKTIME
+				Sequence::ENABLE_LOCKTIME_AND_RBF
 			},
 		};
 		TxIn {
@@ -1793,8 +1793,7 @@ mod tests {
 	use crate::chain::onchaintx::FeerateStrategy;
 	use crate::types::features::ChannelTypeFeatures;
 	use crate::util::test_utils::TestLogger;
-	use bitcoin::secp256k1::Secp256k1;
-	use bitcoin::secp256k1::{PublicKey, SecretKey};
+	use bitcoin::secp256k1::PublicKey;
 
 	#[rustfmt::skip]
 	fn fake_txid(n: u64) -> Txid {
@@ -1813,7 +1812,6 @@ mod tests {
 	macro_rules! dumb_revk_output {
 		() => {
 			{
-				let secp_ctx = Secp256k1::new();
 				let dumb_scalar = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
 				let dumb_point = PublicKey::from_secret_key(&dumb_scalar);
 				let channel_parameters = ChannelTransactionParameters::test_dummy(0);
@@ -1826,7 +1824,6 @@ mod tests {
 	macro_rules! dumb_revk_htlc_output {
 		() => {
 			{
-				let secp_ctx = Secp256k1::new();
 				let dumb_scalar = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
 				let dumb_point = PublicKey::from_secret_key(&dumb_scalar);
 				let hash = PaymentHash([1; 32]);
@@ -1845,7 +1842,6 @@ mod tests {
 	macro_rules! dumb_counterparty_received_output {
 		($amt: expr, $expiry: expr, $features: expr) => {
 			{
-				let secp_ctx = Secp256k1::new();
 				let dumb_scalar = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
 				let dumb_point = PublicKey::from_secret_key(&dumb_scalar);
 				let hash = PaymentHash([1; 32]);
@@ -1863,7 +1859,6 @@ mod tests {
 	macro_rules! dumb_counterparty_offered_output {
 		($amt: expr, $features: expr) => {
 			{
-				let secp_ctx = Secp256k1::new();
 				let dumb_scalar = crate::prelude::secret_key_from_slice(&<Vec<u8>>::from_hex("0101010101010101010101010101010101010101010101010101010101010101").unwrap()[..]).unwrap();
 				let dumb_point = PublicKey::from_secret_key(&dumb_scalar);
 				let hash = PaymentHash([1; 32]);

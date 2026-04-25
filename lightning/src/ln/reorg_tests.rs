@@ -927,10 +927,7 @@ fn test_htlc_preimage_claim_prev_counterparty_commitment_after_current_counterpa
 	check_spends!(htlc_preimage_tx, prev_commitment_a);
 	// Make sure it was indeed a preimage claim and not a revocation claim since the previous
 	// commitment (still unrevoked) is the currently confirmed closing transaction.
-	assert_eq!(
-		htlc_preimage_tx.inputs[0].witness.get_back(1).unwrap(),
-		&payment_preimage.0[..]
-	);
+	assert_eq!(htlc_preimage_tx.inputs[0].witness.get_back(1).unwrap(), &payment_preimage.0[..]);
 }
 
 fn do_test_retries_own_commitment_broadcast_after_reorg(

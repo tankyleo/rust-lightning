@@ -209,8 +209,6 @@ mod tests {
 	use super::*;
 	use crate::http::client_tests::{HttpServer, MessageBody};
 
-	use bitcoin::hashes::Hash;
-
 	/// Credentials encoded in base64.
 	const CREDENTIALS: &'static str = "dXNlcjpwYXNzd29yZA==";
 

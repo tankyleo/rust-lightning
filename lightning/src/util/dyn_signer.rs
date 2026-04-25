@@ -20,8 +20,8 @@ use crate::sign::{
 };
 use bitcoin;
 use bitcoin::absolute::LockTime;
-use bitcoin::secp256k1::All;
 use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
+use bitcoin::secp256k1::All;
 use bitcoin::{secp256k1, Transaction, TxOut, Txid};
 use lightning_invoice::RawBolt11Invoice;
 use secp256k1::ecdsa::RecoverableSignature;

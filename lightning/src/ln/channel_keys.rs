@@ -11,13 +11,11 @@
 //! See: <https://github.com/lightning/bolts/blob/master/03-transactions.md#keys>
 
 use crate::io;
-use crate::prelude::*;
 use crate::ln::msgs::DecodeError;
 use crate::util::ser::Readable;
 use crate::util::ser::Writeable;
 use crate::util::ser::Writer;
 use bitcoin::hashes::sha256::Hash as Sha256;
-use bitcoin::hashes::Hash;
 use bitcoin::hashes::HashEngine;
 use bitcoin::secp256k1;
 use bitcoin::secp256k1::PublicKey;
@@ -80,7 +78,7 @@ macro_rules! key_impl {
 
 		doc_comment! {
 			concat!("Build a ", $KeyName, " directly from an already-derived private key"),
-			pub fn from_secret_key<T: secp256k1::Signing>(secp_ctx: &Secp256k1<T>, sk: &SecretKey) -> Self {
+			pub fn from_secret_key<T: secp256k1::Signing>(_secp_ctx: &Secp256k1<T>, sk: &SecretKey) -> Self {
 				Self(PublicKey::from_secret_key(&sk))
 			}
 		}
@@ -180,10 +178,10 @@ fn derive_public_key<T: secp256k1::Signing>(
 ///
 /// May panic if `tweak` is not the output of a SHA-256 hash.
 pub fn add_public_key_tweak<T: secp256k1::Signing>(
-	secp_ctx: &Secp256k1<T>, base_point: &PublicKey, tweak: &Sha256,
+	_secp_ctx: &Secp256k1<T>, base_point: &PublicKey, tweak: &Sha256,
 ) -> PublicKey {
 	let hashkey = PublicKey::from_secret_key(
-		&SecretKey::from_byte_array(*tweak.as_byte_array())
+		&SecretKey::from_secret_bytes(*tweak.as_byte_array())
 			.expect("Hashes should always be valid keys unless SHA-256 is broken"),
 	);
 	base_point.combine(&hashkey)
@@ -219,7 +217,7 @@ impl RevocationKey {
 	///
 	/// [`chan_utils::derive_private_revocation_key`]: crate::ln::chan_utils::derive_private_revocation_key
 	pub fn from_basepoint<T: secp256k1::Verification>(
-		secp_ctx: &Secp256k1<T>, countersignatory_basepoint: &RevocationBasepoint,
+		_secp_ctx: &Secp256k1<T>, countersignatory_basepoint: &RevocationBasepoint,
 		per_commitment_point: &PublicKey,
 	) -> Self {
 		let rev_append_commit_hash_key = {
@@ -256,8 +254,8 @@ key_read_write!(RevocationKey);
 #[cfg(test)]
 mod test {
 	use super::derive_public_key;
+	use bitcoin::secp256k1::{PublicKey, Secp256k1};
 	use hex_conservative::FromHex;
-	use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 
 	#[test]
 	fn test_key_derivation() {

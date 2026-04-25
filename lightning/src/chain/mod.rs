@@ -13,7 +13,7 @@ use bitcoin::block::{Block, Header};
 use bitcoin::constants::genesis_block;
 use bitcoin::hash_types::{BlockHash, Txid};
 use bitcoin::hashes::sha256::Hash as Sha256;
-use bitcoin::hashes::{Hash, HashEngine};
+use bitcoin::hashes::HashEngine;
 use bitcoin::network::Network;
 use bitcoin::script::{ScriptPubKey as Script, ScriptPubKeyBuf as ScriptBuf};
 use bitcoin::secp256k1::PublicKey;
@@ -580,7 +580,6 @@ impl ClaimId {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use bitcoin::hashes::Hash;
 
 	#[test]
 	fn test_best_block() {

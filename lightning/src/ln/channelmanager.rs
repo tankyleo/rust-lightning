@@ -772,11 +772,11 @@ impl SentHTLCId {
 			} => Self::TrampolineForward {
 				session_priv: outbound_payment
 					.as_ref()
-					.map(|o| o.session_priv.secret_bytes())
+					.map(|o| o.session_priv.to_secret_bytes())
 					.expect("trying to identify a trampoline payment that we have no outbound_payment tracked for"),
 			},
 			HTLCSource::OutboundRoute { session_priv, .. } => {
-				Self::OutboundRoute { session_priv: session_priv.secret_bytes() }
+				Self::OutboundRoute { session_priv: session_priv.to_secret_bytes() }
 			},
 		}
 	}
@@ -5393,7 +5393,7 @@ impl<
 		// The top-level caller should hold the total_consistency_lock read lock.
 		debug_assert!(self.total_consistency_lock.try_write().is_err());
 		let prng_seed = self.entropy_source.get_secure_random_bytes();
-		let session_priv = SecretKey::from_byte_array(session_priv_bytes).expect("RNG is busted");
+		let session_priv = SecretKey::from_secret_bytes(session_priv_bytes).expect("RNG is busted");
 
 		let logger = WithContext::for_payment(
 			&self.logger,
@@ -9941,8 +9941,8 @@ This indicates a bug inside LDK. Please report this error at https://github.com/
 				let derived_key;
 				let session_priv = if path.has_trampoline_hops() {
 					let session_priv_hash =
-						Sha256::hash(&session_priv.secret_bytes()).to_byte_array();
-					derived_key = SecretKey::from_byte_array(session_priv_hash).unwrap();
+						Sha256::hash(&session_priv.to_secret_bytes()).to_byte_array();
+					derived_key = SecretKey::from_secret_bytes(session_priv_hash).unwrap();
 					&derived_key
 				} else {
 					session_priv
@@ -20887,7 +20887,7 @@ mod tests {
 	use crate::util::errors::APIError;
 	use crate::util::test_utils;
 	use bitcoin::secp256k1::ecdh::SharedSecret;
-	use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+	use bitcoin::secp256k1::PublicKey;
 	use core::sync::atomic::Ordering;
 
 	#[test]
@@ -21975,7 +21975,6 @@ pub mod bench {
 
 	use bitcoin::amount::Amount;
 	use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
-	use bitcoin::hashes::Hash;
 	use bitcoin::locktime::absolute::LockTime;
 	use bitcoin::transaction::Version;
 	use bitcoin::{Transaction, TxOut};

@@ -71,7 +71,7 @@ use {
 };
 
 use bitcoin::hashes::sha256::{Hash as Sha256, HashEngine as Sha256Engine};
-use bitcoin::hashes::{Hash, HashEngine};
+use bitcoin::hashes::HashEngine;
 
 /// A handler provided to [`PeerManager`] for reading and handling custom messages.
 ///
@@ -1374,7 +1374,7 @@ impl<
 		let mut ephemeral_hash = self.ephemeral_key_midstate.clone();
 		let counter = self.peer_counter.next();
 		ephemeral_hash.input(&counter.to_le_bytes());
-		SecretKey::from_byte_array(Sha256::from_engine(ephemeral_hash).to_byte_array())
+		SecretKey::from_secret_bytes(Sha256::from_engine(ephemeral_hash).to_byte_array())
 			.expect("You broke SHA-256!")
 	}
 
@@ -3725,7 +3725,7 @@ mod tests {
 	use crate::util::test_utils;
 
 	use bitcoin::constants::ChainHash;
-	use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+	use bitcoin::secp256k1::{PublicKey, Secp256k1};
 	use bitcoin::Network;
 
 	use crate::sync::{Arc, Mutex};
@@ -3876,7 +3876,9 @@ mod tests {
 			};
 			cfgs.push(PeerManagerCfg {
 				chan_handler: test_utils::TestChannelMessageHandler::new(
-					ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
+					ChainHash::using_genesis_block(Network::Testnet(
+						bitcoin::network::TestnetVersion::V3,
+					)),
 				),
 				logger: test_utils::TestLogger::with_id(i.to_string()),
 				routing_handler: test_utils::TestRoutingMessageHandler::new(),
@@ -3900,7 +3902,9 @@ mod tests {
 			};
 			cfgs.push(PeerManagerCfg {
 				chan_handler: test_utils::TestChannelMessageHandler::new(
-					ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
+					ChainHash::using_genesis_block(Network::Testnet(
+						bitcoin::network::TestnetVersion::V3,
+					)),
 				),
 				logger: test_utils::TestLogger::new(),
 				routing_handler: test_utils::TestRoutingMessageHandler::new(),
@@ -4263,8 +4267,10 @@ mod tests {
 		let id_a = cfgs[0].node_signer.get_node_id(Recipient::Node).unwrap();
 		peers[0].new_inbound_connection(fd_dup.clone(), Some(addr_dup.clone())).unwrap();
 
-		let mut dup_encryptor =
-			PeerChannelEncryptor::new_outbound(id_a, crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
+		let mut dup_encryptor = PeerChannelEncryptor::new_outbound(
+			id_a,
+			crate::prelude::secret_key_from_slice(&[42; 32]).unwrap(),
+		);
 		let initial_data = dup_encryptor.get_act_one(&peers[1].secp_ctx);
 		peers[0].read_event(&mut fd_dup, &initial_data).unwrap();
 		peers[0].process_events();
@@ -4562,10 +4568,12 @@ mod tests {
 		// two of the noise handshake along with our init message but before we receive their init
 		// message.
 		let logger = test_utils::TestLogger::new();
-		let node_signer_a =
-			test_utils::TestNodeSigner::new(crate::prelude::secret_key_from_slice(&[42; 32]).unwrap());
-		let node_signer_b =
-			test_utils::TestNodeSigner::new(crate::prelude::secret_key_from_slice(&[43; 32]).unwrap());
+		let node_signer_a = test_utils::TestNodeSigner::new(
+			crate::prelude::secret_key_from_slice(&[42; 32]).unwrap(),
+		);
+		let node_signer_b = test_utils::TestNodeSigner::new(
+			crate::prelude::secret_key_from_slice(&[43; 32]).unwrap(),
+		);
 		let message_handler_a = MessageHandler {
 			chan_handler: ErroringMessageHandler::new(),
 			route_handler: IgnoringMessageHandler {},

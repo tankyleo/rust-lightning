@@ -324,7 +324,7 @@ mod tests {
 		let event_queue = Arc::new(EventQueue::new(VecDeque::new(), kv_store, persist_notifier));
 		assert_eq!(event_queue.next_event(), None);
 
-		let secp_ctx = Secp256k1::new();
+		let _secp_ctx = Secp256k1::new();
 		let counterparty_node_id =
 			PublicKey::from_secret_key(&SecretKey::from_secret_bytes([42; 32]).unwrap());
 		let expected_event = LiquidityEvent::LSPS0Client(LSPS0ClientEvent::ListProtocolsResponse {

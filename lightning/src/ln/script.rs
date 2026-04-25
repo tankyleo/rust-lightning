@@ -2,12 +2,11 @@
 
 use bitcoin::blockdata::script::Instruction;
 use bitcoin::hashes::hash160::Hash as Hash160;
-use bitcoin::hashes::Hash;
+use bitcoin::key::WPubkeyHash;
 use bitcoin::opcodes::all::{OP_PUSHBYTES_0 as SEGWIT_V0, OP_RETURN};
+use bitcoin::script::WScriptHash;
 use bitcoin::script::{PushBytes, ScriptPubKey as Script, ScriptPubKeyBuf as ScriptBuf};
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::key::WPubkeyHash;
-use bitcoin::script::WScriptHash;
 use bitcoin::WitnessProgram;
 
 use crate::ln::channelmanager;
@@ -210,9 +209,9 @@ impl TryFrom<(ScriptBuf, &InitFeatures)> for ShutdownScript {
 impl From<ShutdownScript> for ScriptBuf {
 	fn from(value: ShutdownScript) -> Self {
 		match value.0 {
-			ShutdownScriptImpl::Legacy(pubkey) => {
-				ScriptBuf::new_p2wpkh(WPubkeyHash::from_byte_array(Hash160::hash(&pubkey.serialize()).to_byte_array()))
-			},
+			ShutdownScriptImpl::Legacy(pubkey) => ScriptBuf::new_p2wpkh(
+				WPubkeyHash::from_byte_array(Hash160::hash(&pubkey.serialize()).to_byte_array()),
+			),
 			ShutdownScriptImpl::Bolt2(script_pubkey) => script_pubkey,
 		}
 	}
@@ -233,15 +232,15 @@ mod shutdown_script_tests {
 
 	use bitcoin::opcodes;
 	use bitcoin::script::{Builder, PushBytes, ScriptPubKeyBuf as ScriptBuf};
+	use bitcoin::secp256k1::PublicKey;
 	use bitcoin::secp256k1::Secp256k1;
-	use bitcoin::secp256k1::{PublicKey, SecretKey};
 	use bitcoin::{WitnessProgram, WitnessVersion};
 
 	use crate::prelude::*;
 	use crate::types::features::InitFeatures;
 
 	fn pubkey() -> bitcoin::key::PublicKey {
-		let secp_ctx = Secp256k1::signing_only();
+		let _secp_ctx = Secp256k1::signing_only();
 		let secret_key = crate::prelude::secret_key_from_slice(&[
 			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 			0, 0, 1,

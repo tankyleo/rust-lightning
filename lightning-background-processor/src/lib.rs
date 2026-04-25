@@ -1926,11 +1926,10 @@ impl Drop for BackgroundProcessor {
 mod tests {
 	use super::{BackgroundProcessor, GossipSync, FRESHNESS_TIMER};
 	use bitcoin::constants::{genesis_block, ChainHash};
-	use bitcoin::hashes::Hash;
 	use bitcoin::locktime::absolute::LockTime;
 	use bitcoin::network::Network;
 	use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
-	use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+	use bitcoin::secp256k1::{PublicKey, SecretKey};
 	use bitcoin::transaction::Version;
 	use bitcoin::transaction::{Transaction, TxOut};
 	use bitcoin::{Amount, Txid};
@@ -2534,7 +2533,9 @@ mod tests {
 				Arc::new(RapidGossipSync::new(Arc::clone(&network_graph), Arc::clone(&logger)));
 			let msg_handler = MessageHandler {
 				chan_handler: Arc::new(test_utils::TestChannelMessageHandler::new(
-					ChainHash::using_genesis_block(Network::Testnet(bitcoin::network::TestnetVersion::V3)),
+					ChainHash::using_genesis_block(Network::Testnet(
+						bitcoin::network::TestnetVersion::V3,
+					)),
 				)),
 				route_handler: Arc::new(test_utils::TestRoutingMessageHandler::new()),
 				onion_message_handler: Arc::clone(&messenger),
@@ -3583,7 +3584,6 @@ mod tests {
 			// A background event handler for FundingGenerationReady events must be hooked up to a
 			// running background processor.
 			let scored_scid = 4242;
-			let secp_ctx = Secp256k1::new();
 			let node_1_privkey = SecretKey::from_secret_bytes([42; 32]).unwrap();
 			let node_1_id = PublicKey::from_secret_key(&node_1_privkey);
 

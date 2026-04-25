@@ -34,7 +34,7 @@ use bitcoin::locktime::absolute::LockTime;
 use bitcoin::script::Builder;
 use bitcoin::opcodes;
 use hex_conservative::FromHex;
-use bitcoin::secp256k1::{Secp256k1, SecretKey};
+use bitcoin::secp256k1::Secp256k1;
 use bitcoin::sighash::{SighashCache, EcdsaSighashType};
 use bitcoin::transaction::Version;
 

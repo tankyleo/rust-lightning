@@ -19,7 +19,6 @@ use crate::util::ser::Writeable;
 
 use bitcoin::constants::ChainHash;
 use bitcoin::hashes::sha256d::Hash as Sha256dHash;
-use bitcoin::hashes::Hash;
 use hex_conservative::FromHex;
 use bitcoin::network::Network;
 use bitcoin::secp256k1::{PublicKey,SecretKey};
@@ -34,7 +33,7 @@ use crate::routing::gossip::NodeId;
 
 pub(crate) fn channel_announcement(
 	node_1_privkey: &SecretKey, node_2_privkey: &SecretKey, features: ChannelFeatures,
-	short_channel_id: u64, secp_ctx: &Secp256k1<All>,
+	short_channel_id: u64, _secp_ctx: &Secp256k1<All>,
 ) -> ChannelAnnouncement {
 	let node_id_1 = NodeId::from_pubkey(&PublicKey::from_secret_key(node_1_privkey));
 	let node_id_2 = NodeId::from_pubkey(&PublicKey::from_secret_key(node_2_privkey));
@@ -52,10 +51,10 @@ pub(crate) fn channel_announcement(
 
 	let msghash = hash_to_message!(Sha256dHash::hash(&unsigned_announcement.encode()[..]).as_byte_array());
 	ChannelAnnouncement {
-		node_signature_1: secp_ctx.sign_ecdsa(msghash, node_1_privkey),
-		node_signature_2: secp_ctx.sign_ecdsa(msghash, node_2_privkey),
-		bitcoin_signature_1: secp_ctx.sign_ecdsa(msghash, node_1_privkey),
-		bitcoin_signature_2: secp_ctx.sign_ecdsa(msghash, node_2_privkey),
+		node_signature_1: bitcoin::secp256k1::ecdsa::sign(msghash, node_1_privkey),
+		node_signature_2: bitcoin::secp256k1::ecdsa::sign(msghash, node_2_privkey),
+		bitcoin_signature_1: bitcoin::secp256k1::ecdsa::sign(msghash, node_1_privkey),
+		bitcoin_signature_2: bitcoin::secp256k1::ecdsa::sign(msghash, node_2_privkey),
 		contents: unsigned_announcement.clone(),
 	}
 }
@@ -91,7 +90,7 @@ pub(crate) fn add_channel(
 
 pub(crate) fn add_or_update_node(
 	gossip_sync: &P2PGossipSync<Arc<NetworkGraph<Arc<test_utils::TestLogger>>>, Arc<test_utils::TestChainSource>, Arc<test_utils::TestLogger>>,
-	secp_ctx: &Secp256k1<All>, node_privkey: &SecretKey, features: NodeFeatures, timestamp: u32
+	_secp_ctx: &Secp256k1<All>, node_privkey: &SecretKey, features: NodeFeatures, timestamp: u32
 ) {
 	let node_pubkey = PublicKey::from_secret_key(node_privkey);
 	let node_id = NodeId::from_pubkey(&node_pubkey);
@@ -107,7 +106,7 @@ pub(crate) fn add_or_update_node(
 	};
 	let msghash = hash_to_message!(Sha256dHash::hash(&unsigned_announcement.encode()[..]).as_byte_array());
 	let valid_announcement = NodeAnnouncement {
-		signature: secp_ctx.sign_ecdsa(msghash, node_privkey),
+		signature: bitcoin::secp256k1::ecdsa::sign(msghash, node_privkey),
 		contents: unsigned_announcement.clone()
 	};
 
@@ -119,12 +118,12 @@ pub(crate) fn add_or_update_node(
 
 pub(crate) fn update_channel(
 	gossip_sync: &P2PGossipSync<Arc<NetworkGraph<Arc<test_utils::TestLogger>>>, Arc<test_utils::TestChainSource>, Arc<test_utils::TestLogger>>,
-	secp_ctx: &Secp256k1<All>, node_privkey: &SecretKey, update: UnsignedChannelUpdate
+	_secp_ctx: &Secp256k1<All>, node_privkey: &SecretKey, update: UnsignedChannelUpdate
 ) {
 	let node_pubkey = PublicKey::from_secret_key(node_privkey);
 	let msghash = hash_to_message!(Sha256dHash::hash(&update.encode()[..]).as_byte_array());
 	let valid_channel_update = ChannelUpdate {
-		signature: secp_ctx.sign_ecdsa(msghash, node_privkey),
+		signature: bitcoin::secp256k1::ecdsa::sign(msghash, node_privkey),
 		contents: update.clone()
 	};
 
@@ -134,7 +133,7 @@ pub(crate) fn update_channel(
 	};
 }
 
-pub(super) fn get_nodes(secp_ctx: &Secp256k1<All>) -> (SecretKey, PublicKey, Vec<SecretKey>, Vec<PublicKey>) {
+pub(super) fn get_nodes(_secp_ctx: &Secp256k1<All>) -> (SecretKey, PublicKey, Vec<SecretKey>, Vec<PublicKey>) {
 	let privkeys: Vec<SecretKey> = (2..22).map(|i| {
 		crate::prelude::secret_key_from_slice(&[i; 32]).unwrap()
 	}).collect();

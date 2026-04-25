@@ -66,14 +66,13 @@ use bitcoin::network::Network;
 use bitcoin::opcodes;
 use bitcoin::script::Builder;
 
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::secp256k1::Secp256k1;
-use bitcoin::secp256k1::{PublicKey, SecretKey};
 
 use crate::io;
 use crate::prelude::*;
 use crate::sync::{Arc, Mutex, RwLock};
 use alloc::collections::BTreeSet;
-use bitcoin::hashes::Hash;
 use core::iter::repeat;
 use lightning_macros::xtest;
 
@@ -870,7 +869,10 @@ pub fn test_justice_tx_htlc_timeout() {
 			assert_eq!(node_txn.len(), 1);
 			assert_eq!(node_txn[0].inputs.len(), 2);
 			check_spends!(node_txn[0], revoked_local_txn[0]);
-			assert_ne!(node_txn[0].inputs[0].previous_output, node_txn[0].inputs[1].previous_output);
+			assert_ne!(
+				node_txn[0].inputs[0].previous_output,
+				node_txn[0].inputs[1].previous_output
+			);
 			node_txn.clear();
 		}
 		let reason = ClosureReason::CommitmentTxConfirmed;
@@ -1610,8 +1612,14 @@ pub fn test_htlc_on_chain_success() {
 
 	check_spends!(commitment_spend, node_a_commitment_tx[0]);
 	assert_eq!(commitment_spend.inputs.len(), 2);
-	assert_eq!(commitment_spend.inputs[0].witness.last().unwrap().len(), OFFERED_HTLC_SCRIPT_WEIGHT);
-	assert_eq!(commitment_spend.inputs[1].witness.last().unwrap().len(), OFFERED_HTLC_SCRIPT_WEIGHT);
+	assert_eq!(
+		commitment_spend.inputs[0].witness.last().unwrap().len(),
+		OFFERED_HTLC_SCRIPT_WEIGHT
+	);
+	assert_eq!(
+		commitment_spend.inputs[1].witness.last().unwrap().len(),
+		OFFERED_HTLC_SCRIPT_WEIGHT
+	);
 	assert_eq!(commitment_spend.lock_time.to_consensus_u32(), nodes[1].best_block_info().1);
 	assert!(commitment_spend.outputs[0].script_pubkey.is_p2wpkh()); // direct payment
 
@@ -3862,7 +3870,10 @@ pub fn test_static_spendable_outputs_justice_tx_revoked_htlc_timeout_tx() {
 
 	assert_eq!(node_txn[1].inputs.len(), 1);
 	check_spends!(node_txn[1], revoked_local_txn[0]);
-	assert_eq!(node_txn[1].inputs[0].previous_output, revoked_htlc_txn[0].inputs[0].previous_output);
+	assert_eq!(
+		node_txn[1].inputs[0].previous_output,
+		revoked_htlc_txn[0].inputs[0].previous_output
+	);
 	assert_ne!(node_txn[0].inputs[0].previous_output, node_txn[1].inputs[0].previous_output);
 	assert_ne!(node_txn[0].inputs[1].previous_output, node_txn[1].inputs[0].previous_output);
 
@@ -3953,7 +3964,10 @@ pub fn test_static_spendable_outputs_justice_tx_revoked_htlc_success_tx() {
 	assert_eq!(spend_txn.len(), 3);
 	assert_eq!(spend_txn[0].inputs.len(), 1);
 	check_spends!(spend_txn[0], revoked_local_txn[0]); // spending to_remote output from revoked local tx
-	assert_ne!(spend_txn[0].inputs[0].previous_output, revoked_htlc_txn[0].inputs[0].previous_output);
+	assert_ne!(
+		spend_txn[0].inputs[0].previous_output,
+		revoked_htlc_txn[0].inputs[0].previous_output
+	);
 	check_spends!(spend_txn[1], node_txn[1]); // spending justice tx output on the htlc success tx
 	check_spends!(spend_txn[2], revoked_local_txn[0], node_txn[1]); // Both outputs
 }
@@ -4103,7 +4117,10 @@ pub fn test_onchain_to_onchain_claim() {
 	// ChannelMonitor: HTLC-Success tx
 	assert_eq!(b_txn.len(), 1);
 	check_spends!(b_txn[0], commitment_tx[0]);
-	assert_eq!(b_txn[0].inputs[0].witness.clone().last().unwrap().len(), OFFERED_HTLC_SCRIPT_WEIGHT);
+	assert_eq!(
+		b_txn[0].inputs[0].witness.clone().last().unwrap().len(),
+		OFFERED_HTLC_SCRIPT_WEIGHT
+	);
 	assert!(b_txn[0].outputs[0].script_pubkey.is_p2wpkh()); // direct payment
 	assert_eq!(b_txn[0].lock_time.to_consensus_u32(), nodes[1].best_block_info().1); // Success tx
 
@@ -4195,11 +4212,13 @@ pub fn test_duplicate_payment_hash_one_failure_one_success() {
 		assert_eq!(tx.inputs[1].witness.last().unwrap().len(), ACCEPTED_HTLC_SCRIPT_WEIGHT + 1);
 
 		// Split the HTLC claim transaction into two, one for each HTLC.
-		if commitment_txn[0].outputs[tx.inputs[1].previous_output.vout as usize].amount.to_sat() < 850
+		if commitment_txn[0].outputs[tx.inputs[1].previous_output.vout as usize].amount.to_sat()
+			< 850
 		{
 			tx.inputs.remove(1);
 		}
-		if commitment_txn[0].outputs[tx.inputs[0].previous_output.vout as usize].amount.to_sat() < 850
+		if commitment_txn[0].outputs[tx.inputs[0].previous_output.vout as usize].amount.to_sat()
+			< 850
 		{
 			tx.inputs.remove(0);
 		}
@@ -4340,7 +4359,10 @@ pub fn test_dynamic_spendable_outputs_local_htlc_success_tx() {
 		let node_txn = nodes[1].tx_broadcaster.txn_broadcasted.lock().unwrap();
 		assert_eq!(node_txn.len(), 1);
 		assert_eq!(node_txn[0].inputs.len(), 1);
-		assert_eq!(node_txn[0].inputs[0].witness.last().unwrap().len(), ACCEPTED_HTLC_SCRIPT_WEIGHT);
+		assert_eq!(
+			node_txn[0].inputs[0].witness.last().unwrap().len(),
+			ACCEPTED_HTLC_SCRIPT_WEIGHT
+		);
 		check_spends!(node_txn[0], local_txn[0]);
 		node_txn[0].clone()
 	};
@@ -4854,7 +4876,10 @@ pub fn test_key_derivation_params() {
 
 	// We manually create the node configuration to backup the seed.
 	let seed = [42; 32];
-	let keys_manager = test_utils::TestKeysInterface::new(&seed, Network::Testnet(bitcoin::network::TestnetVersion::V3));
+	let keys_manager = test_utils::TestKeysInterface::new(
+		&seed,
+		Network::Testnet(bitcoin::network::TestnetVersion::V3),
+	);
 	let chain_monitor = test_utils::TestChainMonitor::new(
 		Some(&chanmon_cfgs[0].chain_source),
 		&chanmon_cfgs[0].tx_broadcaster,
@@ -4863,7 +4888,10 @@ pub fn test_key_derivation_params() {
 		&chanmon_cfgs[0].persister,
 		&keys_manager,
 	);
-	let network_graph = Arc::new(NetworkGraph::new(Network::Testnet(bitcoin::network::TestnetVersion::V3), &chanmon_cfgs[0].logger));
+	let network_graph = Arc::new(NetworkGraph::new(
+		Network::Testnet(bitcoin::network::TestnetVersion::V3),
+		&chanmon_cfgs[0].logger,
+	));
 	let scorer = RwLock::new(test_utils::TestScorer::new());
 	let router =
 		test_utils::TestRouter::new(Arc::clone(&network_graph), &chanmon_cfgs[0].logger, &scorer);
@@ -4956,7 +4984,10 @@ pub fn test_key_derivation_params() {
 	expect_payment_failed_conditions(&nodes[0], our_payment_hash, false, conditions);
 
 	// Verify that A is able to spend its own HTLC-Timeout tx thanks to spendable output event given back by its ChannelMonitor
-	let new_keys_manager = test_utils::TestKeysInterface::new(&seed, Network::Testnet(bitcoin::network::TestnetVersion::V3));
+	let new_keys_manager = test_utils::TestKeysInterface::new(
+		&seed,
+		Network::Testnet(bitcoin::network::TestnetVersion::V3),
+	);
 	let spend_txn = check_spendable_outputs!(nodes[0], new_keys_manager);
 	assert_eq!(spend_txn.len(), 3);
 	check_spends!(spend_txn[0], local_txn_1[0]);
@@ -7373,7 +7404,8 @@ pub fn test_update_err_monitor_lockdown() {
 	let (preimage, payment_hash, ..) = route_payment(&nodes[0], &[&nodes[1]], 9_000_000);
 
 	// Copy ChainMonitor to simulate a watchtower and update block height of node 0 until its ChannelMonitor timeout HTLC onchain
-	let chain_source = test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+	let chain_source =
+		test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 	let logger = test_utils::TestLogger::with_id(format!("node {}", 0));
 	let persister = test_utils::TestPersister::new();
 	let watchtower = {
@@ -7478,7 +7510,8 @@ pub fn test_concurrent_monitor_claim() {
 	let (_, payment_hash_timeout, ..) = route_payment(&nodes[0], &[&nodes[1]], 9_000_000);
 
 	// Copy ChainMonitor to simulate watchtower Alice and update block height her ChannelMonitor timeout HTLC onchain
-	let chain_source = test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+	let chain_source =
+		test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 	let logger = test_utils::TestLogger::with_id("alice".to_string());
 	let persister = test_utils::TestPersister::new();
 	let alice_broadcaster = test_utils::TestBroadcaster::with_blocks(Arc::new(Mutex::new(
@@ -7529,7 +7562,8 @@ pub fn test_concurrent_monitor_claim() {
 	};
 
 	// Copy ChainMonitor to simulate watchtower Bob and make it receive a commitment update first.
-	let chain_source = test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
+	let chain_source =
+		test_utils::TestChainSource::new(Network::Testnet(bitcoin::network::TestnetVersion::V3));
 	let logger = test_utils::TestLogger::with_id("bob".to_string());
 	let persister = test_utils::TestPersister::new();
 	let bob_broadcaster =
@@ -7961,7 +7995,10 @@ fn do_test_onchain_htlc_settlement_after_close(
 		);
 		let htlc_tx = bob_txn.pop().unwrap();
 		check_spends!(htlc_tx, txn_to_broadcast[0]);
-		assert_eq!(htlc_tx.inputs[0].witness.last().unwrap().len(), ACCEPTED_HTLC_SCRIPT_WEIGHT + 1);
+		assert_eq!(
+			htlc_tx.inputs[0].witness.last().unwrap().len(),
+			ACCEPTED_HTLC_SCRIPT_WEIGHT + 1
+		);
 	}
 }
 

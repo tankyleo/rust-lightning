@@ -167,19 +167,20 @@ where
 		'tx_found: loop {
 			macro_rules! process_block {
 				($block: expr) => {{
-						let transactions = $block.as_parts().1;
-						if transaction_index as usize >= transactions.len() {
-							return Err(UtxoLookupError::UnknownTx);
-						}
-						let transaction = &transactions[transaction_index as usize];
-						if output_index as usize >= transaction.outputs.len() {
-							return Err(UtxoLookupError::UnknownTx);
-						}
+					let transactions = $block.as_parts().1;
+					if transaction_index as usize >= transactions.len() {
+						return Err(UtxoLookupError::UnknownTx);
+					}
+					let transaction = &transactions[transaction_index as usize];
+					if output_index as usize >= transaction.outputs.len() {
+						return Err(UtxoLookupError::UnknownTx);
+					}
 
-						outpoint = OutPoint { txid: transaction.compute_txid(), vout: output_index.into() };
-						output = transaction.outputs[output_index as usize].clone();
-					}};
-				}
+					outpoint =
+						OutPoint { txid: transaction.compute_txid(), vout: output_index.into() };
+					output = transaction.outputs[output_index as usize].clone();
+				}};
+			}
 			{
 				let recent_blocks = block_cache.lock().unwrap();
 				for (height, block) in recent_blocks.iter() {

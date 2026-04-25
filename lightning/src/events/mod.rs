@@ -48,7 +48,6 @@ use crate::util::ser::{
 use crate::io;
 use crate::sync::Arc;
 use bitcoin::hashes::sha256::Hash as Sha256;
-use bitcoin::hashes::Hash;
 use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::{OutPoint, Transaction, TxOut};

@@ -32,8 +32,8 @@ use crate::{log_debug, log_error};
 
 use bitcoin::block::Header;
 use bitcoin::locktime::absolute::LockTime;
-use bitcoin::secp256k1::{PublicKey, Secp256k1};
 use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
+use bitcoin::secp256k1::{PublicKey, Secp256k1};
 use bitcoin::{BlockHash, Transaction, Txid};
 
 use core::future::Future;
