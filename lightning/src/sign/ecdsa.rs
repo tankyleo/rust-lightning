@@ -6,11 +6,13 @@ use bitcoin::secp256k1;
 use bitcoin::secp256k1::ecdsa::Signature;
 use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 
+use musig_secp::musig::PublicNonce;
+
 use crate::ln::chan_utils::{
 	ChannelTransactionParameters, ClosingTransaction, CommitmentTransaction,
 	HTLCOutputInCommitment, HolderCommitmentTransaction,
 };
-use crate::ln::msgs::UnsignedChannelAnnouncement;
+use crate::ln::msgs::{UnsignedChannelAnnouncement, PartialSignatureWithNonce};
 use crate::types::payment::PaymentPreimage;
 
 #[allow(unused_imports)]
@@ -35,6 +37,11 @@ use crate::sign::{ChannelSigner, HTLCDescriptor};
 /// [`ChannelManager::signer_unblocked`]: crate::ln::channelmanager::ChannelManager::signer_unblocked
 /// [`ChainMonitor::signer_unblocked`]: crate::chain::chainmonitor::ChainMonitor::signer_unblocked
 pub trait EcdsaChannelSigner: ChannelSigner {
+	/// Generate a local nonce pair, which requires committing to ahead of time.
+	/// The counterparty needs the public nonce generated herein to compute a partial signature.
+	fn generate_local_nonce_pair(
+		&self, commitment_number: u64, secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> PublicNonce;
 	/// Create a signature for a counterparty's commitment transaction and associated HTLC transactions.
 	///
 	/// Policy checks should be implemented in this function, including checking the amount
@@ -58,6 +65,13 @@ pub trait EcdsaChannelSigner: ChannelSigner {
 		commitment_tx: &CommitmentTransaction, inbound_htlc_preimages: Vec<PaymentPreimage>,
 		outbound_htlc_preimages: Vec<PaymentPreimage>, secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<(Signature, Vec<Signature>), ()>;
+	/// Create a partial signature with a nonce
+	fn partially_sign_counterparty_commitment(
+		&self, channel_parameters: &ChannelTransactionParameters,
+		counterparty_nonce: PublicNonce, commitment_tx: &CommitmentTransaction,
+		inbound_htlc_preimages: Vec<PaymentPreimage>,
+		outbound_htlc_preimages: Vec<PaymentPreimage>, secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<(PartialSignatureWithNonce, Vec<Signature>), ()>;
 	/// Creates a signature for a holder's commitment transaction.
 	///
 	/// This will be called
