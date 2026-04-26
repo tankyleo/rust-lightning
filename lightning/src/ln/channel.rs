@@ -8097,6 +8097,7 @@ where
 		self.context.counterparty_current_commitment_point = self.context.counterparty_next_commitment_point;
 		self.context.counterparty_next_commitment_point = Some(msg.next_per_commitment_point);
 		self.context.interactive_tx_signing_session = None;
+		self.funding.signing_nonce = Some(msg.next_local_nonce);
 
 		log_info!(logger, "Received channel_ready from peer for channel {}", &self.context.channel_id());
 
@@ -9173,6 +9174,12 @@ where
 			channel_id: Some(self.context.channel_id()),
 		};
 
+		let signing_nonces_len = msg.next_local_nonces.len();
+		let funding_scopes_len = self.pending_funding().len() + 1;
+		if signing_nonces_len != funding_scopes_len {
+			return Err(ChannelError::close(format!("Nonces len {signing_nonces_len} does not match funding scopes len {funding_scopes_len}")));
+		}
+
 		// Update state now that we've passed all the can-fail calls...
 		// (note that we may still fail to generate the new commitment_signed message, but that's
 		// OK, we step the channel here and *then* if the new generation fails we can fail the
@@ -9183,8 +9190,15 @@ where
 			self.context.counterparty_next_commitment_point;
 		self.context.counterparty_next_commitment_point = Some(msg.next_per_commitment_point);
 		self.context.counterparty_next_commitment_transaction_number -= 1;
-		// TODO TAPROOT update this for splicing !
-		self.funding.signing_nonce = msg.next_local_nonces.get(0).copied();
+		let mut pending_funding_muts: Vec<&mut FundingScope> = core::iter::once(&mut self.funding).chain(
+			self.pending_splice.as_mut()
+			.map(|pending| pending.negotiated_candidates.iter_mut())
+			.unwrap_or_default()
+		).collect();
+		pending_funding_muts.sort_unstable_by_key(|funding| funding.get_funding_txid().unwrap());
+		for (funding, nonce) in pending_funding_muts.into_iter().zip(msg.next_local_nonces.iter()) {
+			funding.signing_nonce = Some(*nonce);
+		}
 
 		if self.context.announcement_sigs_state == AnnouncementSigsState::Committed {
 			self.context.announcement_sigs_state = AnnouncementSigsState::PeerReceived;
@@ -10235,7 +10249,6 @@ where
 				let next_commitment_number = self.holder_commitment_point.next_transaction_number();
 				let mut txids: Vec<Txid> = core::iter::once(self.funding.get_funding_txid().unwrap())
 					.chain(self.pending_funding().iter().map(|funding| funding.get_funding_txid().unwrap())).collect();
-				// TODO TAPROOT what is the correct sort order here ?
 				txids.sort();
 				let next_local_nonces = txids.into_iter().map(|txid| {
 					signer.generate_local_nonce_pair(next_commitment_number, txid, &self.context.secp_ctx)
@@ -10600,8 +10613,22 @@ where
 			}
 		}
 
+		let signing_nonces_len = msg.next_local_nonces.len();
+		let funding_scopes_len = self.pending_funding().len() + 1;
+		if signing_nonces_len != funding_scopes_len {
+			return Err(ChannelError::close(format!("Nonces len {signing_nonces_len} does not match funding scopes len {funding_scopes_len}")));
+		}
+		let mut pending_funding_muts: Vec<&mut FundingScope> = core::iter::once(&mut self.funding).chain(
+			self.pending_splice.as_mut()
+			.map(|pending| pending.negotiated_candidates.iter_mut())
+			.unwrap_or_default()
+		).collect();
+		pending_funding_muts.sort_unstable_by_key(|funding| funding.get_funding_txid().unwrap());
+		for (funding, nonce) in pending_funding_muts.into_iter().zip(msg.next_local_nonces.iter()) {
+			funding.signing_nonce = Some(*nonce);
+		}
+
 		if matches!(self.context.channel_state, ChannelState::AwaitingChannelReady(_)) {
-			self.funding.signing_nonce = msg.next_local_nonces.get(0).copied();
 			// If we're waiting on a monitor update, we shouldn't re-send any channel_ready's.
 			if !self.context.channel_state.is_our_channel_ready() ||
 					self.context.channel_state.is_monitor_update_in_progress() {
@@ -10707,8 +10734,6 @@ where
 				log_debug!(logger, "Reconnected with no loss");
 			}
 
-			self.funding.signing_nonce = msg.next_local_nonces.get(0).copied();
-
 			Ok(ReestablishResponses {
 				channel_ready,
 				channel_ready_order: ChannelReadyOrder::SignaturesFirst,
@@ -10733,8 +10758,6 @@ where
 			} else {
 				log_debug!(logger, "Reconnected channel with only lost remote commitment tx");
 			}
-
-			self.funding.signing_nonce = msg.next_local_nonces.get(0).copied();
 
 			if self.context.channel_state.is_monitor_update_in_progress() {
 				self.context.monitor_pending_commitment_signed = true;
@@ -13046,7 +13069,6 @@ where
 
 		let mut txids: Vec<Txid> = core::iter::once(self.funding.get_funding_txid().unwrap())
 			.chain(self.pending_funding().iter().map(|funding| funding.get_funding_txid().unwrap())).collect();
-		// TODO TAPROOT what is the correct sort order here ?
 		txids.sort();
 		let next_local_nonces = txids.into_iter().map(|txid| {
 			self.context.holder_signer.generate_local_nonce_pair(next_local_commitment_number, txid, &self.context.secp_ctx)
