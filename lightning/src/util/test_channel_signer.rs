@@ -13,7 +13,7 @@ use crate::ln::chan_utils::{
 };
 use crate::ln::channel::{ANCHOR_OUTPUT_VALUE_SATOSHI, MIN_CHAN_DUST_LIMIT_SATOSHIS};
 use crate::ln::channel_keys::HtlcKey;
-use crate::ln::msgs;
+use crate::ln::msgs::{self, PartialSignatureWithNonce};
 use crate::sign::ecdsa::EcdsaChannelSigner;
 use crate::sign::ChannelSigner;
 use crate::types::payment::PaymentPreimage;
@@ -259,6 +259,25 @@ impl EcdsaChannelSigner for TestChannelSigner {
 		_outbound_htlc_preimages: Vec<PaymentPreimage>,
 		_secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<(crate::ln::msgs::PartialSignatureWithNonce, Vec<Signature>), ()> {
+	    todo!();
+	}
+
+	fn partially_sign_closing_transaction(
+		&self, _channel_parameters: &ChannelTransactionParameters,
+		_counterparty_nonce: musig_secp::musig::PublicNonce,
+		_closing_tx: &ClosingTransaction,
+		_secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<PartialSignatureWithNonce, ()> {
+	    todo!();
+	}
+
+	fn finalize_closing_transaction(
+		&self, _channel_parameters: &ChannelTransactionParameters,
+		_local_nonce: musig_secp::musig::PublicNonce,
+		_counterparty_sig: PartialSignatureWithNonce,
+		_closing_tx: &ClosingTransaction,
+		_secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<musig_secp::musig::PartialSignature, ()> {
 	    todo!();
 	}
 
