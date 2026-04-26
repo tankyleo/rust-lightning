@@ -25,7 +25,7 @@ use bitcoin::secp256k1::{ecdsa::Signature, Secp256k1};
 use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::{secp256k1, sighash, FeeRate, Sequence, TxIn};
 
-use musig_secp::musig::{PublicNonce};
+use musig_secp::musig::{AggregatedNonce, KeyAggCache, PublicNonce, Session};
 
 use crate::blinded_path::message::BlindedMessagePath;
 use crate::chain::chaininterface::{
@@ -3556,26 +3556,34 @@ trait InitialRemoteCommitmentReceiver<SP: SignerProvider> {
 
 	#[rustfmt::skip]
 	fn check_counterparty_commitment_signature<L: Logger>(
-		&self, _sig: &PartialSignatureWithNonce, holder_commitment_point: &HolderCommitmentPoint, logger: &L
+		&self, sig: &PartialSignatureWithNonce, holder_commitment_point: &HolderCommitmentPoint, logger: &L
 	) -> Result<CommitmentTransaction, ChannelError> {
 
 		let commitment_data = self.context().build_commitment_transaction(self.funding(),
 			holder_commitment_point.next_transaction_number(), &holder_commitment_point.next_point(),
 			true, false, logger);
 		let initial_commitment_tx = commitment_data.tx;
-		/*
 		let trusted_tx = initial_commitment_tx.trust();
-		let funding_script = self.funding().get_funding_redeemscript();
 		let initial_commitment_bitcoin_tx = trusted_tx.built_transaction();
-		let sighash = initial_commitment_bitcoin_tx.get_sighash_all(&funding_script, self.funding().get_value_satoshis());
-		TODO: TAPROOT
-		// They sign the holder commitment transaction...
+
+		let sighash = initial_commitment_bitcoin_tx.get_sighash_default(&self.funding().get_funding_output().unwrap());
+		let funding_script = self.funding().get_funding_redeemscript();
 		log_trace!(logger, "Checking {} tx signature {} by key {} against tx {} (sighash {}) with redeemscript {} for channel {}.",
 			self.received_msg(), log_bytes!(sig.serialize_compact()[..]), log_bytes!(self.funding().counterparty_funding_pubkey().serialize()),
 			encode::serialize_hex(&initial_commitment_bitcoin_tx.transaction), log_bytes!(sighash[..]),
 			encode::serialize_hex(&funding_script), &self.context().channel_id());
-		secp_check!(self.context().secp_ctx.verify_ecdsa(&sighash, sig, self.funding().counterparty_funding_pubkey()), format!("Invalid {} signature from peer", self.received_msg()));
-		*/
+
+		let holder_funding_pubkey_bytes = self.funding().holder_funding_pubkey().serialize();
+		let counterparty_funding_pubkey_bytes = self.funding().counterparty_funding_pubkey().serialize();
+		let holder_funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(holder_funding_pubkey_bytes).unwrap();
+		let counterparty_funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(counterparty_funding_pubkey_bytes).unwrap();
+
+		let key_agg_cache = KeyAggCache::new(&[&holder_funding_pubkey, &counterparty_funding_pubkey]);
+		let agg_nonce = AggregatedNonce::new(&[&self.funding().next_local_nonce.unwrap(), &sig.public_nonce]);
+		let session = Session::new(&key_agg_cache, agg_nonce, sighash.as_ref());
+		if !session.partial_verify(&key_agg_cache, &sig.partial_signature, &sig.public_nonce, counterparty_funding_pubkey) {
+			return Err(ChannelError::close(format!("Invalid {} signature from peer", self.received_msg())));
+		}
 
 		Ok(initial_commitment_tx)
 	}
@@ -5629,27 +5637,31 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 				));
 			}
 
-			/*
-				TODO TAPROOT
-			let sighash = bitcoin_tx.get_sighash_all(&funding_script, funding.get_value_satoshis());
+			let sighash = bitcoin_tx.get_sighash_default(&funding.get_funding_output().unwrap());
 
 			log_trace!(logger, "Checking commitment tx signature {} by key {} against tx {} (sighash {}) with redeemscript {} in channel {}",
 				log_bytes!(msg.signature.serialize_compact()[..]),
 				log_bytes!(funding.counterparty_funding_pubkey().serialize()),
 				encode::serialize_hex(&bitcoin_tx.transaction),
-				log_bytes!(sighash[..]), encode::serialize_hex(&funding_script),
+				log_bytes!(sighash[..]), encode::serialize_hex(&funding.get_funding_output().unwrap()),
 				&self.channel_id(),
 			);
-			if let Err(_) = self.secp_ctx.verify_ecdsa(
-				&sighash,
-				&msg.signature,
-				&funding.counterparty_funding_pubkey(),
-			) {
+
+			let holder_funding_pubkey_bytes = funding.holder_funding_pubkey().serialize();
+			let counterparty_funding_pubkey_bytes = funding.counterparty_funding_pubkey().serialize();
+			let holder_funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(holder_funding_pubkey_bytes).unwrap();
+			let counterparty_funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(counterparty_funding_pubkey_bytes).unwrap();
+
+			let key_agg_cache = KeyAggCache::new(&[&holder_funding_pubkey, &counterparty_funding_pubkey]);
+			let agg_nonce = AggregatedNonce::new(&[&funding.next_local_nonce.unwrap(), &msg.signature.public_nonce]);
+			let sighash = bitcoin_tx.get_sighash_default(&funding.get_funding_output().unwrap());
+			let session = Session::new(&key_agg_cache, agg_nonce, sighash.as_ref());
+			if !session.partial_verify(&key_agg_cache, &msg.signature.partial_signature, &msg.signature.public_nonce, counterparty_funding_pubkey) {
 				return Err(ChannelError::close(
 					"Invalid commitment tx signature from peer".to_owned(),
 				));
 			}
-			*/
+
 			bitcoin_tx.txid
 		};
 
@@ -11692,24 +11704,23 @@ where
 		};
 		let closing_tx = ClosingTransaction::new_v2(outputs, funding_outpoint, lock_time);
 
-		// Verify the counterparty's signature.
-		/*
-		// TODO TAPROOT VERIFY
-		let funding_redeemscript = self.funding.get_funding_redeemscript();
-		let sighash = closing_tx
-			.trust()
-			.get_sighash_all(&funding_redeemscript, self.funding.get_value_satoshis());
-		secp_check!(
-			self.context.secp_ctx.verify_ecdsa(
-				&sighash,
-				&counterparty_sig,
-				self.funding.counterparty_funding_pubkey(),
-			),
-			"Invalid closing_complete signature from peer".to_owned()
-		);
-		*/
-
 		let local_nonce = self.context.v2_closing_negotiation.as_mut().map(|closing| closing.local_nonce.take()).unwrap_or(self.context.local_shutdown_nonce.take()).expect("local nonce must be set");
+
+		let holder_funding_pubkey_bytes = self.funding.holder_funding_pubkey().serialize();
+		let counterparty_funding_pubkey_bytes = self.funding.counterparty_funding_pubkey().serialize();
+		let holder_funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(holder_funding_pubkey_bytes).unwrap();
+		let counterparty_funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(counterparty_funding_pubkey_bytes).unwrap();
+
+		// Verify the counterparty's signature.
+		let key_agg_cache = KeyAggCache::new(&[&holder_funding_pubkey, &counterparty_funding_pubkey]);
+		let agg_nonce = AggregatedNonce::new(&[&local_nonce, &counterparty_sig.public_nonce]);
+		let sighash = closing_tx.trust().get_sighash_default(&self.funding.get_funding_output().unwrap());
+		let session = Session::new(&key_agg_cache, agg_nonce, sighash.as_ref());
+		if !session.partial_verify(&key_agg_cache, &counterparty_sig.partial_signature, &counterparty_sig.public_nonce, counterparty_funding_pubkey) {
+			return Err(ChannelError::close(
+				"Invalid closing_complete signature from peer".to_owned(),
+			));
+		}
 
 		// Sign our side.
 		let our_sig = self
@@ -11942,22 +11953,21 @@ where
 			public_nonce: remote_nonce,
 		};
 
-		/*
-		// TODO TAPROOT VERIFY
+		let holder_funding_pubkey_bytes = self.funding.holder_funding_pubkey().serialize();
+		let counterparty_funding_pubkey_bytes = self.funding.counterparty_funding_pubkey().serialize();
+		let holder_funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(holder_funding_pubkey_bytes).unwrap();
+		let counterparty_funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(counterparty_funding_pubkey_bytes).unwrap();
+
 		// Verify the counterparty's signature.
-		let funding_redeemscript = self.funding.get_funding_redeemscript();
-		let sighash = closing_tx
-			.trust()
-			.get_sighash_all(&funding_redeemscript, self.funding.get_value_satoshis());
-		secp_check!(
-			self.context.secp_ctx.verify_ecdsa(
-				&sighash,
-				&counterparty_sig,
-				self.funding.counterparty_funding_pubkey(),
-			),
-			"Invalid closing_sig signature from peer".to_owned()
-		);
-		*/
+		let key_agg_cache = KeyAggCache::new(&[&holder_funding_pubkey, &counterparty_funding_pubkey]);
+		let agg_nonce = AggregatedNonce::new(&[&our_sig.public_nonce, &counterparty_sig_with_nonce.public_nonce]);
+		let sighash = closing_tx.trust().get_sighash_default(&self.funding.get_funding_output().unwrap());
+		let session = Session::new(&key_agg_cache, agg_nonce, sighash.as_ref());
+		if !session.partial_verify(&key_agg_cache, &counterparty_sig_with_nonce.partial_signature, &counterparty_sig_with_nonce.public_nonce, counterparty_funding_pubkey) {
+			return Err(ChannelError::close(
+				"Invalid closing_sig signature from peer".to_owned(),
+			));
+		}
 
 		// Build the signed closing transaction.
 		let signed_tx =

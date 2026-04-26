@@ -1509,6 +1509,21 @@ impl BuiltCommitmentTransaction {
 		let sighash = &sighash::SighashCache::new(&self.transaction).p2wsh_signature_hash(0, funding_redeemscript, Amount::from_sat(channel_value_satoshis), EcdsaSighashType::All).unwrap()[..];
 		hash_to_message!(sighash)
 	}
+	/// Get the SIGHASH_DEFAULT sighash value of the transaction
+	pub fn get_sighash_default(
+		&self, funding_txout: &TxOut,
+	) -> Message {
+		let sighash = sighash::SighashCache::new(&self.transaction)
+			.taproot_signature_hash(
+				0,
+				&sighash::Prevouts::All(&[funding_txout]),
+				None,
+				None,
+				bitcoin::TapSighashType::Default,
+			)
+			.unwrap();
+		hash_to_message!(sighash.as_byte_array())
+	}
 
 	/// Signs the counterparty's commitment transaction.
 	pub fn sign_counterparty_commitment<T: secp256k1::Signing>(
