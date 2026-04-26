@@ -10244,10 +10244,10 @@ where
 
 				let next_per_commitment_point = self.holder_commitment_point.next_point();
 				let next_commitment_number = self.holder_commitment_point.next_transaction_number();
-				let mut txids: Vec<Txid> = core::iter::once(self.funding.get_funding_txid().unwrap())
+				let mut funding_txids: Vec<Txid> = core::iter::once(self.funding.get_funding_txid().unwrap())
 					.chain(self.pending_funding().iter().map(|funding| funding.get_funding_txid().unwrap())).collect();
-				txids.sort();
-				let next_local_nonces = txids.into_iter().map(|txid| {
+				funding_txids.sort();
+				let next_local_nonces = funding_txids.into_iter().map(|txid| {
 					signer.generate_local_nonce_pair(next_commitment_number, txid, &self.context.secp_ctx)
 				}).collect();
 
