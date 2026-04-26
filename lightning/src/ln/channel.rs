@@ -1242,9 +1242,6 @@ pub(super) struct V2ClosingNegotiation {
 	/// Allows accepting additional `closing_complete` for RBF without
 	/// re-broadcasting stale transactions.
 	pub closing_sig_sent: bool,
-	/// The nonce
-	pub local_nonce: Option<PublicNonce>,
-	pub counterparty_nonce: Option<PublicNonce>,
 }
 
 /// The return value of `channel_reestablish`
@@ -10390,10 +10387,11 @@ where
 	}
 
 	/// Gets the `Shutdown` message we should send our peer on reconnect, if any.
-	pub fn get_outbound_shutdown(&self) -> Option<msgs::Shutdown> {
-		let shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.context.secp_ctx);
+	pub fn get_outbound_shutdown(&mut self) -> Option<msgs::Shutdown> {
 		if self.context.channel_state.is_local_shutdown_sent() {
 			assert!(self.context.shutdown_scriptpubkey.is_some());
+			let shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.context.secp_ctx);
+			self.context.local_shutdown_nonce = Some(shutdown_nonce);
 			Some(msgs::Shutdown {
 				channel_id: self.context.channel_id,
 				scriptpubkey: self.get_closing_scriptpubkey(),
@@ -10954,8 +10952,8 @@ where
 		let mut closee_output_only_sig = None;
 		let mut closer_and_closee_outputs_sig = None;
 
-		let counterparty_nonce = self.context.v2_closing_negotiation.as_mut().unwrap().counterparty_nonce.take().unwrap();
-		let local_nonce = self.context.v2_closing_negotiation.as_mut().unwrap().local_nonce.take().unwrap();
+		// Keep the counterparty's nonce in memory; we will use it to verify their closing_sig
+		let counterparty_nonce = self.context.remote_shutdown_nonce.unwrap();
 
 		if set_closer_output_only && set_closer_and_closee_outputs {
 			// Need signatures for both closer-only and both-outputs variants.
@@ -11068,8 +11066,6 @@ where
 			self.context.v2_closing_negotiation.get_or_insert(V2ClosingNegotiation {
 				last_sent_closing_complete: None,
 				closing_sig_sent: false,
-				counterparty_nonce: None,
-				local_nonce: Some(local_nonce),
 			});
 		v2_closing_negotiation.last_sent_closing_complete = Some(msg.clone());
 
@@ -11266,6 +11262,7 @@ where
 
 		self.context.channel_state.set_remote_shutdown_sent();
 		self.context.update_time_counter += 1;
+		self.context.remote_shutdown_nonce = Some(msg.shutdown_nonce);
 
 		let monitor_update = if update_shutdown_script {
 			self.context.latest_monitor_update_id += 1;
@@ -11291,6 +11288,7 @@ where
 		};
 		let shutdown = if send_shutdown {
 			let shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.context.secp_ctx);
+			self.context.local_shutdown_nonce = Some(shutdown_nonce);
 			Some(msgs::Shutdown {
 				channel_id: self.context.channel_id,
 				scriptpubkey: self.get_closing_scriptpubkey(),
@@ -11731,11 +11729,11 @@ where
 		};
 		let closing_tx = ClosingTransaction::new_v2(outputs, funding_outpoint, lock_time);
 
-		let local_nonce = self.context.v2_closing_negotiation.as_mut().map(|closing| closing.local_nonce.take()).unwrap_or(self.context.local_shutdown_nonce.take()).expect("local nonce must be set");
+		let local_shutdown_nonce = self.context.local_shutdown_nonce.take().expect("local nonce must be set");
 
 		// Verify the counterparty's signature.
 		let key_agg_cache = KeyAggCache::new(&[&self.funding.get_holder_pubkeys().funding_pubkey, &self.funding.counterparty_funding_pubkey()]);
-		let agg_nonce = AggregatedNonce::new(&[&local_nonce, &counterparty_sig.public_nonce]);
+		let agg_nonce = AggregatedNonce::new(&[&local_shutdown_nonce, &counterparty_sig.public_nonce]);
 		let sighash = closing_tx.trust().get_sighash_default(&self.funding.get_funding_output().unwrap());
 		let session = Session::new(&key_agg_cache, agg_nonce, sighash.as_ref());
 		if !session.partial_verify(&key_agg_cache, &counterparty_sig.partial_signature, &counterparty_sig.public_nonce, self.funding.get_counterparty_pubkeys().funding_pubkey) {
@@ -11750,7 +11748,7 @@ where
 			.holder_signer
 			.finalize_closing_transaction(
 				&self.funding.channel_transaction_parameters,
-				local_nonce,
+				local_shutdown_nonce,
 				counterparty_sig,
 				&closing_tx,
 				&self.context.secp_ctx,
@@ -11767,14 +11765,14 @@ where
 
 		let our_sig_with_nonce = PartialSignatureWithNonce {
 			partial_signature: our_sig,
-			public_nonce: local_nonce,
+			public_nonce: local_shutdown_nonce,
 		};
 
 		// Build the signed closing transaction.
 		let signed_tx =
 			self.build_signed_closing_transaction(&closing_tx, &counterparty_sig, &our_sig_with_nonce);
 
-		let shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.context.secp_ctx);
+		let local_shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.context.secp_ctx);
 
 		// Construct the ClosingSig response with signature in the same TLV field.
 		let closing_sig = msgs::ClosingSig {
@@ -11795,19 +11793,18 @@ where
 				SelectedField::CloserAndCloseeOutputs => Some(our_sig),
 				_ => None,
 			},
-			public_nonce: shutdown_nonce,
+			public_nonce: local_shutdown_nonce,
 		};
 
 		// State transitions.
 		self.context.channel_state = ChannelState::ShutdownComplete;
 		self.context.update_time_counter += 1;
+		self.context.local_shutdown_nonce = Some(local_shutdown_nonce);
 
 		let v2_closing_negotiation =
 			self.context.v2_closing_negotiation.get_or_insert(V2ClosingNegotiation {
 				last_sent_closing_complete: None,
 				closing_sig_sent: false,
-				local_nonce: None,
-				counterparty_nonce: None,
 			});
 		v2_closing_negotiation.closing_sig_sent = true;
 
@@ -11968,7 +11965,7 @@ where
 		};
 		let closing_tx = ClosingTransaction::new_v2(outputs, funding_outpoint, lock_time);
 
-		let remote_nonce = self.context.v2_closing_negotiation.as_mut().map(|closing| closing.counterparty_nonce.take()).unwrap_or(self.context.remote_shutdown_nonce.take()).expect("remote nonce must be set");
+		let remote_nonce = self.context.remote_shutdown_nonce.take().expect("remote nonce must be set");
 
 		let counterparty_sig_with_nonce = PartialSignatureWithNonce {
 			partial_signature: counterparty_sig,
@@ -11993,6 +11990,7 @@ where
 		// State transitions.
 		self.context.channel_state = ChannelState::ShutdownComplete;
 		self.context.update_time_counter += 1;
+		self.context.remote_shutdown_nonce = Some(msg.public_nonce);
 
 		let v2_closing_negotiation = self.context.v2_closing_negotiation.as_mut().unwrap();
 		v2_closing_negotiation.last_sent_closing_complete = None;
