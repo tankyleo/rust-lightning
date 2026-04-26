@@ -39,7 +39,7 @@ pub trait EcdsaChannelSigner: ChannelSigner {
 	/// Generate a local nonce pair, which requires committing to ahead of time.
 	/// The counterparty needs the public nonce generated herein to compute a partial signature.
 	fn generate_local_nonce_pair(
-		&self, commitment_number: u64, txid: Txid, secp_ctx: &Secp256k1<secp256k1::All>,
+		&self, commitment_number: u64, funding_txid: Txid, secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> PublicNonce;
 	/// Shutdown nonce pair
 	fn generate_shutdown_nonce_pair(&self, secp_ctx: &Secp256k1<secp256k1::All>) -> PublicNonce;
