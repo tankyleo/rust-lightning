@@ -13063,13 +13063,14 @@ where
 			[0;32]
 		};
 
-		let next_local_commitment_number = INITIAL_COMMITMENT_NUMBER - self.holder_commitment_point.next_transaction_number();
+		let decrementing_local_number = self.holder_commitment_point.next_transaction_number();
+		let next_local_commitment_number = INITIAL_COMMITMENT_NUMBER - decrementing_local_number;
 
 		let mut txids: Vec<Txid> = core::iter::once(self.funding.get_funding_txid().unwrap())
 			.chain(self.pending_funding().iter().map(|funding| funding.get_funding_txid().unwrap())).collect();
 		txids.sort();
 		let next_local_nonces = txids.into_iter().map(|txid| {
-			self.context.holder_signer.generate_local_nonce_pair(next_local_commitment_number, txid, &self.context.secp_ctx)
+			self.context.holder_signer.generate_local_nonce_pair(decrementing_local_number, txid, &self.context.secp_ctx)
 		}).collect();
 
 		msgs::ChannelReestablish {
