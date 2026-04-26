@@ -1730,6 +1730,24 @@ impl<'a> TrustedClosingTransaction<'a> {
 		hash_to_message!(sighash.as_byte_array())
 	}
 
+	/// Get the SIGHASH_DEFAULT sighash value of the transaction.
+	///
+	/// This can be used to verify a signature.
+	pub fn get_sighash_default(
+		&self, funding_txout: &TxOut,
+	) -> Message {
+		let sighash = sighash::SighashCache::new(self.inner.built_transaction())
+			.taproot_signature_hash(
+				0,
+				&sighash::Prevouts::All(&[funding_txout]),
+				None,
+				None,
+				bitcoin::TapSighashType::Default,
+			)
+			.unwrap();
+		hash_to_message!(sighash.as_byte_array())
+	}
+
 	/// Sign a transaction, either because we are counter-signing the counterparty's transaction or
 	/// because we are about to broadcast a holder transaction.
 	pub fn sign<T: secp256k1::Signing, ES: EntropySource>(

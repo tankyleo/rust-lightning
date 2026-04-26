@@ -9,7 +9,7 @@ use crate::ln::chan_utils::{
 	HTLCOutputInCommitment, HolderCommitmentTransaction,
 };
 use crate::ln::inbound_payment::ExpandedKey;
-use crate::ln::msgs::{UnsignedChannelAnnouncement, UnsignedGossipMessage};
+use crate::ln::msgs::{PartialSignatureWithNonce, UnsignedChannelAnnouncement, UnsignedGossipMessage};
 use crate::ln::script::ShutdownScript;
 use crate::sign::ecdsa::EcdsaChannelSigner;
 use crate::sign::InMemorySigner;
@@ -21,7 +21,8 @@ use crate::sign::{
 use bitcoin;
 use bitcoin::absolute::LockTime;
 use bitcoin::script::ScriptPubKeyBuf as ScriptBuf;
-use bitcoin::secp256k1::All;
+use bitcoin::secp256k1::musig::PartialSignature;
+use bitcoin::secp256k1::{All, musig::PublicNonce};
 use bitcoin::{secp256k1, Transaction, TxOut, Txid};
 use lightning_invoice::RawBolt11Invoice;
 use secp256k1::ecdsa::RecoverableSignature;
@@ -68,6 +69,21 @@ delegate!(DynSigner, EcdsaChannelSigner, inner,
 		outbound_htlc_preimages: Vec<PaymentPreimage>,
 		secp_ctx: &Secp256k1<secp256k1::All>
 	) -> Result<(crate::ln::msgs::PartialSignatureWithNonce, Vec<Signature>), ()>,
+	fn partially_sign_closing_transaction(
+		,
+		channel_parameters: &ChannelTransactionParameters,
+		counterparty_nonce: PublicNonce,
+		closing_tx: &ClosingTransaction,
+		secp_ctx: &Secp256k1<secp256k1::All>
+	) -> Result<PartialSignatureWithNonce, ()>,
+	fn finalize_closing_transaction(
+		,
+		channel_parameters: &ChannelTransactionParameters,
+		local_nonce: PublicNonce,
+		counterparty_sig: PartialSignatureWithNonce,
+		closing_tx: &ClosingTransaction,
+		secp_ctx: &Secp256k1<secp256k1::All>
+	) -> Result<PartialSignature, ()>,
 	fn generate_local_nonce_pair(
 		,
 		_commitment_number: u64,

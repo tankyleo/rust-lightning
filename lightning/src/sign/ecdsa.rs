@@ -5,7 +5,7 @@ use bitcoin::transaction::Transaction;
 use bitcoin::{Txid, secp256k1};
 use bitcoin::secp256k1::ecdsa::Signature;
 use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
-use bitcoin::secp256k1::musig::PublicNonce;
+use bitcoin::secp256k1::musig::{PartialSignature, PublicNonce};
 
 use crate::ln::chan_utils::{
 	ChannelTransactionParameters, ClosingTransaction, CommitmentTransaction,
@@ -69,10 +69,26 @@ pub trait EcdsaChannelSigner: ChannelSigner {
 	/// Create a partial signature with a nonce
 	fn partially_sign_counterparty_commitment(
 		&self, channel_parameters: &ChannelTransactionParameters,
-		counterparty_nonce: PublicNonce, commitment_tx: &CommitmentTransaction,
+		counterparty_nonce: PublicNonce,
+		commitment_tx: &CommitmentTransaction,
 		inbound_htlc_preimages: Vec<PaymentPreimage>,
 		outbound_htlc_preimages: Vec<PaymentPreimage>, secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<(PartialSignatureWithNonce, Vec<Signature>), ()>;
+	/// Partially sign closing transaction
+	fn partially_sign_closing_transaction(
+		&self, channel_parameters: &ChannelTransactionParameters,
+		counterparty_nonce: PublicNonce,
+		closing_tx: &ClosingTransaction,
+		secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<PartialSignatureWithNonce, ()>;
+	/// Finally sign closing transaction
+	fn finalize_closing_transaction(
+		&self, channel_parameters: &ChannelTransactionParameters,
+		local_nonce: PublicNonce,
+		counterparty_sig: PartialSignatureWithNonce,
+		closing_tx: &ClosingTransaction,
+		secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<PartialSignature, ()>;
 	/// Creates a signature for a holder's commitment transaction.
 	///
 	/// This will be called

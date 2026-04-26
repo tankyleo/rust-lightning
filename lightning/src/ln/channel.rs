@@ -62,7 +62,7 @@ use crate::ln::interactivetxs::{
 	InteractiveTxMessageSend, InteractiveTxSigningSession, SharedOwnedInput, SharedOwnedOutput,
 };
 use crate::ln::msgs::{self, PartialSignatureWithNonce};
-use crate::ln::msgs::{ClosingSigned, ClosingSignedFeeRange, DecodeError, OnionErrorPacket};
+use crate::ln::msgs::{ClosingSignedFeeRange, DecodeError, OnionErrorPacket};
 use crate::ln::onion_utils::{
 	AttributionData, HTLCFailReason, LocalHTLCFailureReason, HOLD_TIME_UNIT_MILLIS,
 };
@@ -1242,6 +1242,9 @@ pub(super) struct V2ClosingNegotiation {
 	/// Allows accepting additional `closing_complete` for RBF without
 	/// re-broadcasting stale transactions.
 	pub closing_sig_sent: bool,
+	/// The nonce
+	pub local_nonce: Option<PublicNonce>,
+	pub counterparty_nonce: Option<PublicNonce>,
 }
 
 /// The return value of `channel_reestablish`
@@ -3366,6 +3369,7 @@ pub(super) struct ChannelContext<SP: SignerProvider> {
 
 	// (fee_sats, skip_remote_output, fee_range, holder_sig)
 	last_sent_closing_fee: Option<(u64, bool, ClosingSignedFeeRange, Option<Signature>)>,
+	#[allow(dead_code)]
 	last_received_closing_sig: Option<Signature>,
 	target_closing_feerate_sats_per_kw: Option<u32>,
 
@@ -3532,6 +3536,12 @@ pub(super) struct ChannelContext<SP: SignerProvider> {
 	/// This field is cleared once our counterparty sends a `channel_ready` or upon splice funding
 	/// promotion.
 	pub interactive_tx_signing_session: Option<InteractiveTxSigningSession>,
+
+	/// The local shutdown nonce
+	pub local_shutdown_nonce: Option<PublicNonce>,
+
+	/// The remote shutdown nonce
+	pub remote_shutdown_nonce: Option<PublicNonce>,
 }
 
 #[cfg(test)]
@@ -4202,6 +4212,9 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 			is_manual_broadcast: false,
 
 			interactive_tx_signing_session: None,
+
+			local_shutdown_nonce: None,
+			remote_shutdown_nonce: None,
 		};
 
 		// check if the funder's amount for the initial commitment tx is sufficient
@@ -4503,6 +4516,9 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 			is_manual_broadcast: false,
 
 			interactive_tx_signing_session: None,
+
+			local_shutdown_nonce: None,
+			remote_shutdown_nonce: None,
 		};
 
 		let htlc_candidate = None;
@@ -10128,6 +10144,7 @@ where
 		}
 
 		let (closing_signed, signed_closing_tx, shutdown_result) = if self.context.signer_pending_closing {
+			/*
 			debug_assert!(self.context.last_sent_closing_fee.is_some());
 			if let Some((fee, skip_remote_output, fee_range, holder_sig)) = self.context.last_sent_closing_fee.clone() {
 				debug_assert!(holder_sig.is_none());
@@ -10154,6 +10171,8 @@ where
 					}
 				}
 			} else { (None, None, None) }
+			*/
+			panic!("Async signing with the signer is not supported yet");
 		} else { (None, None, None) };
 
 		log_trace!(logger, "Signer unblocked with {} commitment_update, {} revoke_and_ack, with resend order {:?}, {} funding_signed, \
@@ -10903,14 +10922,18 @@ where
 		let mut closee_output_only_sig = None;
 		let mut closer_and_closee_outputs_sig = None;
 
+		let counterparty_nonce = self.context.v2_closing_negotiation.as_mut().unwrap().counterparty_nonce.take().unwrap();
+		let local_nonce = self.context.v2_closing_negotiation.as_mut().unwrap().local_nonce.take().unwrap();
+
 		if set_closer_output_only && set_closer_and_closee_outputs {
 			// Need signatures for both closer-only and both-outputs variants.
 			// The returned tx is the both-outputs variant, sign it first.
 			closer_and_closee_outputs_sig = self
 				.context
 				.holder_signer
-				.sign_closing_transaction(
+				.partially_sign_closing_transaction(
 					&self.funding.channel_transaction_parameters,
+					counterparty_nonce,
 					&closing_tx,
 					&self.context.secp_ctx,
 				)
@@ -10944,8 +10967,9 @@ where
 			closer_output_only_sig = self
 				.context
 				.holder_signer
-				.sign_closing_transaction(
+				.partially_sign_closing_transaction(
 					&self.funding.channel_transaction_parameters,
+					counterparty_nonce,
 					&closer_only_tx,
 					&self.context.secp_ctx,
 				)
@@ -10958,8 +10982,9 @@ where
 			let sig = self
 				.context
 				.holder_signer
-				.sign_closing_transaction(
+				.partially_sign_closing_transaction(
 					&self.funding.channel_transaction_parameters,
+					counterparty_nonce,
 					&closing_tx,
 					&self.context.secp_ctx,
 				)
@@ -11011,6 +11036,8 @@ where
 			self.context.v2_closing_negotiation.get_or_insert(V2ClosingNegotiation {
 				last_sent_closing_complete: None,
 				closing_sig_sent: false,
+				counterparty_nonce: None,
+				local_nonce: Some(local_nonce),
 			});
 		v2_closing_negotiation.last_sent_closing_complete = Some(msg.clone());
 
@@ -11264,27 +11291,24 @@ where
 	}
 
 	fn build_signed_closing_transaction(
-		&self, closing_tx: &ClosingTransaction, counterparty_sig: &Signature, sig: &Signature,
+		&self, closing_tx: &ClosingTransaction,
+		counterparty_sig: &PartialSignatureWithNonce,
+		local_sig: &PartialSignatureWithNonce,
 	) -> Transaction {
+		use secp256k1::musig::*;
+
 		let mut tx = closing_tx.trust().built_transaction().clone();
 
-		tx.inputs[0].witness.push(Vec::new()); // First is the multisig dummy
+		let key_agg_cache = KeyAggCache::new(&[&self.funding.get_holder_pubkeys().funding_pubkey, &self.funding.counterparty_funding_pubkey()]);
+		let agg_nonce = AggregatedNonce::new(&[&local_sig.public_nonce, &counterparty_sig.public_nonce]);
+		let msg = closing_tx.trust().get_sighash_default(&self.funding.get_funding_output().unwrap());
+		let session = Session::new(&key_agg_cache, agg_nonce, msg.as_ref());
+		let agg_sig = session.partial_sig_agg(&[&local_sig.partial_signature, &counterparty_sig.partial_signature]);
 
-		let funding_key = self.funding.get_holder_pubkeys().funding_pubkey.serialize();
-		let counterparty_funding_key = self.funding.counterparty_funding_pubkey().serialize();
-		let mut holder_sig = sig.serialize_der().to_vec();
-		holder_sig.push(EcdsaSighashType::All as u8);
-		let mut cp_sig = counterparty_sig.serialize_der().to_vec();
-		cp_sig.push(EcdsaSighashType::All as u8);
-		if funding_key[..] < counterparty_funding_key[..] {
-			tx.inputs[0].witness.push(holder_sig);
-			tx.inputs[0].witness.push(cp_sig);
-		} else {
-			tx.inputs[0].witness.push(cp_sig);
-			tx.inputs[0].witness.push(holder_sig);
-		}
+		let sig = agg_sig.verify(&key_agg_cache.agg_pk(), msg.as_ref()).unwrap();
 
-		tx.inputs[0].witness.push(self.funding.get_funding_redeemscript().into_bytes());
+		tx.inputs[0].witness.push(sig.as_byte_array());
+
 		tx
 	}
 
@@ -11344,10 +11368,12 @@ where
 	}
 
 	pub fn closing_signed<F: FeeEstimator, L: Logger>(
-		&mut self, fee_estimator: &LowerBoundedFeeEstimator<F>, msg: &msgs::ClosingSigned,
-		our_features: &InitFeatures, their_features: &InitFeatures, logger: &L,
+		&mut self, _fee_estimator: &LowerBoundedFeeEstimator<F>, _msg: &msgs::ClosingSigned,
+		_our_features: &InitFeatures, _their_features: &InitFeatures, _logger: &L,
 	) -> Result<(Option<msgs::ClosingSigned>, Option<(Transaction, ShutdownResult)>), ChannelError>
 	{
+		panic!("closing signed is disabled!");
+		/*
 		if our_features.supports_simple_close() && their_features.supports_simple_close() {
 			return Err(ChannelError::close(
 				"Remote end sent us a closing_signed for an option_simple_close channel".to_owned(),
@@ -11547,6 +11573,7 @@ where
 				}
 			}
 		}
+		*/
 	}
 
 	pub fn closing_complete<L: Logger>(
@@ -11673,6 +11700,8 @@ where
 		let closing_tx = ClosingTransaction::new_v2(outputs, funding_outpoint, lock_time);
 
 		// Verify the counterparty's signature.
+		/*
+		// TODO TAPROOT VERIFY
 		let funding_redeemscript = self.funding.get_funding_redeemscript();
 		let sighash = closing_tx
 			.trust()
@@ -11685,13 +11714,18 @@ where
 			),
 			"Invalid closing_complete signature from peer".to_owned()
 		);
+		*/
+
+		let local_nonce = self.context.v2_closing_negotiation.as_mut().map(|closing| closing.local_nonce.take()).unwrap_or(self.context.local_shutdown_nonce.take()).expect("local nonce must be set");
 
 		// Sign our side.
 		let our_sig = self
 			.context
 			.holder_signer
-			.sign_closing_transaction(
+			.finalize_closing_transaction(
 				&self.funding.channel_transaction_parameters,
+				local_nonce,
+				counterparty_sig,
 				&closing_tx,
 				&self.context.secp_ctx,
 			)
@@ -11705,9 +11739,16 @@ where
 			},
 		};
 
+		let our_sig_with_nonce = PartialSignatureWithNonce {
+			partial_signature: our_sig,
+			public_nonce: local_nonce,
+		};
+
 		// Build the signed closing transaction.
 		let signed_tx =
-			self.build_signed_closing_transaction(&closing_tx, &counterparty_sig, &our_sig);
+			self.build_signed_closing_transaction(&closing_tx, &counterparty_sig, &our_sig_with_nonce);
+
+		let shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.context.secp_ctx);
 
 		// Construct the ClosingSig response with signature in the same TLV field.
 		let closing_sig = msgs::ClosingSig {
@@ -11728,6 +11769,7 @@ where
 				SelectedField::CloserAndCloseeOutputs => Some(our_sig),
 				_ => None,
 			},
+			public_nonce: shutdown_nonce,
 		};
 
 		// State transitions.
@@ -11738,6 +11780,8 @@ where
 			self.context.v2_closing_negotiation.get_or_insert(V2ClosingNegotiation {
 				last_sent_closing_complete: None,
 				closing_sig_sent: false,
+				local_nonce: None,
+				counterparty_nonce: None,
 			});
 		v2_closing_negotiation.closing_sig_sent = true;
 
@@ -11898,6 +11942,15 @@ where
 		};
 		let closing_tx = ClosingTransaction::new_v2(outputs, funding_outpoint, lock_time);
 
+		let remote_nonce = self.context.v2_closing_negotiation.as_mut().map(|closing| closing.counterparty_nonce.take()).unwrap_or(self.context.remote_shutdown_nonce.take()).expect("remote nonce must be set");
+
+		let counterparty_sig_with_nonce = PartialSignatureWithNonce {
+			partial_signature: counterparty_sig,
+			public_nonce: remote_nonce,
+		};
+
+		/*
+		// TODO TAPROOT VERIFY
 		// Verify the counterparty's signature.
 		let funding_redeemscript = self.funding.get_funding_redeemscript();
 		let sighash = closing_tx
@@ -11911,10 +11964,11 @@ where
 			),
 			"Invalid closing_sig signature from peer".to_owned()
 		);
+		*/
 
 		// Build the signed closing transaction.
 		let signed_tx =
-			self.build_signed_closing_transaction(&closing_tx, &counterparty_sig, &our_sig);
+			self.build_signed_closing_transaction(&closing_tx, &counterparty_sig_with_nonce, &our_sig);
 
 		// State transitions.
 		self.context.channel_state = ChannelState::ShutdownComplete;
@@ -12176,6 +12230,7 @@ where
 		matches!(self.context.channel_state, ChannelState::ShutdownComplete)
 	}
 
+	#[allow(dead_code)]
 	pub fn is_shutdown_pending_signature(&self) -> bool {
 		matches!(self.context.channel_state, ChannelState::ChannelReady(_))
 			&& self.context.signer_pending_closing
@@ -17514,6 +17569,9 @@ impl<'a, 'b, 'c, ES: EntropySource, SP: SignerProvider>
 				is_manual_broadcast: is_manual_broadcast.unwrap_or(false),
 
 				interactive_tx_signing_session,
+
+				local_shutdown_nonce: None,
+				remote_shutdown_nonce: None,
 			},
 			holder_commitment_point,
 			pending_splice,

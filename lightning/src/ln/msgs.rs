@@ -88,6 +88,20 @@ impl Readable for PublicNonce {
 impl_readable_for_vec!(PublicNonce);
 impl_writeable_for_vec!(PublicNonce);
 
+impl Writeable for PartialSignature {
+	fn write<W: Writer>(&self, w: &mut W) -> Result<(), io::Error> {
+		self.serialize().write(w)
+	}
+}
+
+impl Readable for PartialSignature {
+	fn read<R: io::Read>(r: &mut R) -> Result<Self, DecodeError> {
+		let buf: [u8; 32] = Readable::read(r)?;
+		let nonce = PartialSignature::from_byte_array(&buf).map_err(|_| DecodeError::InvalidValue)?;
+		Ok(nonce)
+	}
+}
+
 /// A partial signature with the corresponding nonce
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct PartialSignatureWithNonce {
@@ -745,11 +759,11 @@ pub struct ClosingComplete {
 	/// The locktime of the closing transaction.
 	pub locktime: u32,
 	/// A signature on the closing transaction omitting the `closee` output.
-	pub closer_output_only: Option<Signature>,
+	pub closer_output_only: Option<PartialSignatureWithNonce>,
 	/// A signature on the closing transaction omitting the `closer` output.
-	pub closee_output_only: Option<Signature>,
+	pub closee_output_only: Option<PartialSignatureWithNonce>,
 	/// A signature on the closing transaction covering both `closer` and `closee` outputs.
-	pub closer_and_closee_outputs: Option<Signature>,
+	pub closer_and_closee_outputs: Option<PartialSignatureWithNonce>,
 }
 
 /// A [`closing_sig`] message to be sent to or received from a peer.
@@ -768,11 +782,13 @@ pub struct ClosingSig {
 	/// The locktime of the closing transaction.
 	pub locktime: u32,
 	/// A signature on the closing transaction omitting the `closee` output.
-	pub closer_output_only: Option<Signature>,
+	pub closer_output_only: Option<PartialSignature>,
 	/// A signature on the closing transaction omitting the `closer` output.
-	pub closee_output_only: Option<Signature>,
+	pub closee_output_only: Option<PartialSignature>,
 	/// A signature on the closing transaction covering both `closer` and `closee` outputs.
-	pub closer_and_closee_outputs: Option<Signature>,
+	pub closer_and_closee_outputs: Option<PartialSignature>,
+	/// The next closee nonce
+	pub public_nonce: PublicNonce,
 }
 
 /// A [`start_batch`] message to be sent to group together multiple channel messages as a single
@@ -3271,7 +3287,9 @@ impl_writeable_msg!(ClosingSig,
 	{
 		(1, closer_output_only, option),
 		(2, closee_output_only, option),
-		(3, closer_and_closee_outputs, option)
+		(3, closer_and_closee_outputs, option),
+		(22, public_nonce, required),
+
 	}
 );
 
