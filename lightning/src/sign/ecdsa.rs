@@ -42,6 +42,8 @@ pub trait EcdsaChannelSigner: ChannelSigner {
 	fn generate_local_nonce_pair(
 		&self, commitment_number: u64, txid: Txid, secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> PublicNonce;
+	/// Shutdown nonce pair
+	fn generate_shutdown_nonce_pair(&self, secp_ctx: &Secp256k1<secp256k1::All>) -> PublicNonce;
 	/// Create a signature for a counterparty's commitment transaction and associated HTLC transactions.
 	///
 	/// Policy checks should be implemented in this function, including checking the amount

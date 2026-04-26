@@ -10342,11 +10342,13 @@ where
 
 	/// Gets the `Shutdown` message we should send our peer on reconnect, if any.
 	pub fn get_outbound_shutdown(&self) -> Option<msgs::Shutdown> {
+		let shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.context.secp_ctx);
 		if self.context.channel_state.is_local_shutdown_sent() {
 			assert!(self.context.shutdown_scriptpubkey.is_some());
 			Some(msgs::Shutdown {
 				channel_id: self.context.channel_id,
 				scriptpubkey: self.get_closing_scriptpubkey(),
+				shutdown_nonce,
 			})
 		} else {
 			None
@@ -11216,9 +11218,11 @@ where
 			None
 		};
 		let shutdown = if send_shutdown {
+			let shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.context.secp_ctx);
 			Some(msgs::Shutdown {
 				channel_id: self.context.channel_id,
 				scriptpubkey: self.get_closing_scriptpubkey(),
+				shutdown_nonce,
 			})
 		} else {
 			None
@@ -14682,9 +14686,11 @@ where
 		} else {
 			None
 		};
+		let shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.context.secp_ctx);
 		let shutdown = msgs::Shutdown {
 			channel_id: self.context.channel_id,
 			scriptpubkey: self.get_closing_scriptpubkey(),
+			shutdown_nonce,
 		};
 
 		// Go ahead and drop holding cell updates as we'd rather fail payments than wait to send

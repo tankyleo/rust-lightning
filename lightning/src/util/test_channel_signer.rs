@@ -268,6 +268,10 @@ impl EcdsaChannelSigner for TestChannelSigner {
 	    todo!();
 	}
 
+	fn generate_shutdown_nonce_pair(&self, _secp_ctx: &Secp256k1<secp256k1::All>) -> musig_secp::musig::PublicNonce {
+	    todo!();
+	}
+
 	fn finalize_holder_commitment(
 		&self,
 		_channel_parameters: &ChannelTransactionParameters,

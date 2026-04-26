@@ -73,6 +73,10 @@ delegate!(DynSigner, EcdsaChannelSigner, inner,
 		_txid: Txid,
 		_secp_ctx: &Secp256k1<secp256k1::All>
 	) -> musig_secp::musig::PublicNonce,
+	fn generate_shutdown_nonce_pair(
+		,
+		_secp_ctx: &Secp256k1<secp256k1::All>
+	) -> musig_secp::musig::PublicNonce,
 	fn finalize_holder_commitment(
 		,
 		channel_parameters: &ChannelTransactionParameters,
