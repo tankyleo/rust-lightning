@@ -1708,6 +1708,10 @@ impl EcdsaChannelSigner for InMemorySigner {
 	    todo!();
 	}
 
+	fn generate_shutdown_nonce_pair(&self, _secp_ctx: &Secp256k1<secp256k1::All>) -> secp256k1::musig::PublicNonce {
+	    todo!();
+	}
+
 	fn finalize_holder_commitment(
 		&self,
 		_channel_parameters: &ChannelTransactionParameters,

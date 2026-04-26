@@ -3725,7 +3725,7 @@ mod tests {
 	use crate::util::test_utils;
 
 	use bitcoin::constants::ChainHash;
-	use bitcoin::secp256k1::{PublicKey, Secp256k1};
+	use bitcoin::secp256k1::{PublicKey, Secp256k1, musig::PublicNonce};
 	use bitcoin::Network;
 
 	use crate::sync::{Arc, Mutex};
@@ -3734,6 +3734,15 @@ mod tests {
 
 	#[allow(unused_imports)]
 	use crate::prelude::*;
+
+	const PUBLIC_NONCE: [u8; 66] = [
+		0x03, 0xf4, 0xa3, 0x61, 0xab, 0xd3, 0xd5, 0x05, 0x35, 0xbe, 0x08,
+		0x42, 0x1d, 0xbc, 0x73, 0xb0, 0xa8, 0xf5, 0x95, 0x65, 0x4a, 0xe3,
+		0x23, 0x8a, 0xfc, 0xaf, 0x25, 0x99, 0xf9, 0x4e, 0x25, 0x20, 0x4c,
+		0x03, 0x6b, 0xa1, 0x74, 0x21, 0x44, 0x33, 0xe2, 0x1f, 0x5c, 0xd0,
+		0xfc, 0xb1, 0x4b, 0x03, 0x8e, 0xb4, 0x0b, 0x05, 0xb7, 0xe7, 0xc8,
+		0x20, 0xdd, 0x21, 0xaa, 0x56, 0x8f, 0xdb, 0x0a, 0x9d, 0xe4, 0xd7,
+	];
 
 	#[derive(Clone)]
 	struct FileDescriptor {
@@ -4085,11 +4094,13 @@ mod tests {
 
 							let node_id_1 =
 								peers[1].node_signer.get_node_id(Recipient::Node).unwrap();
+							let shutdown_nonce = PublicNonce::from_byte_array(&PUBLIC_NONCE).unwrap();
 							let msg_event_1 = MessageSendEvent::SendShutdown {
 								node_id: node_id_1,
 								msg: msgs::Shutdown {
 									channel_id: ChannelId::new_zero(),
 									scriptpubkey: bitcoin::script::ScriptPubKeyBuf::new(),
+									shutdown_nonce,
 								},
 							};
 							cfgs[0].chan_handler.pending_events.lock().unwrap().push(msg_event_1);
@@ -4101,6 +4112,7 @@ mod tests {
 								msg: msgs::Shutdown {
 									channel_id: ChannelId::new_zero(),
 									scriptpubkey: bitcoin::script::ScriptPubKeyBuf::new(),
+									shutdown_nonce,
 								},
 							};
 							cfgs[1].chan_handler.pending_events.lock().unwrap().push(msg_event_0);
@@ -4233,9 +4245,12 @@ mod tests {
 
 		let their_id = peers[1].node_signer.get_node_id(Recipient::Node).unwrap();
 
+		let shutdown_nonce = PublicNonce::from_byte_array(&PUBLIC_NONCE).unwrap();
+
 		let msg = msgs::Shutdown {
 			channel_id: ChannelId::from_bytes([42; 32]),
 			scriptpubkey: bitcoin::script::ScriptPubKeyBuf::new(),
+			shutdown_nonce,
 		};
 		a_chan_handler
 			.pending_events

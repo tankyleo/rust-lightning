@@ -695,6 +695,8 @@ pub struct Shutdown {
 	///
 	/// Must be in one of these forms: P2PKH, P2SH, P2WPKH, P2WSH, P2TR.
 	pub scriptpubkey: ScriptBuf,
+	/// shutdown_nonce
+	pub shutdown_nonce: PublicNonce,
 }
 
 /// The minimum and maximum fees which the sender is willing to place on the closing transaction.
@@ -3553,7 +3555,8 @@ impl_writeable_msg!(RevokeAndACK, {
 
 impl_writeable_msg!(Shutdown, {
 	channel_id,
-	scriptpubkey
+	scriptpubkey,
+	shutdown_nonce,
 }, {});
 
 impl_writeable_msg!(UpdateFailHTLC, {
@@ -6102,6 +6105,7 @@ mod tests {
 			secp_ctx
 		);
 		let script = Builder::new().push_opcode(opcodes::all::OP_TRUE).into_script();
+		let shutdown_nonce = PublicNonce::from_byte_array(&PUBLIC_NONCE).unwrap();
 		let shutdown = msgs::Shutdown {
 			channel_id: ChannelId::from_bytes([2; 32]),
 			scriptpubkey: if script_type == 1 {
@@ -6121,6 +6125,7 @@ mod tests {
 			} else {
 				script.to_p2wsh()
 			},
+			shutdown_nonce,
 		};
 		let encoded_value = shutdown.encode();
 		let mut target_value =
