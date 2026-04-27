@@ -1835,9 +1835,26 @@ impl EcdsaChannelSigner for InMemorySigner {
 	}
 
 	fn generate_local_nonce_pair(
-		&self, _commitment_number: u64, _funding_txid: Txid, _secp_ctx: &Secp256k1<secp256k1::All>,
+		&self, channel_parameters: &ChannelTransactionParameters, commitment_number: u64, funding_txid: Txid, _secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> musig_secp::musig::PublicNonce {
-	    todo!();
+		use bitcoin::hashes::hmac::{Hmac, HmacEngine};
+		use bitcoin::hashes::sha256::Hash as Sha256;
+		use bitcoin::hashes::Hash;
+		let shachain_root_hash = Sha256::hash(&self.commitment_seed);
+		let key = format!("taproot-rev-root{}", funding_txid);
+		let mut engine: HmacEngine<Sha256> = HmacEngine::new(key.as_bytes());
+		engine.input(shachain_root_hash.as_byte_array());
+		let musig2_shachain_root = Hmac::from_engine(engine).to_byte_array();
+
+		let rand = chan_utils::build_commitment_secret(&musig2_shachain_root, commitment_number);
+
+		let session_secret_rand = SessionSecretRand::assume_unique_per_nonce_gen(rand);
+
+		let funding_key_bytes = self.funding_key(channel_parameters.splice_parent_funding_txid).secret_bytes();
+		let funding_key = musig_secp::SecretKey::from_secret_bytes(funding_key_bytes).unwrap();
+		let funding_pubkey = funding_key.public_key();
+		let (_, public_nonce) = new_nonce_pair(session_secret_rand, None, None, funding_pubkey, None, None);
+		public_nonce
 	}
 
 	fn generate_shutdown_nonce_pair(&mut self, channel_parameters: &ChannelTransactionParameters, _secp_ctx: &Secp256k1<secp256k1::All>) -> musig_secp::musig::PublicNonce {

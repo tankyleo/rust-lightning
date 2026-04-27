@@ -476,7 +476,7 @@ pub fn do_test_update_fee_that_funder_cannot_afford(channel_type_features: Chann
 		let chan_signer = channel.as_funded().unwrap().get_signer();
 		let point_number = INITIAL_COMMITMENT_NUMBER - 1;
 		let remote_point = chan_signer.get_per_commitment_point(point_number, &secp_ctx).unwrap();
-		let remote_nonce = chan_signer.generate_local_nonce_pair(point_number, Txid::from_byte_array([0u8; 32]), &secp_ctx);
+		let remote_nonce = chan_signer.generate_local_nonce_pair(&channel.funding().channel_transaction_parameters, point_number, Txid::from_byte_array([0u8; 32]), &secp_ctx);
 		(remote_point, remote_nonce)
 	};
 
@@ -575,7 +575,7 @@ pub fn test_update_fee_that_saturates_subs() {
 		let channel = get_channel_ref!(nodes[1], nodes[0], per_peer_lock, peer_state_lock, chan_id);
 		let chan_signer = channel.as_funded().unwrap().get_signer();
 		let remote_point = chan_signer.get_per_commitment_point(INITIAL_COMMITMENT_NUMBER, &secp_ctx).unwrap();
-		let remote_nonce = chan_signer.generate_local_nonce_pair(INITIAL_COMMITMENT_NUMBER, Txid::from_byte_array([0u8; 32]), &secp_ctx);
+		let remote_nonce = chan_signer.generate_local_nonce_pair(&channel.funding().channel_transaction_parameters, INITIAL_COMMITMENT_NUMBER, Txid::from_byte_array([0u8; 32]), &secp_ctx);
 		(remote_point, remote_nonce)
 	};
 

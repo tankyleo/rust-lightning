@@ -282,7 +282,7 @@ impl EcdsaChannelSigner for TestChannelSigner {
 	}
 
 	fn generate_local_nonce_pair(
-		&self, _commitment_number: u64, _funding_txid: Txid, _secp_ctx: &Secp256k1<secp256k1::All>,
+		&self, _channel_parameters: &ChannelTransactionParameters, _commitment_number: u64, _funding_txid: Txid, _secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> musig_secp::musig::PublicNonce {
 	    todo!();
 	}
