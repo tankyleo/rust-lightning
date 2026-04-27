@@ -3575,7 +3575,7 @@ trait InitialRemoteCommitmentReceiver<SP: SignerProvider> {
 		let holder_funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(holder_funding_pubkey_bytes).unwrap();
 		let counterparty_funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(counterparty_funding_pubkey_bytes).unwrap();
 
-		let verification_nonce = self.context().holder_signer.generate_local_nonce_pair(&self.funding().channel_transaction_parameters, 0, initial_commitment_bitcoin_tx.txid, &self.context().secp_ctx);
+		let verification_nonce = self.context().holder_signer.generate_local_nonce_pair(&self.funding().channel_transaction_parameters, 0, &self.context().secp_ctx);
 
 		let key_agg_cache = KeyAggCache::new(&[&holder_funding_pubkey, &counterparty_funding_pubkey]);
 		let agg_nonce = AggregatedNonce::new(&[&verification_nonce, &sig.public_nonce]);
@@ -5650,7 +5650,7 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 			let holder_funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(holder_funding_pubkey_bytes).unwrap();
 			let counterparty_funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(counterparty_funding_pubkey_bytes).unwrap();
 
-			let verification_nonce = self.holder_signer.generate_local_nonce_pair(&funding.channel_transaction_parameters, transaction_number, bitcoin_tx.txid, &self.secp_ctx);
+			let verification_nonce = self.holder_signer.generate_local_nonce_pair(&funding.channel_transaction_parameters, transaction_number, &self.secp_ctx);
 
 			let key_agg_cache = KeyAggCache::new(&[&holder_funding_pubkey, &counterparty_funding_pubkey]);
 			let agg_nonce = AggregatedNonce::new(&[&verification_nonce, &msg.signature.public_nonce]);
@@ -10248,7 +10248,7 @@ where
 					.chain(self.pending_funding().iter()).collect();
 				funding_scopes.sort_by_key(|funding| funding.get_funding_txid().unwrap());
 				let next_local_nonces = funding_scopes.into_iter().map(|funding| {
-					signer.generate_local_nonce_pair(&funding.channel_transaction_parameters, next_commitment_number, funding.get_funding_txid().unwrap(), &self.context.secp_ctx)
+					signer.generate_local_nonce_pair(&funding.channel_transaction_parameters, next_commitment_number, &self.context.secp_ctx)
 				}).collect();
 
 				self.context.signer_pending_revoke_and_ack = false;
@@ -12339,7 +12339,7 @@ where
 	fn get_channel_ready<L: Logger>(
 		&mut self, logger: &L
 	) -> Option<msgs::ChannelReady> {
-		let next_local_nonce = self.context.holder_signer.generate_local_nonce_pair(&self.funding.channel_transaction_parameters, self.holder_commitment_point.next_transaction_number(), self.funding.get_funding_txid().unwrap(), &self.context.secp_ctx);
+		let next_local_nonce = self.context.holder_signer.generate_local_nonce_pair(&self.funding.channel_transaction_parameters, self.holder_commitment_point.next_transaction_number(), &self.context.secp_ctx);
 		if self.holder_commitment_point.can_advance() {
 			self.context.signer_pending_channel_ready = false;
 			Some(msgs::ChannelReady {
@@ -13069,7 +13069,7 @@ where
 			.chain(self.pending_funding().iter()).collect();
 		funding_scopes.sort_by_key(|funding| funding.get_funding_txid().unwrap());
 		let next_local_nonces = funding_scopes.into_iter().map(|funding| {
-			self.context.holder_signer.generate_local_nonce_pair(&funding.channel_transaction_parameters, decrementing_local_number, funding.get_funding_txid().unwrap(), &self.context.secp_ctx)
+			self.context.holder_signer.generate_local_nonce_pair(&funding.channel_transaction_parameters, decrementing_local_number, &self.context.secp_ctx)
 		}).collect();
 
 		msgs::ChannelReestablish {
@@ -15339,7 +15339,7 @@ impl<SP: SignerProvider> OutboundV1Channel<SP> {
 		};
 		let keys = self.funding.get_holder_pubkeys();
 
-		let next_local_nonce = self.context.holder_signer.generate_local_nonce_pair(&self.funding.channel_transaction_parameters, 0, Txid::all_zeros(), &self.context.secp_ctx);
+		let next_local_nonce = self.context.holder_signer.generate_local_nonce_pair(&self.funding.channel_transaction_parameters, 0, &self.context.secp_ctx);
 
 		Some(msgs::OpenChannel {
 			common_fields: msgs::CommonOpenChannelFields {
@@ -15648,7 +15648,7 @@ impl<SP: SignerProvider> InboundV1Channel<SP> {
 		};
 		let keys = self.funding.get_holder_pubkeys();
 
-		let next_local_nonce = self.context.holder_signer.generate_local_nonce_pair(&self.funding.channel_transaction_parameters, 0, Txid::all_zeros(), &self.context.secp_ctx);
+		let next_local_nonce = self.context.holder_signer.generate_local_nonce_pair(&self.funding.channel_transaction_parameters, 0, &self.context.secp_ctx);
 
 		Some(msgs::AcceptChannel {
 			common_fields: msgs::CommonAcceptChannelFields {

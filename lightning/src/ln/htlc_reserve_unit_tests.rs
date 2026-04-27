@@ -31,8 +31,7 @@ use musig_secp::musig::PublicNonce;
 use lightning_macros::xtest;
 
 use bitcoin::secp256k1::{Secp256k1, SecretKey};
-use bitcoin::{Amount, Transaction, Txid};
-use bitcoin::hashes::Hash;
+use bitcoin::{Amount, Transaction};
 
 const PUBLIC_NONCE: [u8; 66] = [
 	0x03, 0xf4, 0xa3, 0x61, 0xab, 0xd3, 0xd5, 0x05, 0x35, 0xbe, 0x08,
@@ -895,7 +894,7 @@ pub fn do_test_fee_spike_buffer(cfg: Option<UserConfig>, htlc_fails: bool) {
 		let channel = get_channel_ref!(nodes[1], nodes[0], per_peer_lock, peer_state_lock, chan.2);
 		let chan_signer = channel.as_funded().unwrap().get_signer();
 		let remote_point = chan_signer.get_per_commitment_point(INITIAL_COMMITMENT_NUMBER - 1, &secp_ctx).unwrap();
-		let remote_nonce = chan_signer.generate_local_nonce_pair(&channel.funding().channel_transaction_parameters, INITIAL_COMMITMENT_NUMBER - 1, Txid::from_byte_array([0u8; 32]), &secp_ctx);
+		let remote_nonce = chan_signer.generate_local_nonce_pair(&channel.funding().channel_transaction_parameters, INITIAL_COMMITMENT_NUMBER - 1, &secp_ctx);
 		(remote_point, remote_nonce)
 	};
 
@@ -2264,7 +2263,6 @@ pub fn do_test_dust_limit_fee_accounting(can_afford: bool) {
 				.generate_local_nonce_pair(
 					&channel.funding().channel_transaction_parameters,
 					INITIAL_COMMITMENT_NUMBER - MIN_AFFORDABLE_HTLC_COUNT as u64,
-					Txid::from_byte_array([0u8; 32]),
 					&secp_ctx,
 				);
 			(remote_point, remote_nonce)
@@ -2913,7 +2911,7 @@ fn manually_trigger_update_fail_htlc<'a, 'b, 'c, 'd>(
 			get_channel_ref!(nodes[1], nodes[0], per_peer_lock, peer_state_lock, channel_id);
 		let chan_signer = channel.as_funded().unwrap().get_signer();
 		let remote_point = chan_signer.get_per_commitment_point(INITIAL_COMMITMENT_NUMBER - 1, &secp_ctx).unwrap();
-		let remote_nonce = chan_signer.generate_local_nonce_pair(&channel.funding().channel_transaction_parameters, INITIAL_COMMITMENT_NUMBER - 1, Txid::from_byte_array([0u8; 32]), &secp_ctx);
+		let remote_nonce = chan_signer.generate_local_nonce_pair(&channel.funding().channel_transaction_parameters, INITIAL_COMMITMENT_NUMBER - 1, &secp_ctx);
 		(remote_point, remote_nonce)
 	};
 
