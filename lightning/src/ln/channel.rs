@@ -10390,7 +10390,7 @@ where
 	pub fn get_outbound_shutdown(&mut self) -> Option<msgs::Shutdown> {
 		if self.context.channel_state.is_local_shutdown_sent() {
 			assert!(self.context.shutdown_scriptpubkey.is_some());
-			let shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.context.secp_ctx);
+			let shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.funding.channel_transaction_parameters, &self.context.secp_ctx);
 			self.context.local_shutdown_nonce = Some(shutdown_nonce);
 			Some(msgs::Shutdown {
 				channel_id: self.context.channel_id,
@@ -11287,7 +11287,7 @@ where
 			None
 		};
 		let shutdown = if send_shutdown {
-			let shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.context.secp_ctx);
+			let shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.funding.channel_transaction_parameters, &self.context.secp_ctx);
 			self.context.local_shutdown_nonce = Some(shutdown_nonce);
 			Some(msgs::Shutdown {
 				channel_id: self.context.channel_id,
@@ -11772,7 +11772,7 @@ where
 		let signed_tx =
 			self.build_signed_closing_transaction(&closing_tx, &counterparty_sig, &our_sig_with_nonce);
 
-		let local_shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.context.secp_ctx);
+		let local_shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.funding.channel_transaction_parameters, &self.context.secp_ctx);
 
 		// Construct the ClosingSig response with signature in the same TLV field.
 		let closing_sig = msgs::ClosingSig {
@@ -14773,7 +14773,7 @@ where
 		} else {
 			None
 		};
-		let shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.context.secp_ctx);
+		let shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.funding.channel_transaction_parameters, &self.context.secp_ctx);
 		let shutdown = msgs::Shutdown {
 			channel_id: self.context.channel_id,
 			scriptpubkey: self.get_closing_scriptpubkey(),

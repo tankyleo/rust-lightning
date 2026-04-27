@@ -1299,6 +1299,8 @@ pub struct InMemorySigner {
 	channel_keys_id: [u8; 32],
 	/// A source of random bytes.
 	entropy_source: RandomBytes,
+	/// Shutdown nonce cache
+	shutdown_nonce: Option<(SecretNonce, PublicNonce)>,
 }
 
 impl PartialEq for InMemorySigner {
@@ -1328,6 +1330,7 @@ impl Clone for InMemorySigner {
 			commitment_seed: self.commitment_seed.clone(),
 			channel_keys_id: self.channel_keys_id,
 			entropy_source: RandomBytes::new(self.get_secure_random_bytes()),
+			shutdown_nonce: None,
 		}
 	}
 }
@@ -1351,6 +1354,7 @@ impl InMemorySigner {
 			commitment_seed,
 			channel_keys_id,
 			entropy_source: RandomBytes::new(rand_bytes_unique_start),
+			shutdown_nonce: None,
 		}
 	}
 
@@ -1372,6 +1376,7 @@ impl InMemorySigner {
 			commitment_seed,
 			channel_keys_id,
 			entropy_source: RandomBytes::new(rand_bytes_unique_start),
+			shutdown_nonce: None,
 		}
 	}
 
@@ -1622,6 +1627,8 @@ impl ChannelSigner for InMemorySigner {
 const MISSING_PARAMS_ERR: &'static str =
 	"ChannelTransactionParameters must be populated before signing operations";
 
+use bitcoin::secp256k1::musig::*;
+
 impl EcdsaChannelSigner for InMemorySigner {
 	fn sign_counterparty_commitment(
 		&self, channel_parameters: &ChannelTransactionParameters,
@@ -1693,33 +1700,164 @@ impl EcdsaChannelSigner for InMemorySigner {
 	}
 
 	fn partially_sign_counterparty_commitment(
-		&self, _channel_parameters: &ChannelTransactionParameters,
-		_counterparty_nonce: PublicNonce,
-		_commitment_tx: &CommitmentTransaction,
+		&self, channel_parameters: &ChannelTransactionParameters,
+		counterparty_nonce: PublicNonce,
+		commitment_tx: &CommitmentTransaction,
 		_inbound_htlc_preimages: Vec<PaymentPreimage>,
 		_outbound_htlc_preimages: Vec<PaymentPreimage>,
-		_secp_ctx: &Secp256k1<secp256k1::All>,
+		secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<(crate::ln::msgs::PartialSignatureWithNonce, Vec<Signature>), ()> {
-	    todo!();
+		use bitcoin::ScriptPubKeyBuf;
+		use bitcoin::secp256k1::Keypair;
+		use bitcoin::TapTweakHash;
+
+		let funding_key = self.funding_key(channel_parameters.splice_parent_funding_txid);
+		let funding_pubkey = funding_key.public_key();
+		let keypair = Keypair::from_secret_key(&funding_key);
+		let counterparty_pubkey = channel_parameters.counterparty_pubkeys().unwrap().funding_pubkey;
+
+		let mut key_agg_cache = KeyAggCache::new(&[&funding_pubkey, &counterparty_pubkey]);
+		let internal_key = key_agg_cache.agg_pk();
+		let tweak = TapTweakHash::from_key_and_merkle_root(internal_key, None);
+		key_agg_cache.pubkey_xonly_tweak_add(&tweak.to_scalar()).unwrap();
+
+		let spk = ScriptPubKeyBuf::new_p2tr(internal_key, None);
+		let channel_value_satoshis = Amount::from_sat(channel_parameters.channel_value_satoshis).unwrap();
+		let funding_txout = TxOut { amount: channel_value_satoshis, script_pubkey: spk };
+
+		let session_secret_rand = SessionSecretRand::assume_unique_per_nonce_gen(self.get_secure_random_bytes());
+
+		let msg = commitment_tx.trust().built_transaction().get_sighash_default(&funding_txout);
+		let (secret_nonce, public_nonce) = key_agg_cache.nonce_gen(session_secret_rand, funding_pubkey, msg.as_ref(), None);
+		let agg_nonce = AggregatedNonce::new(&[&public_nonce, &counterparty_nonce]);
+
+		let session = Session::new(&key_agg_cache, agg_nonce, msg.as_ref());
+		let partial_signature = session.partial_sign(secret_nonce, &keypair, &key_agg_cache);
+
+		let trusted_tx = commitment_tx.trust();
+		let keys = trusted_tx.keys();
+		let commitment_txid = trusted_tx.built_transaction().txid;
+
+		let mut htlc_sigs = Vec::with_capacity(commitment_tx.nondust_htlcs().len());
+		for htlc in commitment_tx.nondust_htlcs() {
+			let holder_selected_contest_delay = channel_parameters.holder_selected_contest_delay;
+			let chan_type = &channel_parameters.channel_type_features;
+			let htlc_tx = chan_utils::build_htlc_transaction(
+				&commitment_txid,
+				commitment_tx.negotiated_feerate_per_kw(),
+				holder_selected_contest_delay,
+				htlc,
+				chan_type,
+				&keys.broadcaster_delayed_payment_key,
+				&keys.revocation_key,
+			);
+			let htlc_redeemscript = chan_utils::get_htlc_redeemscript(&htlc, chan_type, &keys);
+			let htlc_sighashtype = if chan_type.supports_anchors_zero_fee_htlc_tx()
+				|| chan_type.supports_anchor_zero_fee_commitments()
+			{
+				EcdsaSighashType::SinglePlusAnyoneCanPay
+			} else {
+				EcdsaSighashType::All
+			};
+			let htlc_sighash = hash_to_message!(
+				&sighash::SighashCache::new(&htlc_tx)
+					.p2wsh_signature_hash(
+						0,
+						witness_script_from_script(&htlc_redeemscript).as_script(),
+						htlc.to_bitcoin_amount(),
+						htlc_sighashtype
+					)
+					.unwrap()
+					.as_byte_array()[..]
+			);
+			let holder_htlc_key = chan_utils::derive_private_key(
+				&secp_ctx,
+				&keys.per_commitment_point,
+				&self.htlc_base_key,
+			);
+			htlc_sigs.push(sign(secp_ctx, &htlc_sighash, &holder_htlc_key));
+		}
+
+		Ok((PartialSignatureWithNonce {
+			public_nonce,
+			partial_signature,
+		}, htlc_sigs))
 	}
 
 	fn partially_sign_closing_transaction(
-		&self, _channel_parameters: &ChannelTransactionParameters,
-		_counterparty_nonce: PublicNonce,
-		_closing_tx: &ClosingTransaction,
+		&self, channel_parameters: &ChannelTransactionParameters,
+		counterparty_nonce: PublicNonce,
+		closing_tx: &ClosingTransaction,
 		_secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<PartialSignatureWithNonce, ()> {
-	    todo!();
+		use bitcoin::ScriptPubKeyBuf;
+		use bitcoin::secp256k1::Keypair;
+		use bitcoin::TapTweakHash;
+
+		let funding_key = self.funding_key(channel_parameters.splice_parent_funding_txid);
+		let funding_pubkey = funding_key.public_key();
+		let keypair = Keypair::from_secret_key(&funding_key);
+		let counterparty_pubkey = channel_parameters.counterparty_pubkeys().unwrap().funding_pubkey;
+
+		let mut key_agg_cache = KeyAggCache::new(&[&funding_pubkey, &counterparty_pubkey]);
+		let internal_key = key_agg_cache.agg_pk();
+		let tweak = TapTweakHash::from_key_and_merkle_root(internal_key, None);
+		key_agg_cache.pubkey_xonly_tweak_add(&tweak.to_scalar()).unwrap();
+
+		let spk = ScriptPubKeyBuf::new_p2tr(internal_key, None);
+		let channel_value_satoshis = Amount::from_sat(channel_parameters.channel_value_satoshis).unwrap();
+		let funding_txout = TxOut { amount: channel_value_satoshis, script_pubkey: spk };
+
+		let session_secret_rand = SessionSecretRand::assume_unique_per_nonce_gen(self.get_secure_random_bytes());
+
+		let msg = closing_tx.trust().get_sighash_default(&funding_txout);
+		let (secret_nonce, public_nonce) = key_agg_cache.nonce_gen(session_secret_rand, funding_pubkey, msg.as_ref(), None);
+		let agg_nonce = AggregatedNonce::new(&[&public_nonce, &counterparty_nonce]);
+
+		let session = Session::new(&key_agg_cache, agg_nonce, msg.as_ref());
+		let partial_signature = session.partial_sign(secret_nonce, &keypair, &key_agg_cache);
+
+		Ok(PartialSignatureWithNonce {
+			public_nonce,
+			partial_signature,
+		})
 	}
 
 	fn finalize_closing_transaction(
-		&self, _channel_parameters: &ChannelTransactionParameters,
-		_local_nonce: PublicNonce,
-		_counterparty_sig: PartialSignatureWithNonce,
-		_closing_tx: &ClosingTransaction,
+		&mut self, channel_parameters: &ChannelTransactionParameters,
+		local_nonce: PublicNonce,
+		counterparty_sig: PartialSignatureWithNonce,
+		closing_tx: &ClosingTransaction,
 		_secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<PartialSignature, ()> {
-		todo!();
+		use bitcoin::ScriptPubKeyBuf;
+		use bitcoin::secp256k1::Keypair;
+		use bitcoin::TapTweakHash;
+
+		let (secret_nonce, public_nonce) = self.shutdown_nonce.take().unwrap();
+		assert_eq!(public_nonce, local_nonce);
+
+		let funding_key = self.funding_key(channel_parameters.splice_parent_funding_txid);
+		let funding_pubkey = funding_key.public_key();
+		let keypair = Keypair::from_secret_key(&funding_key);
+		let counterparty_pubkey = channel_parameters.counterparty_pubkeys().unwrap().funding_pubkey;
+
+		let mut key_agg_cache = KeyAggCache::new(&[&funding_pubkey, &counterparty_pubkey]);
+		let internal_key = key_agg_cache.agg_pk();
+		let tweak = TapTweakHash::from_key_and_merkle_root(internal_key, None);
+		key_agg_cache.pubkey_xonly_tweak_add(&tweak.to_scalar()).unwrap();
+
+		let spk = ScriptPubKeyBuf::new_p2tr(internal_key, None);
+		let channel_value_satoshis = Amount::from_sat(channel_parameters.channel_value_satoshis).unwrap();
+		let funding_txout = TxOut { amount: channel_value_satoshis, script_pubkey: spk };
+
+		let agg_nonce = AggregatedNonce::new(&[&local_nonce, &counterparty_sig.public_nonce]);
+		let msg = closing_tx.trust().get_sighash_default(&funding_txout);
+
+		let session = Session::new(&key_agg_cache, agg_nonce, msg.as_ref());
+		let partial_sig = session.partial_sign(secret_nonce, &keypair, &key_agg_cache);
+
+		Ok(partial_sig)
 	}
 
 	fn generate_local_nonce_pair(
@@ -1728,8 +1866,14 @@ impl EcdsaChannelSigner for InMemorySigner {
 	    todo!();
 	}
 
-	fn generate_shutdown_nonce_pair(&self, _secp_ctx: &Secp256k1<secp256k1::All>) -> secp256k1::musig::PublicNonce {
-	    todo!();
+	fn generate_shutdown_nonce_pair(&mut self, channel_parameters: &ChannelTransactionParameters, _secp_ctx: &Secp256k1<secp256k1::All>) -> secp256k1::musig::PublicNonce {
+		let funding_key = self.funding_key(channel_parameters.splice_parent_funding_txid);
+		let funding_pubkey = funding_key.public_key();
+
+		let session_secret_rand = SessionSecretRand::assume_unique_per_nonce_gen(self.get_secure_random_bytes());
+		let (secret_nonce, public_nonce) = new_nonce_pair(session_secret_rand, None, None, funding_pubkey, None, None);
+		self.shutdown_nonce = Some((secret_nonce, public_nonce));
+		public_nonce
 	}
 
 	fn finalize_holder_commitment(

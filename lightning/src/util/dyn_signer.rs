@@ -77,7 +77,7 @@ delegate!(DynSigner, EcdsaChannelSigner, inner,
 		secp_ctx: &Secp256k1<secp256k1::All>
 	) -> Result<PartialSignatureWithNonce, ()>,
 	fn finalize_closing_transaction(
-		,
+		mut,
 		channel_parameters: &ChannelTransactionParameters,
 		local_nonce: PublicNonce,
 		counterparty_sig: PartialSignatureWithNonce,
@@ -91,7 +91,8 @@ delegate!(DynSigner, EcdsaChannelSigner, inner,
 		_secp_ctx: &Secp256k1<secp256k1::All>
 	) -> secp256k1::musig::PublicNonce,
 	fn generate_shutdown_nonce_pair(
-		,
+		mut,
+		channel_parameters: &ChannelTransactionParameters,
 		_secp_ctx: &Secp256k1<secp256k1::All>
 	) -> secp256k1::musig::PublicNonce,
 	fn finalize_holder_commitment(

@@ -271,7 +271,7 @@ impl EcdsaChannelSigner for TestChannelSigner {
 	}
 
 	fn finalize_closing_transaction(
-		&self, _channel_parameters: &ChannelTransactionParameters,
+		&mut self, _channel_parameters: &ChannelTransactionParameters,
 		_local_nonce: secp256k1::musig::PublicNonce,
 		_counterparty_sig: PartialSignatureWithNonce,
 		_closing_tx: &ClosingTransaction,
@@ -286,7 +286,7 @@ impl EcdsaChannelSigner for TestChannelSigner {
 	    todo!();
 	}
 
-	fn generate_shutdown_nonce_pair(&self, _secp_ctx: &Secp256k1<secp256k1::All>) -> secp256k1::musig::PublicNonce {
+	fn generate_shutdown_nonce_pair(&mut self, _channel_parameters: &ChannelTransactionParameters, _secp_ctx: &Secp256k1<secp256k1::All>) -> secp256k1::musig::PublicNonce {
 	    todo!();
 	}
 
