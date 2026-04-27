@@ -1627,6 +1627,28 @@ impl ChannelSigner for InMemorySigner {
 const MISSING_PARAMS_ERR: &'static str =
 	"ChannelTransactionParameters must be populated before signing operations";
 
+fn get_stateless_nonces(
+	seed: &[u8; 32], signing_key: PublicKey, channel_parameters: &ChannelTransactionParameters, commitment_number: u64,
+) -> (secp256k1::musig::SecretNonce, secp256k1::musig::PublicNonce) {
+	use bitcoin::hashes::hmac::HmacEngine;
+	use bitcoin::hashes::sha256::HashEngine as Sha256Engine;
+	let funding_txid = if commitment_number == 0 {
+		Txid::all_zeros()
+	} else {
+		channel_parameters.funding_outpoint.unwrap().txid
+	};
+	let shachain_root_hash = Sha256::hash(&seed[..]);
+	let key = format!("taproot-rev-root{}", funding_txid);
+	let mut engine: HmacEngine<Sha256Engine> = HmacEngine::new(key.as_bytes());
+	engine.input(shachain_root_hash.as_byte_array());
+	let musig2_shachain_root = engine.finalize().to_byte_array();
+
+	let rand = chan_utils::build_commitment_secret(&musig2_shachain_root, commitment_number);
+
+	let session_secret_rand = SessionSecretRand::assume_unique_per_nonce_gen(rand);
+	new_nonce_pair(session_secret_rand, None, None, signing_key, None, None)
+}
+
 use bitcoin::secp256k1::musig::*;
 
 impl EcdsaChannelSigner for InMemorySigner {
@@ -1861,23 +1883,12 @@ impl EcdsaChannelSigner for InMemorySigner {
 	}
 
 	fn generate_local_nonce_pair(
-		&self, channel_parameters: &ChannelTransactionParameters, commitment_number: u64, funding_txid: Txid, _secp_ctx: &Secp256k1<secp256k1::All>,
+		&self, channel_parameters: &ChannelTransactionParameters, commitment_number: u64, _secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> secp256k1::musig::PublicNonce {
-		use bitcoin::hashes::hmac::HmacEngine;
-		use bitcoin::hashes::sha256::HashEngine as Sha256Engine;
-		let shachain_root_hash = Sha256::hash(&self.commitment_seed);
-		let key = format!("taproot-rev-root{}", funding_txid);
-		let mut engine: HmacEngine<Sha256Engine> = HmacEngine::new(key.as_bytes());
-		engine.input(shachain_root_hash.as_byte_array());
-		let musig2_shachain_root = engine.finalize().to_byte_array();
-
-		let rand = chan_utils::build_commitment_secret(&musig2_shachain_root, commitment_number);
-
-		let session_secret_rand = SessionSecretRand::assume_unique_per_nonce_gen(rand);
-
 		let funding_key = self.funding_key(channel_parameters.splice_parent_funding_txid);
 		let funding_pubkey = funding_key.public_key();
-		let (_, public_nonce) = new_nonce_pair(session_secret_rand, None, None, funding_pubkey, None, None);
+
+		let(_secret_nonce, public_nonce) = get_stateless_nonces(&self.commitment_seed, funding_pubkey, channel_parameters, commitment_number);
 		public_nonce
 	}
 
@@ -1893,11 +1904,45 @@ impl EcdsaChannelSigner for InMemorySigner {
 
 	fn finalize_holder_commitment(
 		&self,
-		_channel_parameters: &ChannelTransactionParameters,
-		_commitment_tx: &HolderCommitmentTransaction,
+		channel_parameters: &ChannelTransactionParameters,
+		commitment_tx: &HolderCommitmentTransaction,
 		_secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<secp256k1::schnorr::Signature, ()> {
-	    todo!();
+		use bitcoin::ScriptPubKeyBuf;
+		use bitcoin::secp256k1::Keypair;
+		use bitcoin::TapTweakHash;
+
+		let funding_key = self.funding_key(channel_parameters.splice_parent_funding_txid);
+		let funding_pubkey = funding_key.public_key();
+		let commitment_number = commitment_tx.commitment_number();
+
+		let (secret_nonce, local_nonce) = get_stateless_nonces(&self.commitment_seed, funding_pubkey, channel_parameters, commitment_number);
+
+		let funding_key = self.funding_key(channel_parameters.splice_parent_funding_txid);
+		let funding_pubkey = funding_key.public_key();
+		let keypair = Keypair::from_secret_key(&funding_key);
+		let counterparty_pubkey = channel_parameters.counterparty_pubkeys().unwrap().funding_pubkey;
+
+		let mut key_agg_cache = KeyAggCache::new(&[&funding_pubkey, &counterparty_pubkey]);
+		let internal_key = key_agg_cache.agg_pk();
+		let tweak = TapTweakHash::from_key_and_merkle_root(internal_key, None);
+		key_agg_cache.pubkey_xonly_tweak_add(&tweak.to_scalar()).unwrap();
+
+		let spk = ScriptPubKeyBuf::new_p2tr(internal_key, None);
+		let channel_value_satoshis = Amount::from_sat(channel_parameters.channel_value_satoshis).unwrap();
+		let funding_txout = TxOut { amount: channel_value_satoshis, script_pubkey: spk };
+
+		let agg_nonce = AggregatedNonce::new(&[&local_nonce, &commitment_tx.counterparty_sig.public_nonce]);
+		let msg = commitment_tx.trust().built_transaction().get_sighash_default(&funding_txout);
+
+		let session = Session::new(&key_agg_cache, agg_nonce, msg.as_ref());
+		let partial_sig = session.partial_sign(secret_nonce, &keypair, &key_agg_cache);
+
+		let agg_sig = session.partial_sig_agg(&[&partial_sig, &commitment_tx.counterparty_sig.partial_signature]);
+
+		let sig = agg_sig.verify(&key_agg_cache.agg_pk(), msg.as_ref()).unwrap();
+
+		Ok(sig)
 	}
 
 	#[cfg(any(test, feature = "_test_utils", feature = "unsafe_revoked_tx_signing"))]
