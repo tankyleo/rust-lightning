@@ -40,7 +40,9 @@ lightning-macros = { version = "0.2", path = "../lightning-macros" }
 
 bech32 = { version = "0.11.0", default-features = false }
 bitcoin = { version = "0.32.4", default-features = false, features = ["secp-recovery"] }
+
 musig-secp = { package = "secp256k1", version = "0.32.0-beta.2", default-features = false }
+musig-bitcoin = { package = "bitcoin", version = "0.33.0-beta", default-features = false }
 
 dnssec-prover = { version = "0.6", default-features = false }
 hashbrown = { version = "0.13", default-features = false }
