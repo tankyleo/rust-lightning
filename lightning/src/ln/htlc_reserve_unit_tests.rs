@@ -894,7 +894,7 @@ pub fn do_test_fee_spike_buffer(cfg: Option<UserConfig>, htlc_fails: bool) {
 		let channel = get_channel_ref!(nodes[1], nodes[0], per_peer_lock, peer_state_lock, chan.2);
 		let chan_signer = channel.as_funded().unwrap().get_signer();
 		let remote_point = chan_signer.get_per_commitment_point(INITIAL_COMMITMENT_NUMBER - 1, &secp_ctx).unwrap();
-		let remote_nonce = chan_signer.generate_local_nonce_pair(INITIAL_COMMITMENT_NUMBER - 1, Txid::from_byte_array([0u8; 32]), &secp_ctx);
+		let remote_nonce = chan_signer.generate_local_nonce_pair(&channel.funding().channel_transaction_parameters, INITIAL_COMMITMENT_NUMBER - 1, Txid::from_byte_array([0u8; 32]), &secp_ctx);
 		(remote_point, remote_nonce)
 	};
 
@@ -2261,6 +2261,7 @@ pub fn do_test_dust_limit_fee_accounting(can_afford: bool) {
 				.unwrap();
 			let remote_nonce = chan_signer
 				.generate_local_nonce_pair(
+					&channel.funding().channel_transaction_parameters,
 					INITIAL_COMMITMENT_NUMBER - MIN_AFFORDABLE_HTLC_COUNT as u64,
 					Txid::from_byte_array([0u8; 32]),
 					&secp_ctx,
@@ -2911,7 +2912,7 @@ fn manually_trigger_update_fail_htlc<'a, 'b, 'c, 'd>(
 			get_channel_ref!(nodes[1], nodes[0], per_peer_lock, peer_state_lock, channel_id);
 		let chan_signer = channel.as_funded().unwrap().get_signer();
 		let remote_point = chan_signer.get_per_commitment_point(INITIAL_COMMITMENT_NUMBER - 1, &secp_ctx).unwrap();
-		let remote_nonce = chan_signer.generate_local_nonce_pair(INITIAL_COMMITMENT_NUMBER - 1, Txid::from_byte_array([0u8; 32]), &secp_ctx);
+		let remote_nonce = chan_signer.generate_local_nonce_pair(&channel.funding().channel_transaction_parameters, INITIAL_COMMITMENT_NUMBER - 1, Txid::from_byte_array([0u8; 32]), &secp_ctx);
 		(remote_point, remote_nonce)
 	};
 

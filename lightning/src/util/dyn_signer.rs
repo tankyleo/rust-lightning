@@ -86,14 +86,15 @@ delegate!(DynSigner, EcdsaChannelSigner, inner,
 	) -> Result<PartialSignature, ()>,
 	fn generate_local_nonce_pair(
 		,
-		_commitment_number: u64,
-		_funding_txid: Txid,
-		_secp_ctx: &Secp256k1<secp256k1::All>
+		channel_parameters: &ChannelTransactionParameters,
+		commitment_number: u64,
+		funding_txid: Txid,
+		secp_ctx: &Secp256k1<secp256k1::All>
 	) -> secp256k1::musig::PublicNonce,
 	fn generate_shutdown_nonce_pair(
 		mut,
 		channel_parameters: &ChannelTransactionParameters,
-		_secp_ctx: &Secp256k1<secp256k1::All>
+		secp_ctx: &Secp256k1<secp256k1::All>
 	) -> secp256k1::musig::PublicNonce,
 	fn finalize_holder_commitment(
 		,
