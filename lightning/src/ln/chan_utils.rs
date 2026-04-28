@@ -13,8 +13,9 @@
 use bitcoin::amount::Amount;
 use bitcoin::constants::WITNESS_SCALE_FACTOR;
 use bitcoin::key::{PubkeyHash, WPubkeyHash};
-use bitcoin::opcodes;
+use bitcoin::{TapTweakHash, ScriptPubKeyBuf, opcodes};
 use bitcoin::script::{Builder, ScriptPubKey as Script, ScriptPubKeyBuf as ScriptBuf};
+use bitcoin::secp256k1::musig::KeyAggCache;
 use bitcoin::sighash;
 use bitcoin::sighash::EcdsaSighashType;
 use bitcoin::transaction::Version;
@@ -1194,6 +1195,24 @@ impl ChannelTransactionParameters {
 	/// Returns the counterparty's pubkeys.
 	pub fn counterparty_pubkeys(&self) -> Option<&ChannelPublicKeys> {
 		self.counterparty_parameters.as_ref().map(|params| &params.pubkeys)
+	}
+
+	/// TODO TAPROOT See if we can drop the rust-bitcoin bump, and rely solely on the new secp crate
+	pub fn get_taproot_output(&self) -> Option<TxOut> {
+		let counterparty_parameters = self.counterparty_parameters.as_ref()?;
+
+		let holder_pubkey = self.holder_pubkeys.funding_pubkey;
+		let counterparty_pubkey = counterparty_parameters.pubkeys.funding_pubkey;
+
+		let mut key_agg_cache = KeyAggCache::new(&[&holder_pubkey, &counterparty_pubkey]);
+		let internal_key = key_agg_cache.agg_pk();
+		let tweak = TapTweakHash::from_key_and_merkle_root(internal_key, None);
+		key_agg_cache.pubkey_xonly_tweak_add(&tweak.to_scalar()).unwrap();
+
+		let spk = ScriptPubKeyBuf::new_p2tr(internal_key, None);
+		let channel_value_satoshis = Amount::from_sat(self.channel_value_satoshis).unwrap();
+		let funding_txout = TxOut { amount: channel_value_satoshis, script_pubkey: spk };
+		Some(funding_txout)
 	}
 
 	#[cfg(test)]

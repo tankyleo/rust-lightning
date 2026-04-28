@@ -6506,7 +6506,7 @@ impl<
 					is_batch_funding,
 					|chan| {
 						let mut output_index = None;
-						let expected_spk = chan.funding.get_funding_redeemscript().to_p2wsh();
+						let expected_spk = chan.funding.get_funding_output().unwrap().script_pubkey;
 						let outpoint = match &funding {
 							FundingType::Checked(tx) | FundingType::CheckedManualBroadcast(tx) => {
 								for (idx, outp) in tx.outputs.iter().enumerate() {
@@ -11515,7 +11515,7 @@ This indicates a bug inside LDK. Please report this error at https://github.com/
 								&peer_state.latest_features,
 							);
 							try_channel_entry!(self, peer_state, res, chan);
-							(unfunded_chan.funding.get_value_satoshis(), unfunded_chan.funding.get_funding_redeemscript().to_p2wsh(), unfunded_chan.context.get_user_id())
+							(unfunded_chan.funding.get_value_satoshis(), unfunded_chan.funding.get_funding_output().unwrap().script_pubkey, unfunded_chan.context.get_user_id())
 						},
 						None => {
 							return Err(MsgHandleErrInternal::send_err_msg_no_close(format!("Got an unexpected accept_channel message from peer with counterparty_node_id {}", counterparty_node_id), msg.common_fields.temporary_channel_id));

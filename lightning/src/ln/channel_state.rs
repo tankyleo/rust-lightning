@@ -17,6 +17,7 @@ use crate::chain::chaininterface::{FeeEstimator, LowerBoundedFeeEstimator};
 use crate::chain::transaction::OutPoint;
 use crate::ln::channel::Channel;
 use crate::ln::types::ChannelId;
+#[allow(unused)]
 use crate::prelude::LegacyScriptBufExt;
 use crate::sign::SignerProvider;
 use crate::types::features::{ChannelTypeFeatures, InitFeatures};
@@ -511,14 +512,7 @@ impl ChannelDetails {
 	/// was spent by the splice transaction) until the splice transaction reaches sufficient
 	/// confirmations to be locked (and we exchange `splice_locked` messages with our peer).
 	pub fn get_funding_output(&self) -> Option<bitcoin::TxOut> {
-		match self.funding_redeem_script.as_ref() {
-			None => None,
-			Some(redeem_script) => Some(bitcoin::TxOut {
-				amount: bitcoin::Amount::from_sat(self.channel_value_satoshis)
-					.expect("channel value must fit in Amount"),
-				script_pubkey: redeem_script.to_p2wsh(),
-			}),
-		}
+		panic!("get_funding_output not supported");
 	}
 
 	pub(super) fn from_channel<SP: SignerProvider, F: FeeEstimator>(
