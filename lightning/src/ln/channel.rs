@@ -3794,6 +3794,10 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 		let announce_for_forwarding =
 			if (open_channel_fields.channel_flags & 1) == 1 { true } else { false };
 
+		if announce_for_forwarding {
+			return Err(ChannelError::close("Cannot announce proto taproot channels".to_owned()));
+		}
+
 		let channel_value_satoshis =
 			our_funding_satoshis.saturating_add(open_channel_fields.funding_satoshis);
 
