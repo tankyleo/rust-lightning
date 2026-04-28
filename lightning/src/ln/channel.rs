@@ -14,7 +14,7 @@ use bitcoin::script::{Builder, ScriptPubKey as Script, ScriptPubKeyBuf as Script
 use bitcoin::secp256k1::musig::{AggregatedNonce, KeyAggCache, PublicNonce, Session};
 use bitcoin::sighash::EcdsaSighashType;
 use bitcoin::transaction::{Transaction, TxOut};
-use bitcoin::Witness;
+use bitcoin::{TapTweakHash, Witness};
 
 use bitcoin::hash_types::{BlockHash, Txid};
 use bitcoin::hashes::sha256::Hash as Sha256;
@@ -3581,7 +3581,11 @@ trait InitialRemoteCommitmentReceiver<SP: SignerProvider> {
 
 		let verification_nonce = self.context().holder_signer.generate_local_nonce_pair(&self.funding().channel_transaction_parameters, 0, &self.context().secp_ctx);
 
-		let key_agg_cache = KeyAggCache::new(&[&self.funding().get_holder_pubkeys().funding_pubkey, &self.funding().counterparty_funding_pubkey()]);
+		let mut key_agg_cache = KeyAggCache::new(&[&self.funding().get_holder_pubkeys().funding_pubkey, &self.funding().counterparty_funding_pubkey()]);
+		let internal_key = key_agg_cache.agg_pk();
+		let tweak = TapTweakHash::from_key_and_merkle_root(internal_key, None);
+		key_agg_cache.pubkey_xonly_tweak_add(&tweak.to_scalar()).unwrap();
+
 		let agg_nonce = AggregatedNonce::new(&[&verification_nonce, &sig.public_nonce]);
 		let session = Session::new(&key_agg_cache, agg_nonce, sighash.as_ref());
 		if !session.partial_verify(&key_agg_cache, &sig.partial_signature, &sig.public_nonce, self.funding().get_counterparty_pubkeys().funding_pubkey) {
@@ -5651,7 +5655,11 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 
 			let verification_nonce = self.holder_signer.generate_local_nonce_pair(&funding.channel_transaction_parameters, transaction_number, &self.secp_ctx);
 
-			let key_agg_cache = KeyAggCache::new(&[&funding.get_holder_pubkeys().funding_pubkey, &funding.counterparty_funding_pubkey()]);
+			let mut key_agg_cache = KeyAggCache::new(&[&funding.get_holder_pubkeys().funding_pubkey, &funding.counterparty_funding_pubkey()]);
+			let internal_key = key_agg_cache.agg_pk();
+			let tweak = TapTweakHash::from_key_and_merkle_root(internal_key, None);
+			key_agg_cache.pubkey_xonly_tweak_add(&tweak.to_scalar()).unwrap();
+
 			let agg_nonce = AggregatedNonce::new(&[&verification_nonce, &msg.signature.public_nonce]);
 			let sighash = bitcoin_tx.get_sighash_default(&funding.get_funding_output().unwrap());
 			let session = Session::new(&key_agg_cache, agg_nonce, sighash.as_ref());
@@ -11329,7 +11337,11 @@ where
 
 		let mut tx = closing_tx.trust().built_transaction().clone();
 
-		let key_agg_cache = KeyAggCache::new(&[&self.funding.get_holder_pubkeys().funding_pubkey, &self.funding.counterparty_funding_pubkey()]);
+		let mut key_agg_cache = KeyAggCache::new(&[&self.funding.get_holder_pubkeys().funding_pubkey, &self.funding.counterparty_funding_pubkey()]);
+		let internal_key = key_agg_cache.agg_pk();
+		let tweak = TapTweakHash::from_key_and_merkle_root(internal_key, None);
+		key_agg_cache.pubkey_xonly_tweak_add(&tweak.to_scalar()).unwrap();
+
 		let agg_nonce = AggregatedNonce::new(&[&local_sig.public_nonce, &counterparty_sig.public_nonce]);
 		let msg = closing_tx.trust().get_sighash_default(&self.funding.get_funding_output().unwrap());
 		let session = Session::new(&key_agg_cache, agg_nonce, msg.as_ref());
@@ -11732,7 +11744,11 @@ where
 		let local_shutdown_nonce = self.context.local_shutdown_nonce.take().expect("local nonce must be set");
 
 		// Verify the counterparty's signature.
-		let key_agg_cache = KeyAggCache::new(&[&self.funding.get_holder_pubkeys().funding_pubkey, &self.funding.counterparty_funding_pubkey()]);
+		let mut key_agg_cache = KeyAggCache::new(&[&self.funding.get_holder_pubkeys().funding_pubkey, &self.funding.counterparty_funding_pubkey()]);
+		let internal_key = key_agg_cache.agg_pk();
+		let tweak = TapTweakHash::from_key_and_merkle_root(internal_key, None);
+		key_agg_cache.pubkey_xonly_tweak_add(&tweak.to_scalar()).unwrap();
+
 		let agg_nonce = AggregatedNonce::new(&[&local_shutdown_nonce, &counterparty_sig.public_nonce]);
 		let sighash = closing_tx.trust().get_sighash_default(&self.funding.get_funding_output().unwrap());
 		let session = Session::new(&key_agg_cache, agg_nonce, sighash.as_ref());
@@ -11973,7 +11989,11 @@ where
 		};
 
 		// Verify the counterparty's signature.
-		let key_agg_cache = KeyAggCache::new(&[&self.funding.get_holder_pubkeys().funding_pubkey, &self.funding.counterparty_funding_pubkey()]);
+		let mut key_agg_cache = KeyAggCache::new(&[&self.funding.get_holder_pubkeys().funding_pubkey, &self.funding.counterparty_funding_pubkey()]);
+		let internal_key = key_agg_cache.agg_pk();
+		let tweak = TapTweakHash::from_key_and_merkle_root(internal_key, None);
+		key_agg_cache.pubkey_xonly_tweak_add(&tweak.to_scalar()).unwrap();
+
 		let agg_nonce = AggregatedNonce::new(&[&our_sig.public_nonce, &counterparty_sig_with_nonce.public_nonce]);
 		let sighash = closing_tx.trust().get_sighash_default(&self.funding.get_funding_output().unwrap());
 		let session = Session::new(&key_agg_cache, agg_nonce, sighash.as_ref());

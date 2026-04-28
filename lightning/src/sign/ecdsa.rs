@@ -61,6 +61,8 @@ pub trait EcdsaChannelSigner: ChannelSigner {
 	/// previously returning an `Err`, [`ChannelManager::signer_unblocked`] must be called.
 	///
 	/// [`ChannelManager::signer_unblocked`]: crate::ln::channelmanager::ChannelManager::signer_unblocked
+	///
+	/// TODO TAPROOT delete calls that are not needed any longer
 	fn sign_counterparty_commitment(
 		&self, channel_parameters: &ChannelTransactionParameters,
 		commitment_tx: &CommitmentTransaction, inbound_htlc_preimages: Vec<PaymentPreimage>,
