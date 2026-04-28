@@ -121,7 +121,8 @@ impl ChannelMonitorUpdate {
 				let funding_outpoint = channel_parameters
 					.funding_outpoint
 					.expect("Renegotiated funding must always have known outpoint");
-				let funding_script = channel_parameters.make_funding_redeemscript().to_p2wsh();
+				let secp_ctx = Secp256k1::new();
+				let funding_script = channel_parameters.get_taproot_output(&secp_ctx).unwrap().script_pubkey;
 				Some((funding_outpoint, funding_script))
 			},
 			_ => None,
@@ -1551,14 +1552,13 @@ pub(crate) fn write_chanmon_internal<Signer: EcdsaChannelSigner, W: Writer>(
 	let funding_outpoint = channel_monitor.get_funding_txo();
 	writer.write_all(&funding_outpoint.txid[..])?;
 	writer.write_all(&funding_outpoint.index.to_be_bytes())?;
-	let redeem_script = channel_monitor.funding.channel_parameters.make_funding_redeemscript();
-	let script_pubkey = redeem_script.to_p2wsh();
+	let secp_ctx = Secp256k1::new();
+	let script_pubkey = channel_monitor.funding.channel_parameters.get_taproot_output(&secp_ctx).unwrap().script_pubkey;
 	script_pubkey.write(writer)?;
 	channel_monitor.funding.current_counterparty_commitment_txid.write(writer)?;
 	channel_monitor.funding.prev_counterparty_commitment_txid.write(writer)?;
 
 	channel_monitor.counterparty_commitment_params.write(writer)?;
-	redeem_script.write(writer)?;
 	channel_monitor.funding.channel_parameters.channel_value_satoshis.write(writer)?;
 
 	match channel_monitor.their_cur_per_commitment_points {
@@ -1883,13 +1883,12 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 		let onchain_tx_handler = OnchainTxHandler::new(
 			channel_id, counterparty_node_id, channel_parameters.channel_value_satoshis,
 			channel_keys_id, destination_script.into(), keys, channel_parameters.clone(),
-			initial_holder_commitment_tx.clone(), secp_ctx,
+			initial_holder_commitment_tx.clone(), secp_ctx.clone(),
 		);
 
 		let funding_outpoint = channel_parameters.funding_outpoint
 			.expect("Funding outpoint must be known during initialization");
-		let funding_redeem_script = channel_parameters.make_funding_redeemscript();
-		let funding_script = funding_redeem_script.to_p2wsh();
+		let funding_script = channel_parameters.get_taproot_output(&secp_ctx).unwrap().script_pubkey;
 		let mut outputs_to_watch = new_hash_map();
 		outputs_to_watch.insert(
 			funding_outpoint.txid, vec![(funding_outpoint.index as u32, funding_script.clone())],
@@ -2101,8 +2100,8 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 	}
 
 	/// Gets the funding script of the channel this ChannelMonitor is monitoring for.
-	pub fn get_funding_script(&self) -> ScriptBuf {
-		self.inner.lock().unwrap().get_funding_script()
+	pub fn get_funding_script(&self, secp_ctx: &Secp256k1<secp256k1::All>) -> ScriptBuf {
+		self.inner.lock().unwrap().get_funding_script(secp_ctx)
 	}
 
 	/// Gets the channel_id of the channel this ChannelMonitor is monitoring for.
@@ -2130,10 +2129,11 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitor<Signer> {
 	pub fn load_outputs_to_watch<F: chain::Filter, L: Logger>(&self, filter: &F, logger: &L) {
 		let lock = self.inner.lock().unwrap();
 		let logger = WithChannelMonitor::from_impl(logger, &*lock, None);
+		let secp_ctx = Secp256k1::new();
 		for funding in core::iter::once(&lock.funding).chain(&lock.pending_funding) {
 			let funding_outpoint = funding.funding_outpoint();
 			log_trace!(&logger, "Registering funding outpoint {} with the filter to monitor confirmations", &funding_outpoint);
-			let script_pubkey = funding.channel_parameters.make_funding_redeemscript().to_p2wsh();
+			let script_pubkey = funding.channel_parameters.get_taproot_output(&secp_ctx).unwrap().script_pubkey;
 			filter.register_tx(&funding_outpoint.txid, &script_pubkey);
 		}
 		for (txid, outputs) in lock.get_outputs_to_watch().iter() {
@@ -4071,7 +4071,8 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 			return Err(());
 		}
 
-		let script_pubkey = channel_parameters.make_funding_redeemscript().to_p2wsh();
+		let secp_ctx = Secp256k1::new();
+		let script_pubkey = channel_parameters.get_taproot_output(&secp_ctx).unwrap().script_pubkey;
 		self.outputs_to_watch.insert(
 			alternative_funding_outpoint.txid,
 			vec![(alternative_funding_outpoint.index as u32, script_pubkey)],
@@ -4524,8 +4525,8 @@ impl<Signer: EcdsaChannelSigner> ChannelMonitorImpl<Signer> {
 
 	/// Returns the P2WSH script we are currently monitoring the chain for spends. This will change
 	/// for every splice that has reached its intended confirmation depth.
-	fn get_funding_script(&self) -> ScriptBuf {
-		self.funding.channel_parameters.make_funding_redeemscript().to_p2wsh()
+	fn get_funding_script(&self, secp_ctx: &Secp256k1<secp256k1::All>) -> ScriptBuf {
+		self.funding.channel_parameters.get_taproot_output(secp_ctx).unwrap().script_pubkey
 	}
 
 	pub fn channel_id(&self) -> ChannelId {

@@ -1187,6 +1187,29 @@ impl ChannelTransactionParameters {
 		self.counterparty_parameters.as_ref().map(|params| &params.pubkeys)
 	}
 
+	/// TODO TAPROOT See if we can drop the rust-bitcoin bump, and rely solely on the new secp crate
+	pub fn get_taproot_output(&self, secp_ctx: &Secp256k1<secp256k1::All>) -> Option<TxOut> {
+		let counterparty_parameters = self.counterparty_parameters.as_ref()?;
+
+		let holder_pubkey = self.holder_pubkeys.funding_pubkey;
+		let counterparty_pubkey = counterparty_parameters.pubkeys.funding_pubkey;
+
+		let funding_pubkey_bytes = holder_pubkey.serialize();
+		let counterparty_pubkey_bytes = counterparty_pubkey.serialize();
+		let funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(funding_pubkey_bytes).unwrap();
+		let counterparty_pubkey = musig_secp::PublicKey::from_byte_array_compressed(counterparty_pubkey_bytes).unwrap();
+
+		let mut key_agg_cache = musig_secp::musig::KeyAggCache::new(&[&funding_pubkey, &counterparty_pubkey]);
+		let tweak = musig_bitcoin::TapTweakHash::from_key_and_merkle_root(key_agg_cache.agg_pk(), None);
+		key_agg_cache.pubkey_xonly_tweak_add(&tweak.to_scalar()).unwrap();
+
+		let internal_key_bytes = key_agg_cache.agg_pk().serialize();
+		let spk = ScriptBuf::new_p2tr(secp_ctx, bitcoin::key::UntweakedPublicKey::from_slice(&internal_key_bytes).unwrap(), None);
+		let channel_value_satoshis = Amount::from_sat(self.channel_value_satoshis);
+		let funding_txout = TxOut { value: channel_value_satoshis, script_pubkey: spk };
+		Some(funding_txout)
+	}
+
 	#[cfg(test)]
 	#[rustfmt::skip]
 	pub fn test_dummy(channel_value_satoshis: u64) -> Self {

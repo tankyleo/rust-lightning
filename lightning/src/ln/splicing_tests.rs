@@ -2050,7 +2050,7 @@ fn do_test_splice_reestablish(reload: bool, async_monitor_update: bool) {
 		create_announced_chan_between_nodes_with_value(&nodes, 0, 1, initial_channel_value_sat, 0);
 
 	let prev_funding_outpoint = get_monitor!(nodes[0], channel_id).get_funding_txo();
-	let prev_funding_script = get_monitor!(nodes[0], channel_id).get_funding_script();
+	let prev_funding_script = get_monitor!(nodes[0], channel_id).get_funding_script(&Secp256k1::new());
 
 	// Keep a pending HTLC throughout the reestablish flow to make sure we can handle them.
 	route_payment(&nodes[0], &[&nodes[1]], 1_000_000);
@@ -2374,7 +2374,7 @@ fn do_test_propose_splice_while_disconnected(use_0conf: bool) {
 		.chain_monitor
 		.chain_monitor
 		.get_monitor(channel_id)
-		.map(|monitor| (monitor.get_funding_txo(), monitor.get_funding_script()))
+		.map(|monitor| (monitor.get_funding_txo(), monitor.get_funding_script(&Secp256k1::new())))
 		.unwrap();
 
 	// Negotiate the splice to completion. Node 1's quiescent action should be consumed by
