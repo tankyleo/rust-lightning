@@ -6741,12 +6741,21 @@ fn get_legacy_default_holder_max_htlc_value_in_flight_msat(channel_value_satoshi
 /// This is used both for outbound and inbound channels and has lower bound
 /// of `MIN_THEIR_CHAN_RESERVE_SATOSHIS`, and the `dust_limit_satoshis` of
 /// the counterparty.
+///
+/// Returns `Err` if `channel_value_satoshis` is smaller than
+/// `MIN_THEIR_CHAN_RESERVE_SATOSHIS` or the `dust_limit_satoshis` of the
+/// counterparty.
 pub(crate) fn get_holder_selected_channel_reserve_satoshis(
 	channel_value_satoshis: u64, their_dust_limit_satoshis: u64, config: &UserConfig,
 	is_0reserve: bool,
-) -> u64 {
+) -> Result<u64, ()> {
+	if channel_value_satoshis < MIN_THEIR_CHAN_RESERVE_SATOSHIS
+		|| channel_value_satoshis < their_dust_limit_satoshis
+	{
+		return Err(());
+	}
 	if is_0reserve {
-		return 0;
+		return Ok(0);
 	}
 	let counterparty_chan_reserve_prop_mil =
 		config.channel_handshake_config.their_channel_reserve_proportional_millionths as u64;
@@ -6754,7 +6763,7 @@ pub(crate) fn get_holder_selected_channel_reserve_satoshis(
 		channel_value_satoshis.saturating_mul(counterparty_chan_reserve_prop_mil) / 1_000_000;
 	let channel_reserve_satoshis = cmp::max(calculated_reserve, MIN_THEIR_CHAN_RESERVE_SATOSHIS);
 	let channel_reserve_satoshis = cmp::max(channel_reserve_satoshis, their_dust_limit_satoshis);
-	cmp::min(channel_value_satoshis, channel_reserve_satoshis)
+	Ok(channel_reserve_satoshis)
 }
 
 /// This is for legacy reasons, present for forward-compatibility.
@@ -14463,7 +14472,9 @@ impl<SP: SignerProvider> OutboundV1Channel<SP> {
 			their_dust_limit_satoshis,
 			config,
 			is_0reserve,
-		);
+		).map_err(|()| APIError::APIMisuseError { err: format!(
+			"The channel value {channel_value_satoshis} is smaller than their dust limit {their_dust_limit_satoshis}"
+		)})?;
 		if holder_selected_channel_reserve_satoshis < MIN_CHAN_DUST_LIMIT_SATOSHIS && !is_0reserve {
 			// Protocol level safety check in place, although it should never happen because
 			// of `MIN_THEIR_CHAN_RESERVE_SATOSHIS` and `MIN_CHANNEL_VALUE_SATOSHIS`
@@ -14855,12 +14866,19 @@ impl<SP: SignerProvider> InboundV1Channel<SP> {
 		let channel_type =
 			channel_type_from_open_channel(&msg.common_fields, our_supported_features)?;
 
-		let holder_selected_channel_reserve_satoshis = get_holder_selected_channel_reserve_satoshis(
-			msg.common_fields.funding_satoshis,
-			msg.common_fields.dust_limit_satoshis,
-			config,
-			trusted_channel_features.is_some_and(|f| f.is_0reserve()),
-		);
+		let holder_selected_channel_reserve_satoshis =
+			get_holder_selected_channel_reserve_satoshis(
+				msg.common_fields.funding_satoshis,
+				msg.common_fields.dust_limit_satoshis,
+				config,
+				trusted_channel_features.is_some_and(|f| f.is_0reserve()),
+			)
+			.map_err(|()| {
+				ChannelError::close(format!(
+					"The channel value {} is smaller than their dust limit {}",
+					msg.common_fields.funding_satoshis, msg.common_fields.dust_limit_satoshis,
+				))
+			})?;
 		let counterparty_pubkeys = ChannelPublicKeys {
 			funding_pubkey: msg.common_fields.funding_pubkey,
 			revocation_basepoint: RevocationBasepoint::from(msg.common_fields.revocation_basepoint),
