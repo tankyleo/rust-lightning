@@ -3560,7 +3560,8 @@ trait InitialRemoteCommitmentReceiver<SP: SignerProvider> {
 		let trusted_tx = initial_commitment_tx.trust();
 		let initial_commitment_bitcoin_tx = trusted_tx.built_transaction();
 
-		let sighash = initial_commitment_bitcoin_tx.get_sighash_default(&self.funding().get_funding_output(&self.context().secp_ctx).unwrap());
+		let funding_txout = self.funding().get_funding_output(&self.context().secp_ctx).unwrap();
+		let sighash = initial_commitment_bitcoin_tx.get_sighash_default(&funding_txout);
 		let funding_spk = self.funding().get_funding_output(&self.context().secp_ctx).unwrap();
 		log_trace!(logger, "Checking {} tx signature {} by key {} against tx {} (sighash {}) with redeemscript {} for channel {}.",
 			self.received_msg(), log_bytes!(sig.serialize_compact()[..]), log_bytes!(self.funding().counterparty_funding_pubkey().serialize()),
@@ -3574,7 +3575,9 @@ trait InitialRemoteCommitmentReceiver<SP: SignerProvider> {
 
 		let verification_nonce = self.context().holder_signer.generate_local_nonce_pair(&self.funding().channel_transaction_parameters, 0, &self.context().secp_ctx);
 
-		let mut key_agg_cache = KeyAggCache::new(&[&holder_funding_pubkey, &counterparty_funding_pubkey]);
+		let mut pubkeys = [&holder_funding_pubkey, &counterparty_funding_pubkey];
+		musig_secp::sort_pubkeys(&mut pubkeys);
+		let mut key_agg_cache = KeyAggCache::new(&pubkeys);
 		let internal_key = key_agg_cache.agg_pk();
 		let tweak = musig_bitcoin::TapTweakHash::from_key_and_merkle_root(internal_key, None);
 		key_agg_cache.pubkey_xonly_tweak_add(&tweak.to_scalar()).unwrap();
@@ -5657,7 +5660,9 @@ impl<SP: SignerProvider> ChannelContext<SP> {
 
 			let verification_nonce = self.holder_signer.generate_local_nonce_pair(&funding.channel_transaction_parameters, transaction_number, &self.secp_ctx);
 
-			let mut key_agg_cache = KeyAggCache::new(&[&holder_funding_pubkey, &counterparty_funding_pubkey]);
+			let mut pubkeys = [&holder_funding_pubkey, &counterparty_funding_pubkey];
+			musig_secp::sort_pubkeys(&mut pubkeys);
+			let mut key_agg_cache = KeyAggCache::new(&pubkeys);
 			let internal_key = key_agg_cache.agg_pk();
 			let tweak = musig_bitcoin::TapTweakHash::from_key_and_merkle_root(internal_key, None);
 			key_agg_cache.pubkey_xonly_tweak_add(&tweak.to_scalar()).unwrap();
@@ -11327,7 +11332,9 @@ where
 		let holder_funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(holder_funding_pubkey_bytes).unwrap();
 		let counterparty_funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(counterparty_funding_pubkey_bytes).unwrap();
 
-		let mut key_agg_cache = KeyAggCache::new(&[&holder_funding_pubkey, &counterparty_funding_pubkey]);
+		let mut pubkeys = [&holder_funding_pubkey, &counterparty_funding_pubkey];
+		musig_secp::sort_pubkeys(&mut pubkeys);
+		let mut key_agg_cache = KeyAggCache::new(&pubkeys);
 		let internal_key = key_agg_cache.agg_pk();
 		let tweak = musig_bitcoin::TapTweakHash::from_key_and_merkle_root(internal_key, None);
 		key_agg_cache.pubkey_xonly_tweak_add(&tweak.to_scalar()).unwrap();
@@ -11740,7 +11747,9 @@ where
 		let counterparty_funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(counterparty_funding_pubkey_bytes).unwrap();
 
 		// Verify the counterparty's signature.
-		let mut key_agg_cache = KeyAggCache::new(&[&holder_funding_pubkey, &counterparty_funding_pubkey]);
+		let mut pubkeys = [&holder_funding_pubkey, &counterparty_funding_pubkey];
+		musig_secp::sort_pubkeys(&mut pubkeys);
+		let mut key_agg_cache = KeyAggCache::new(&pubkeys);
 		let internal_key = key_agg_cache.agg_pk();
 		let tweak = musig_bitcoin::TapTweakHash::from_key_and_merkle_root(internal_key, None);
 		key_agg_cache.pubkey_xonly_tweak_add(&tweak.to_scalar()).unwrap();
@@ -11990,7 +11999,9 @@ where
 		let counterparty_funding_pubkey = musig_secp::PublicKey::from_byte_array_compressed(counterparty_funding_pubkey_bytes).unwrap();
 
 		// Verify the counterparty's signature.
-		let mut key_agg_cache = KeyAggCache::new(&[&holder_funding_pubkey, &counterparty_funding_pubkey]);
+		let mut pubkeys = [&holder_funding_pubkey, &counterparty_funding_pubkey];
+		musig_secp::sort_pubkeys(&mut pubkeys);
+		let mut key_agg_cache = KeyAggCache::new(&pubkeys);
 		let internal_key = key_agg_cache.agg_pk();
 		let tweak = musig_bitcoin::TapTweakHash::from_key_and_merkle_root(internal_key, None);
 		key_agg_cache.pubkey_xonly_tweak_add(&tweak.to_scalar()).unwrap();
@@ -14798,6 +14809,7 @@ where
 			None
 		};
 		let shutdown_nonce = self.context.holder_signer.generate_shutdown_nonce_pair(&self.funding.channel_transaction_parameters, &self.context.secp_ctx);
+		self.context.local_shutdown_nonce = Some(shutdown_nonce);
 		let shutdown = msgs::Shutdown {
 			channel_id: self.context.channel_id,
 			scriptpubkey: self.get_closing_scriptpubkey(),
