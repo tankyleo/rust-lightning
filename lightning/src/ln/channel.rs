@@ -9185,14 +9185,10 @@ where
 			self.context.counterparty_next_commitment_point;
 		self.context.counterparty_next_commitment_point = Some(msg.next_per_commitment_point);
 		self.context.counterparty_next_commitment_transaction_number -= 1;
-		let mut pending_funding_muts: Vec<&mut FundingScope> = core::iter::once(&mut self.funding).chain(
-			self.pending_splice.as_mut()
-			.map(|pending| pending.negotiated_candidates.iter_mut())
-			.unwrap_or_default()
-		).collect();
-		pending_funding_muts.sort_unstable_by_key(|funding| funding.get_funding_txid().unwrap());
-		for (funding, nonce) in pending_funding_muts.into_iter().zip(msg.next_local_nonces.iter()) {
-			funding.signing_nonce = Some(*nonce);
+		for funding_mut in self.funding_and_pending_funding_iter_mut() {
+			let txid = funding_mut.get_funding_txid().unwrap();
+			let next_local_nonce = msg.next_local_nonces.iter().find_map(|(funding_txid, nonce)| (funding_txid == &txid).then_some(*nonce)).unwrap();
+			funding_mut.signing_nonce = Some(next_local_nonce);
 		}
 
 		if self.context.announcement_sigs_state == AnnouncementSigsState::Committed {
@@ -10245,11 +10241,11 @@ where
 
 				let next_per_commitment_point = self.holder_commitment_point.next_point();
 				let next_commitment_number = self.holder_commitment_point.next_transaction_number();
-				let mut funding_scopes: Vec<&FundingScope> = core::iter::once(&self.funding)
-					.chain(self.pending_funding().iter()).collect();
-				funding_scopes.sort_by_key(|funding| funding.get_funding_txid().unwrap());
+				let funding_scopes = core::iter::once(&self.funding).chain(self.pending_funding().iter());
 				let next_local_nonces = funding_scopes.into_iter().map(|funding| {
-					signer.generate_local_nonce_pair(&funding.channel_transaction_parameters, next_commitment_number, &self.context.secp_ctx)
+					let txid = funding.get_funding_txid().unwrap();
+					let nonce = signer.generate_local_nonce_pair(&funding.channel_transaction_parameters, next_commitment_number, &self.context.secp_ctx);
+					(txid, nonce)
 				}).collect();
 
 				self.context.signer_pending_revoke_and_ack = false;
@@ -10617,14 +10613,10 @@ where
 		if signing_nonces_len != funding_scopes_len {
 			return Err(ChannelError::close(format!("Nonces len {signing_nonces_len} does not match funding scopes len {funding_scopes_len}")));
 		}
-		let mut pending_funding_muts: Vec<&mut FundingScope> = core::iter::once(&mut self.funding).chain(
-			self.pending_splice.as_mut()
-			.map(|pending| pending.negotiated_candidates.iter_mut())
-			.unwrap_or_default()
-		).collect();
-		pending_funding_muts.sort_unstable_by_key(|funding| funding.get_funding_txid().unwrap());
-		for (funding, nonce) in pending_funding_muts.into_iter().zip(msg.next_local_nonces.iter()) {
-			funding.signing_nonce = Some(*nonce);
+		for funding_mut in self.funding_and_pending_funding_iter_mut() {
+			let txid = funding_mut.get_funding_txid().unwrap();
+			let next_local_nonce = msg.next_local_nonces.iter().find_map(|(funding_txid, nonce)| (funding_txid == &txid).then_some(*nonce)).unwrap();
+			funding_mut.signing_nonce = Some(next_local_nonce);
 		}
 
 		if matches!(self.context.channel_state, ChannelState::AwaitingChannelReady(_)) {
@@ -13084,11 +13076,11 @@ where
 
 		let decrementing_local_number = self.holder_commitment_point.next_transaction_number();
 		let next_local_commitment_number = INITIAL_COMMITMENT_NUMBER - decrementing_local_number;
-		let mut funding_scopes: Vec<&FundingScope> = core::iter::once(&self.funding)
-			.chain(self.pending_funding().iter()).collect();
-		funding_scopes.sort_by_key(|funding| funding.get_funding_txid().unwrap());
+		let funding_scopes = core::iter::once(&self.funding).chain(self.pending_funding().iter());
 		let next_local_nonces = funding_scopes.into_iter().map(|funding| {
-			self.context.holder_signer.generate_local_nonce_pair(&funding.channel_transaction_parameters, decrementing_local_number, &self.context.secp_ctx)
+			let txid = funding.get_funding_txid().unwrap();
+			let nonce = self.context.holder_signer.generate_local_nonce_pair(&funding.channel_transaction_parameters, decrementing_local_number, &self.context.secp_ctx);
+			(txid, nonce)
 		}).collect();
 
 		msgs::ChannelReestablish {
