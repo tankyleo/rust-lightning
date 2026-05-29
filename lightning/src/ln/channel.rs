@@ -132,6 +132,8 @@ pub struct AvailableBalances {
 	pub dust_exposure_msat: u64,
 	/// The maximum value of the next splice-out
 	pub next_splice_out_maximum_sat: u64,
+	/// The settled balance in the channel
+	pub settled_balance_msat: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -14031,6 +14033,9 @@ where
 				next_splice_out_maximum_sat: acc
 					.next_splice_out_maximum_sat
 					.min(e.next_splice_out_maximum_sat),
+				settled_balance_msat: acc
+					.settled_balance_msat
+					.min(e.settled_balance_msat),
 			})
 		})
 	}

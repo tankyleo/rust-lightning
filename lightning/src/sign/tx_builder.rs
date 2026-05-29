@@ -801,6 +801,7 @@ fn get_available_balances(
 		next_outbound_htlc_minimum_msat,
 		dust_exposure_msat,
 		next_splice_out_maximum_sat,
+		settled_balance_msat: value_to_holder_msat,
 	}
 }
 

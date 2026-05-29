@@ -496,6 +496,8 @@ pub struct ChannelDetails {
 	///
 	/// [`ChannelConfig::max_dust_htlc_exposure`]: crate::util::config::ChannelConfig::max_dust_htlc_exposure
 	pub current_dust_exposure_msat: Option<u64>,
+	/// Settled balance on the user's side of the channel
+	pub settled_balance_msat: Option<u64>,
 }
 
 impl ChannelDetails {
@@ -552,6 +554,7 @@ impl ChannelDetails {
 				next_outbound_htlc_minimum_msat: u64::MAX,
 				dust_exposure_msat: 0,
 				next_splice_out_maximum_sat: 0,
+				settled_balance_msat: 0,
 			}
 		});
 		let (to_remote_reserve_satoshis, to_self_reserve_satoshis) =
@@ -617,6 +620,7 @@ impl ChannelDetails {
 			pending_inbound_htlcs: context.get_pending_inbound_htlc_details(funding),
 			pending_outbound_htlcs: context.get_pending_outbound_htlc_details(funding),
 			current_dust_exposure_msat: Some(balance.dust_exposure_msat),
+			settled_balance_msat: Some(balance.settled_balance_msat),
 		}
 	}
 }
@@ -659,6 +663,7 @@ impl_writeable_tlv_based!(ChannelDetails, {
 	(45, pending_outbound_htlcs, optional_vec),
 	(47, funding_redeem_script, option),
 	(49, current_dust_exposure_msat, option),
+	(51, settled_balance_msat, option),
 	(_unused, user_channel_id, (static_value,
 		_user_channel_id_low.unwrap_or(0) as u128 | ((_user_channel_id_high.unwrap_or(0) as u128) << 64)
 	)),
@@ -781,6 +786,7 @@ mod tests {
 				is_dust: false,
 			}],
 			current_dust_exposure_msat: Some(150_000),
+			settled_balance_msat: Some(25_127),
 		};
 		let mut buffer = Vec::new();
 		channel_details.write(&mut buffer).unwrap();

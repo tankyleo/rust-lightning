@@ -4173,6 +4173,7 @@ mod tests {
 			pending_inbound_htlcs: Vec::new(),
 			pending_outbound_htlcs: Vec::new(),
 			current_dust_exposure_msat: None,
+			settled_balance_msat: Some(outbound_capacity_msat),
 		}
 	}
 
@@ -9676,6 +9677,7 @@ pub(crate) mod bench_utils {
 			pending_inbound_htlcs: Vec::new(),
 			pending_outbound_htlcs: Vec::new(),
 			current_dust_exposure_msat: None,
+			settled_balance_msat: Some(10_000_000_000),
 		}
 	}
 
