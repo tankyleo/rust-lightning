@@ -210,9 +210,9 @@ impl ChannelSigner for TestChannelSigner {
 	}
 
 	fn validate_holder_commitment(
-		&self, _channel_parameters: &ChannelTransactionParameters,
-		holder_tx: &HolderCommitmentTransaction, _outbound_htlc_preimages: Vec<PaymentPreimage>,
-		_secp_ctx: &Secp256k1<secp256k1::All>,
+		&self, channel_parameters: &ChannelTransactionParameters,
+		holder_tx: &HolderCommitmentTransaction, outbound_htlc_preimages: Vec<PaymentPreimage>,
+		secp_ctx: &Secp256k1<secp256k1::All>,
 	) -> Result<(), String> {
 		let mut state = self.state.lock().unwrap();
 		let idx = holder_tx.commitment_number();
@@ -225,6 +225,14 @@ impl ChannelSigner for TestChannelSigner {
 			);
 		}
 		state.last_holder_commitment = idx;
+
+		self.inner.validate_holder_commitment(
+			channel_parameters,
+			holder_tx,
+			outbound_htlc_preimages,
+			secp_ctx,
+		)?;
+
 		Ok(())
 	}
 
