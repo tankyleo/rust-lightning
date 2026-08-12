@@ -17949,7 +17949,7 @@ mod tests {
 
 	#[cfg(ldk_test_vectors)]
 	struct Keys {
-		signer: crate::sign::InMemorySigner,
+		signer: crate::sign::InMemorySigner<crate::sync::Arc<dyn crate::util::logger::Logger>>,
 	}
 
 	#[cfg(ldk_test_vectors)]
@@ -17961,7 +17961,7 @@ mod tests {
 
 	#[cfg(ldk_test_vectors)]
 	impl SignerProvider for Keys {
-		type EcdsaSigner = InMemorySigner;
+		type EcdsaSigner = InMemorySigner<crate::sync::Arc<dyn crate::util::logger::Logger>>;
 
 		fn generate_channel_keys_id(&self, _inbound: bool, _user_channel_id: u128) -> [u8; 32] {
 			self.signer.channel_keys_id()
@@ -18910,6 +18910,7 @@ mod tests {
 			],
 			[0; 32],
 			[0; 32],
+			Arc::clone(&logger),
 		);
 
 		let holder_pubkeys = signer.pubkeys(&secp_ctx);
@@ -19608,6 +19609,7 @@ mod tests {
 			[0xff; 32],
 			[0; 32],
 			[0; 32],
+			Arc::clone(&logger),
 		);
 		let alice_keys_provider = Keys { signer: alice_signer.clone() };
 		let alice_pubkeys = alice_signer.pubkeys(&secp_ctx);
@@ -19635,6 +19637,7 @@ mod tests {
 			[0xff; 32],
 			[0; 32],
 			[0; 32],
+			Arc::clone(&logger),
 		);
 
 		// Test vectors only provide revocation_basepoint for bob, override it here.

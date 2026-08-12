@@ -217,7 +217,8 @@ mod test {
 			&self, recipient: PublicKey, local_node_receive_key: ReceiveAuthKey,
 			context: MessageContext, _peers: Vec<MessageForwardNode>, secp_ctx: &Secp256k1<T>,
 		) -> Result<Vec<BlindedMessagePath>, ()> {
-			let keys = KeysManager::new(&[0; 32], 42, 43, true);
+			let logger = Arc::new(TestLogger { node: "router" });
+			let keys = KeysManager::new(&[0; 32], 42, 43, true, logger);
 			Ok(vec![BlindedMessagePath::one_hop(
 				recipient,
 				local_node_receive_key,
@@ -265,8 +266,9 @@ mod test {
 	}
 
 	fn create_resolver() -> (impl AOnionMessenger, PublicKey) {
-		let resolver_keys = Arc::new(KeysManager::new(&[99; 32], 42, 43, true));
-		let resolver_logger = TestLogger { node: "resolver" };
+		let resolver_logger = Arc::new(TestLogger { node: "resolver" });
+		let resolver_keys =
+			Arc::new(KeysManager::new(&[99; 32], 42, 43, true, Arc::clone(&resolver_logger)));
 		let resolver = OMDomainResolver::ignoring_incoming_proofs("8.8.8.8:53".parse().unwrap());
 		let resolver = Arc::new(resolver);
 		(
@@ -302,8 +304,9 @@ mod test {
 		let payment_id = PaymentId([42; 32]);
 		let name = HumanReadableName::from_encoded("matt@mattcorallo.com").unwrap();
 
-		let payer_keys = Arc::new(KeysManager::new(&[2; 32], 42, 43, true));
-		let payer_logger = TestLogger { node: "payer" };
+		let payer_logger = Arc::new(TestLogger { node: "payer" });
+		let payer_keys =
+			Arc::new(KeysManager::new(&[2; 32], 42, 43, true, Arc::clone(&payer_logger)));
 		let payer_id = payer_keys.get_node_id(Recipient::Node).unwrap();
 		let payer = Arc::new(URIResolver {
 			resolved_uri: Mutex::new(None),
@@ -369,8 +372,9 @@ mod test {
 		let name =
 			HumanReadableName::from_encoded("nonexistent-user-ldk-test@mattcorallo.com").unwrap();
 
-		let payer_keys = Arc::new(KeysManager::new(&[3; 32], 42, 43, true));
-		let payer_logger = TestLogger { node: "payer" };
+		let payer_logger = Arc::new(TestLogger { node: "payer" });
+		let payer_keys =
+			Arc::new(KeysManager::new(&[3; 32], 42, 43, true, Arc::clone(&payer_logger)));
 		let payer_id = payer_keys.get_node_id(Recipient::Node).unwrap();
 		let payer = Arc::new(URIResolver {
 			resolved_uri: Mutex::new(None),
@@ -428,8 +432,9 @@ mod test {
 
 		// Resolver points at a port that should refuse TCP, so build_txt_proof_async
 		// returns Err quickly.
-		let resolver_keys = Arc::new(KeysManager::new(&[99; 32], 42, 43, true));
-		let resolver_logger = TestLogger { node: "resolver" };
+		let resolver_logger = Arc::new(TestLogger { node: "resolver" });
+		let resolver_keys =
+			Arc::new(KeysManager::new(&[99; 32], 42, 43, true, Arc::clone(&resolver_logger)));
 		let resolver =
 			Arc::new(OMDomainResolver::<IgnoringMessageHandler>::ignoring_incoming_proofs(
 				"127.0.0.1:1".parse().unwrap(),
@@ -454,8 +459,9 @@ mod test {
 		let payment_id = PaymentId([42; 32]);
 		let name = HumanReadableName::from_encoded("matt@mattcorallo.com").unwrap();
 
-		let payer_keys = Arc::new(KeysManager::new(&[2; 32], 42, 43, true));
-		let payer_logger = TestLogger { node: "payer" };
+		let payer_logger = Arc::new(TestLogger { node: "payer" });
+		let payer_keys =
+			Arc::new(KeysManager::new(&[2; 32], 42, 43, true, Arc::clone(&payer_logger)));
 		let payer_id = payer_keys.get_node_id(Recipient::Node).unwrap();
 		let payer = Arc::new(URIResolver {
 			resolved_uri: Mutex::new(None),

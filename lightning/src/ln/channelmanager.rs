@@ -2069,21 +2069,21 @@ struct PendingInboundPayment {
 pub type SimpleArcChannelManager<M, T, F, L> = ChannelManager<
 	Arc<M>,
 	Arc<T>,
-	Arc<KeysManager>,
-	Arc<KeysManager>,
-	Arc<KeysManager>,
+	Arc<KeysManager<Arc<L>>>,
+	Arc<KeysManager<Arc<L>>>,
+	Arc<KeysManager<Arc<L>>>,
 	Arc<F>,
 	Arc<
 		DefaultRouter<
 			Arc<NetworkGraph<Arc<L>>>,
 			Arc<L>,
-			Arc<KeysManager>,
+			Arc<KeysManager<Arc<L>>>,
 			Arc<RwLock<ProbabilisticScorer<Arc<NetworkGraph<Arc<L>>>, Arc<L>>>>,
 			ProbabilisticScoringFeeParameters,
 			ProbabilisticScorer<Arc<NetworkGraph<Arc<L>>>, Arc<L>>,
 		>,
 	>,
-	Arc<DefaultMessageRouter<Arc<NetworkGraph<Arc<L>>>, Arc<L>, Arc<KeysManager>>>,
+	Arc<DefaultMessageRouter<Arc<NetworkGraph<Arc<L>>>, Arc<L>, Arc<KeysManager<Arc<L>>>>>,
 	Arc<L>,
 >;
 
@@ -2102,19 +2102,19 @@ pub type SimpleArcChannelManager<M, T, F, L> = ChannelManager<
 pub type SimpleRefChannelManager<'a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, M, T, F, L> = ChannelManager<
 	&'a M,
 	&'b T,
-	&'c KeysManager,
-	&'c KeysManager,
-	&'c KeysManager,
+	&'c KeysManager<&'g L>,
+	&'c KeysManager<&'g L>,
+	&'c KeysManager<&'g L>,
 	&'d F,
 	&'e DefaultRouter<
 		&'f NetworkGraph<&'g L>,
 		&'g L,
-		&'c KeysManager,
+		&'c KeysManager<&'g L>,
 		&'h RwLock<ProbabilisticScorer<&'f NetworkGraph<&'g L>, &'g L>>,
 		ProbabilisticScoringFeeParameters,
 		ProbabilisticScorer<&'f NetworkGraph<&'g L>, &'g L>,
 	>,
-	&'i DefaultMessageRouter<&'f NetworkGraph<&'g L>, &'g L, &'c KeysManager>,
+	&'i DefaultMessageRouter<&'f NetworkGraph<&'g L>, &'g L, &'c KeysManager<&'g L>>,
 	&'g L,
 >;
 
@@ -2246,7 +2246,7 @@ impl<
 /// use lightning::util::config::UserConfig;
 /// use lightning::util::ser::ReadableArgs;
 ///
-/// # fn read_channel_monitors() -> Vec<ChannelMonitor<lightning::sign::InMemorySigner>> { vec![] }
+/// # fn read_channel_monitors<'a, L: lightning::util::logger::Logger>() -> Vec<ChannelMonitor<lightning::sign::InMemorySigner<&'a L>>> { vec![] }
 /// # fn example<
 /// #     'a,
 /// #     L: lightning::util::logger::Logger,
@@ -2257,14 +2257,14 @@ impl<
 /// #     R: lightning::io::Read,
 /// # >(
 /// #     fee_estimator: &dyn lightning::chain::chaininterface::FeeEstimator,
-/// #     chain_monitor: &dyn lightning::chain::Watch<lightning::sign::InMemorySigner>,
+/// #     chain_monitor: &dyn lightning::chain::Watch<lightning::sign::InMemorySigner<&'a L>>,
 /// #     tx_broadcaster: &dyn lightning::chain::chaininterface::BroadcasterInterface,
 /// #     router: &lightning::routing::router::DefaultRouter<&NetworkGraph<&'a L>, &'a L, &ES, &S, SP, SL>,
 /// #     message_router: &lightning::onion_message::messenger::DefaultMessageRouter<&NetworkGraph<&'a L>, &'a L, &ES>,
 /// #     logger: &L,
 /// #     entropy_source: &ES,
 /// #     node_signer: &dyn lightning::sign::NodeSigner,
-/// #     signer_provider: &lightning::sign::DynSignerProvider,
+/// #     signer_provider: &lightning::sign::DynSignerProvider<&'a L>,
 /// #     best_block: lightning::chain::BlockLocator,
 /// #     current_timestamp: u32,
 /// #     mut reader: R,
@@ -22576,29 +22576,36 @@ pub mod bench {
 
 	type Manager<'a, P> = ChannelManager<
 		&'a ChainMonitor<
-			InMemorySigner,
+			InMemorySigner<Arc<test_utils::TestLogger>>,
 			&'a test_utils::TestChainSource,
 			&'a test_utils::TestBroadcaster,
 			&'a test_utils::TestFeeEstimator,
 			&'a test_utils::TestLogger,
 			&'a P,
-			&'a KeysManager,
+			&'a KeysManager<Arc<test_utils::TestLogger>>,
 		>,
 		&'a test_utils::TestBroadcaster,
-		&'a KeysManager,
-		&'a KeysManager,
-		&'a KeysManager,
+		&'a KeysManager<Arc<test_utils::TestLogger>>,
+		&'a KeysManager<Arc<test_utils::TestLogger>>,
+		&'a KeysManager<Arc<test_utils::TestLogger>>,
 		&'a test_utils::TestFeeEstimator,
 		&'a test_utils::TestRouter<'a>,
 		&'a test_utils::TestMessageRouter<'a>,
 		&'a test_utils::TestLogger,
 	>;
 
-	struct ANodeHolder<'node_cfg, 'chan_mon_cfg: 'node_cfg, P: Persist<InMemorySigner>> {
+	struct ANodeHolder<
+		'node_cfg,
+		'chan_mon_cfg: 'node_cfg,
+		P: Persist<InMemorySigner<Arc<test_utils::TestLogger>>>,
+	> {
 		node: &'node_cfg Manager<'chan_mon_cfg, P>,
 	}
-	impl<'node_cfg, 'chan_mon_cfg: 'node_cfg, P: Persist<InMemorySigner>> NodeHolder
-		for ANodeHolder<'node_cfg, 'chan_mon_cfg, P>
+	impl<
+			'node_cfg,
+			'chan_mon_cfg: 'node_cfg,
+			P: Persist<InMemorySigner<Arc<test_utils::TestLogger>>>,
+		> NodeHolder for ANodeHolder<'node_cfg, 'chan_mon_cfg, P>
 	{
 		type CM = Manager<'chan_mon_cfg, P>;
 		#[inline]
@@ -22615,7 +22622,7 @@ pub mod bench {
 	}
 
 	#[rustfmt::skip]
-	pub fn bench_two_sends<P: Persist<InMemorySigner>>(bench: &mut Criterion, bench_name: &str, persister_a: P, persister_b: P) {
+	pub fn bench_two_sends<P: Persist<InMemorySigner<Arc<test_utils::TestLogger>>>>(bench: &mut Criterion, bench_name: &str, persister_a: P, persister_b: P) {
 		// Do a simple benchmark of sending a payment back and forth between two nodes.
 		// Note that this is unrealistic as each payment send will require at least two fsync
 		// calls per node.
@@ -22624,10 +22631,10 @@ pub mod bench {
 
 		let tx_broadcaster = test_utils::TestBroadcaster::new(network);
 		let fee_estimator = test_utils::TestFeeEstimator::new(253);
-		let logger_a = test_utils::TestLogger::with_id("node a".to_owned());
+		let logger_a = Arc::new(test_utils::TestLogger::with_id("node a".to_owned()));
 		let scorer = RwLock::new(test_utils::TestScorer::new());
 		let entropy = test_utils::TestKeysInterface::new(&[0u8; 32], network);
-		let router = test_utils::TestRouter::new(Arc::new(NetworkGraph::new(network, &logger_a)), &logger_a, &scorer);
+		let router = test_utils::TestRouter::new(Arc::new(NetworkGraph::new(network, logger_a.as_ref())), logger_a.as_ref(), &scorer);
 		let message_router = test_utils::TestMessageRouter::new_default(Arc::new(NetworkGraph::new(network, &logger_a)), &entropy);
 
 		let mut config: UserConfig = Default::default();
@@ -22635,19 +22642,19 @@ pub mod bench {
 		config.channel_handshake_config.minimum_depth = 1;
 
 		let seed_a = [1u8; 32];
-		let keys_manager_a = KeysManager::new(&seed_a, 42, 42, true);
-		let chain_monitor_a = ChainMonitor::new(None, &tx_broadcaster, &logger_a, &fee_estimator, &persister_a, &keys_manager_a, keys_manager_a.get_peer_storage_key(), false);
-		let node_a = ChannelManager::new(&fee_estimator, &chain_monitor_a, &tx_broadcaster, &router, &message_router, &logger_a, &keys_manager_a, &keys_manager_a, &keys_manager_a, config.clone(), ChainParameters {
+		let keys_manager_a = KeysManager::new(&seed_a, 42, 42, true, Arc::clone(&logger_a));
+		let chain_monitor_a = ChainMonitor::new(None, &tx_broadcaster, logger_a.as_ref(), &fee_estimator, &persister_a, &keys_manager_a, keys_manager_a.get_peer_storage_key(), false);
+		let node_a = ChannelManager::new(&fee_estimator, &chain_monitor_a, &tx_broadcaster, &router, &message_router, logger_a.as_ref(), &keys_manager_a, &keys_manager_a, &keys_manager_a, config.clone(), ChainParameters {
 			network,
 			best_block: BlockLocator::from_network(network),
 		}, genesis_block.header.time);
 		let node_a_holder = ANodeHolder { node: &node_a };
 
-		let logger_b = test_utils::TestLogger::with_id("node a".to_owned());
+		let logger_b = Arc::new(test_utils::TestLogger::with_id("node a".to_owned()));
 		let seed_b = [2u8; 32];
-		let keys_manager_b = KeysManager::new(&seed_b, 42, 42, true);
-		let chain_monitor_b = ChainMonitor::new(None, &tx_broadcaster, &logger_a, &fee_estimator, &persister_b, &keys_manager_b, keys_manager_b.get_peer_storage_key(), false);
-		let node_b = ChannelManager::new(&fee_estimator, &chain_monitor_b, &tx_broadcaster, &router, &message_router, &logger_b, &keys_manager_b, &keys_manager_b, &keys_manager_b, config.clone(), ChainParameters {
+		let keys_manager_b = KeysManager::new(&seed_b, 42, 42, true, Arc::clone(&logger_b));
+		let chain_monitor_b = ChainMonitor::new(None, &tx_broadcaster, logger_a.as_ref(), &fee_estimator, &persister_b, &keys_manager_b, keys_manager_b.get_peer_storage_key(), false);
+		let node_b = ChannelManager::new(&fee_estimator, &chain_monitor_b, &tx_broadcaster, &router, &message_router, logger_b.as_ref(), &keys_manager_b, &keys_manager_b, &keys_manager_b, config.clone(), ChainParameters {
 			network,
 			best_block: BlockLocator::from_network(network),
 		}, genesis_block.header.time);

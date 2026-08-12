@@ -82,7 +82,7 @@ use lightning::util::logger::Logger;
 use lightning::util::native_async::{MaybeSend, MaybeSync};
 use lightning::util::ser::{LengthReadable, ReadableArgs, Writeable, Writer};
 use lightning::util::test_channel_signer::{EnforcementState, SignerOp, TestChannelSigner};
-use lightning::util::test_utils::TestWalletSource;
+use lightning::util::test_utils::{TestLogger, TestWalletSource};
 use lightning::util::wallet_utils::{WalletSourceSync, WalletSync};
 
 use lightning::events::bump_transaction::sync::BumpTransactionEventHandlerSync;
@@ -860,6 +860,7 @@ impl SignerProvider for KeyProvider {
 			[id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, self.node_secret[31]],
 			channel_keys_id,
 			channel_keys_id,
+			Arc::new(TestLogger::new()),
 		);
 		let revoked_commitment = self.make_enforcement_state_cell(keys.commitment_seed);
 		let keys = DynSigner::new(keys);
