@@ -798,9 +798,10 @@ pub trait ChannelSigner {
 	/// closed. If you wish to make this operation asynchronous, you should instead return `Ok(())`
 	/// and pause future signing operations until this validation completes.
 	fn validate_holder_commitment(
-		&self, holder_tx: &HolderCommitmentTransaction,
-		outbound_htlc_preimages: Vec<PaymentPreimage>,
-	) -> Result<(), ()>;
+		&self, channel_parameters: &ChannelTransactionParameters,
+		holder_tx: &HolderCommitmentTransaction, outbound_htlc_preimages: Vec<PaymentPreimage>,
+		secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<(), String>;
 
 	/// Validate the counterparty's revocation.
 	///
@@ -1586,9 +1587,10 @@ where
 	}
 
 	fn validate_holder_commitment(
-		&self, _holder_tx: &HolderCommitmentTransaction,
-		_outbound_htlc_preimages: Vec<PaymentPreimage>,
-	) -> Result<(), ()> {
+		&self, _channel_parameters: &ChannelTransactionParameters,
+		_holder_tx: &HolderCommitmentTransaction, _outbound_htlc_preimages: Vec<PaymentPreimage>,
+		_secp_ctx: &Secp256k1<secp256k1::All>,
+	) -> Result<(), String> {
 		Ok(())
 	}
 

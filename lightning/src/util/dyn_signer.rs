@@ -103,9 +103,11 @@ delegate!(DynSigner, ChannelSigner,
 	) -> Result<PublicKey, ()>,
 	fn release_commitment_secret(, idx: u64) -> Result<[u8; 32], ()>,
 	fn validate_holder_commitment(,
+		channel_parameters: &ChannelTransactionParameters,
 		holder_tx: &HolderCommitmentTransaction,
-		preimages: Vec<PaymentPreimage>
-	) -> Result<(), ()>,
+		preimages: Vec<PaymentPreimage>,
+		secp_ctx: &Secp256k1<secp256k1::All>
+	) -> Result<(), String>,
 	fn pubkeys(,
 		secp_ctx: &Secp256k1<secp256k1::All>
 	) -> ChannelPublicKeys,
